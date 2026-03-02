@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3:*)",
+      "Bash(pip3 install:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs:*)",
+      "Bash(curl:*)",
+      "WebFetch(domain:serpapi.com)"
+    ]
+  }
+}

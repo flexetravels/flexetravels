@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FlexeTravels — AI-Powered Travel Agency | Custom Tours & Best Rates</title>
+  <meta name="description"
+    content="FlexeTravels uses AI agents to customize and book tours, delivering the best rates and unforgettable travel experiences worldwide.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✈️</text></svg>">
+</head>
+
+<body>
+
+  <!-- ========== Announcement Bar ========== -->
+  <div class="announcement-bar" id="announcement-bar">
+    <span class="announcement-bar__sparkle">✨</span>
+    AI-Curated Deals — Save up to 30% on handpicked tours
+    <a href="#tours">Explore AI Picks →</a>
+  </div>
+
+  <!-- ========== Navigation ========== -->
+  <nav class="nav" id="nav">
+    <div class="nav__inner">
+      <a href="#" class="nav__logo">
+        <div class="nav__logo-icon">✈</div>
+        Flexe<span>Travels</span>
+      </a>
+
+      <div class="nav__links">
+        <a href="#destinations" class="nav__link">Destinations</a>
+        <a href="#styles" class="nav__link">Travel Styles</a>
+        <a href="#tours" class="nav__link">Tours</a>
+        <a href="#features" class="nav__link">Why Us</a>
+        <a href="#ai-section" class="nav__link">AI Agent</a>
+      </div>
+
+      <div class="nav__actions">
+        <button class="nav__search-btn" aria-label="Search">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+        </button>
+        <a href="#" class="btn btn--primary btn--sm">Sign Up</a>
+        <button class="nav__hamburger" id="hamburger" aria-label="Menu">
+          <span></span><span></span><span></span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Mobile Drawer -->
+    <div class="nav__mobile-drawer" id="mobile-drawer">
+      <a href="#destinations" class="nav__link">Destinations</a>
+      <a href="#styles" class="nav__link">Travel Styles</a>
+      <a href="#tours" class="nav__link">Tours</a>
+      <a href="#features" class="nav__link">Why Us</a>
+      <a href="#ai-section" class="nav__link">AI Agent</a>
+      <div style="margin-top: 1.5rem;">
+        <a href="#" class="btn btn--primary" style="width:100%;">Sign Up Free</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ========== Hero ========== -->
+  <section class="hero" id="hero">
+    <div class="hero__slides">
+      <div class="hero__slide active" data-index="0">
+        <img class="hero__slide-img"
+          src="https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?w=1600&h=900&fit=crop"
+          alt="Santorini, Greece">
+        <div class="hero__overlay"></div>
+      </div>
+      <div class="hero__slide" data-index="1">
+        <img class="hero__slide-img"
+          src="https://images.unsplash.com/photo-1526392060635-9d6019884377?w=1600&h=900&fit=crop"
+          alt="Machu Picchu, Peru">
+        <div class="hero__overlay"></div>
+      </div>
+      <div class="hero__slide" data-index="2">
+        <img class="hero__slide-img"
+          src="https://images.unsplash.com/photo-1504893524553-b855bce32c67?w=1600&h=900&fit=crop"
+          alt="Iceland Landscape">
+        <div class="hero__overlay"></div>
+      </div>
+      <div class="hero__slide" data-index="3">
+        <img class="hero__slide-img"
+          src="https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?w=1600&h=900&fit=crop" alt="Kyoto, Japan">
+        <div class="hero__overlay"></div>
+      </div>
+    </div>
+
+    <div class="hero__content">
+      <p class="hero__tagline">AI-Powered Travel</p>
+      <h1 class="hero__title">Your Dream Trip, <br>Crafted by AI</h1>
+      <p class="hero__description">Our AI agents find the best rates, build personalized itineraries, and ensure every
+        moment of your journey is unforgettable.</p>
+
+      <div class="hero__search">
+        <div class="hero__search-field">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+            <circle cx="12" cy="10" r="3" />
+          </svg>
+          <input type="text" placeholder="Where do you want to go?" id="search-destination">
+        </div>
+        <div class="hero__search-field">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+            <line x1="16" y1="2" x2="16" y2="6" />
+            <line x1="8" y1="2" x2="8" y2="6" />
+            <line x1="3" y1="10" x2="21" y2="10" />
+          </svg>
+          <input type="text" placeholder="Travel dates" id="search-dates">
+        </div>
+        <button class="btn btn--accent btn--lg" id="hero-search-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          Search
+        </button>
+      </div>
+    </div>
+
+    <div class="hero__pagination" id="hero-pagination">
+      <div class="hero__dot active" data-slide="0"></div>
+      <div class="hero__dot" data-slide="1"></div>
+      <div class="hero__dot" data-slide="2"></div>
+      <div class="hero__dot" data-slide="3"></div>
+    </div>
+  </section>
+
+  <!-- ========== Featured Tours ========== -->
+  <section class="tours section-padding" id="tours">
+    <div class="container">
+      <div class="tours__header fade-in">
+        <div>
+          <p class="section-label"><span id="tours-location-label">Trending Near You</span></p>
+          <h2 class="section-title">Featured Tours</h2>
+          <p class="section-subtitle">Personalised by our AI agents based on where visitors like you are headed right now.</p>
+        </div>
+        <div class="tours__tabs">
+          <button class="tours__tab active" data-tab="popular">Popular</button>
+          <button class="tours__tab" data-tab="new">New</button>
+          <button class="tours__tab" data-tab="ai-picks">AI Picks ✨</button>
+        </div>
+      </div>
+
+      <div class="tours__carousel-wrapper fade-in">
+        <button class="tours__arrow tours__arrow--left" id="tours-prev" aria-label="Previous">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+        </button>
+        <div class="tours__carousel" id="tours-carousel">
+
+          <!-- Dynamic tour cards loaded by app.js fetchFeaturedTours() -->
+          <!-- Skeleton placeholders shown while loading -->
+          <div class="tour-card tour-card--skeleton" aria-hidden="true">
+            <div class="tour-card__image sk-img"></div>
+            <div class="tour-card__body">
+              <div class="sk-line sk-line--short"></div>
+              <div class="sk-line sk-line--long"></div>
+              <div class="sk-line sk-line--medium"></div>
+              <div class="sk-line sk-line--footer"></div>
+            </div>
+          </div>
+          <div class="tour-card tour-card--skeleton" aria-hidden="true">
+            <div class="tour-card__image sk-img"></div>
+            <div class="tour-card__body">
+              <div class="sk-line sk-line--short"></div>
+              <div class="sk-line sk-line--long"></div>
+              <div class="sk-line sk-line--medium"></div>
+              <div class="sk-line sk-line--footer"></div>
+            </div>
+          </div>
+          <div class="tour-card tour-card--skeleton" aria-hidden="true">
+            <div class="tour-card__image sk-img"></div>
+            <div class="tour-card__body">
+              <div class="sk-line sk-line--short"></div>
+              <div class="sk-line sk-line--long"></div>
+              <div class="sk-line sk-line--medium"></div>
+              <div class="sk-line sk-line--footer"></div>
+            </div>
+          </div>
+          <div class="tour-card tour-card--skeleton" aria-hidden="true">
+            <div class="tour-card__image sk-img"></div>
+            <div class="tour-card__body">
+              <div class="sk-line sk-line--short"></div>
+              <div class="sk-line sk-line--long"></div>
+              <div class="sk-line sk-line--medium"></div>
+              <div class="sk-line sk-line--footer"></div>
+            </div>
+          </div>
+          <div class="tour-card tour-card--skeleton" aria-hidden="true">
+            <div class="tour-card__image sk-img"></div>
+            <div class="tour-card__body">
+              <div class="sk-line sk-line--short"></div>
+              <div class="sk-line sk-line--long"></div>
+              <div class="sk-line sk-line--medium"></div>
+              <div class="sk-line sk-line--footer"></div>
+            </div>
+          </div>
+          <div class="tour-card tour-card--skeleton" aria-hidden="true">
+            <div class="tour-card__image sk-img"></div>
+            <div class="tour-card__body">
+              <div class="sk-line sk-line--short"></div>
+              <div class="sk-line sk-line--long"></div>
+              <div class="sk-line sk-line--medium"></div>
+              <div class="sk-line sk-line--footer"></div>
+            </div>
+          </div>
+
+        </div>
+        <button class="tours__arrow tours__arrow--right" id="tours-next" aria-label="Next">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== AI Travel Agent Section ========== -->
+  <section class="ai-section section-padding" id="ai-section">
+    <div class="container">
+      <div class="ai-section__inner">
+        <div class="fade-in">
+          <p class="section-label ai-section__label">Meet Your AI Travel Agent</p>
+          <h2 class="ai-section__title">Plan Smarter.<br>Travel Better.</h2>
+          <p class="ai-section__text">Our AI agents analyze thousands of options in seconds — finding you the best
+            flights, accommodations, and experiences at unbeatable prices. Just tell us your dream trip.</p>
+
+          <div class="ai-section__features">
+            <div class="ai-section__feature">
+              <span class="ai-section__feature-icon">🎯</span>
+              <span>Personalized itineraries tailored to your interests</span>
+            </div>
+            <div class="ai-section__feature">
+              <span class="ai-section__feature-icon">💰</span>
+              <span>Best rate guarantee — we compare 100+ providers</span>
+            </div>
+            <div class="ai-section__feature">
+              <span class="ai-section__feature-icon">⚡</span>
+              <span>Instant trip planning in under 60 seconds</span>
+            </div>
+            <div class="ai-section__feature">
+              <span class="ai-section__feature-icon">🌍</span>
+              <span>Local insider tips and hidden gem recommendations</span>
+            </div>
+          </div>
+
+          <button class="btn btn--primary btn--lg" id="open-chat-from-section">
+            <span>💬</span> Chat with AI Agent
+          </button>
+        </div>
+
+        <div class="ai-section__preview fade-in fade-in-delay-2">
+          <div class="ai-chat-preview__header">
+            <div class="ai-chat-preview__avatar">🤖</div>
+            <div>
+              <div class="ai-chat-preview__name">FlexeBot</div>
+              <div class="ai-chat-preview__status">● Online</div>
+            </div>
+          </div>
+          <div class="ai-chat-preview__messages">
+            <div class="ai-chat-preview__msg ai-chat-preview__msg--user">I want a 10-day trip to Japan for 2 people in
+              April 🌸</div>
+            <div class="ai-chat-preview__msg ai-chat-preview__msg--bot">Great choice! Cherry blossom season is magical.
+              I've found a curated itinerary covering Tokyo, Kyoto, and Osaka with incredible experiences…</div>
+            <div class="ai-chat-preview__msg ai-chat-preview__msg--bot">🏯 14 days • $3,850/person<br>Includes: flights,
+              ryokan stays, bullet train pass, temple tours, and a tea ceremony experience.</div>
+            <div class="ai-chat-preview__msg ai-chat-preview__msg--user">That sounds perfect! Can you also add a day
+              trip to Mount Fuji?</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== What Sets Us Apart ========== -->
+  <section class="features section-padding" id="features">
+    <div class="container">
+      <div class="fade-in" style="text-align: center;">
+        <p class="section-label">Why FlexeTravels</p>
+        <h2 class="section-title">What Sets Us Apart</h2>
+        <p class="section-subtitle" style="margin: 0 auto;">We combine cutting-edge AI technology with a passion for
+          travel to deliver experiences that are truly one-of-a-kind.</p>
+      </div>
+
+      <div class="features__grid">
+        <div class="feature-card fade-in fade-in-delay-1">
+          <div class="feature-card__icon">🤖</div>
+          <h3 class="feature-card__title">AI-Powered Planning</h3>
+          <p class="feature-card__text">Our AI agents analyze your preferences, budget, and travel style to create the
+            perfect itinerary in seconds.</p>
+        </div>
+        <div class="feature-card fade-in fade-in-delay-2">
+          <div class="feature-card__icon">💎</div>
+          <h3 class="feature-card__title">Best Rate Guarantee</h3>
+          <p class="feature-card__text">We scan 100+ booking platforms to ensure you always get the lowest price — or
+            we'll match it.</p>
+        </div>
+        <div class="feature-card fade-in fade-in-delay-3">
+          <div class="feature-card__icon">🗺️</div>
+          <h3 class="feature-card__title">Personalized Itineraries</h3>
+          <p class="feature-card__text">Every trip is unique. Our AI crafts bespoke experiences based on your interests,
+            from food to adventure.</p>
+        </div>
+        <div class="feature-card fade-in fade-in-delay-4">
+          <div class="feature-card__icon">💬</div>
+          <h3 class="feature-card__title">24/7 AI Support</h3>
+          <p class="feature-card__text">From planning to post-trip, our AI assistant is always available to answer
+            questions and adjust plans.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== Popular Destinations ========== -->
+  <section class="destinations section-padding" id="destinations">
+    <div class="container">
+      <div class="fade-in">
+        <p class="section-label">Explore The World</p>
+        <h2 class="section-title">Popular Destinations</h2>
+        <p class="section-subtitle">Discover the places our travelers love most — each one AI-optimized for the best
+          experience.</p>
+      </div>
+
+      <div class="destinations__grid">
+        <div class="dest-card dest-card--tall fade-in">
+          <img class="dest-card__img"
+            src="https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?w=600&h=900&fit=crop" alt="Japan">
+          <div class="dest-card__overlay"></div>
+          <div class="dest-card__content">
+            <h3 class="dest-card__name">Japan</h3>
+            <p class="dest-card__trips">42 trips available</p>
+            <span class="dest-card__cta">Explore →</span>
+          </div>
+        </div>
+        <div class="dest-card fade-in fade-in-delay-1">
+          <img class="dest-card__img"
+            src="https://images.unsplash.com/photo-1504893524553-b855bce32c67?w=600&h=450&fit=crop" alt="Iceland">
+          <div class="dest-card__overlay"></div>
+          <div class="dest-card__content">
+            <h3 class="dest-card__name">Iceland</h3>
+            <p class="dest-card__trips">18 trips available</p>
+            <span class="dest-card__cta">Explore →</span>
+          </div>
+        </div>
+        <div class="dest-card fade-in fade-in-delay-2">
+          <img class="dest-card__img"
+            src="https://images.unsplash.com/photo-1526392060635-9d6019884377?w=600&h=450&fit=crop" alt="Peru">
+          <div class="dest-card__overlay"></div>
+          <div class="dest-card__content">
+            <h3 class="dest-card__name">Peru</h3>
+            <p class="dest-card__trips">24 trips available</p>
+            <span class="dest-card__cta">Explore →</span>
+          </div>
+        </div>
+        <div class="dest-card fade-in fade-in-delay-1">
+          <img class="dest-card__img"
+            src="https://images.unsplash.com/photo-1539020140153-e479b8c22e70?w=600&h=450&fit=crop" alt="Morocco">
+          <div class="dest-card__overlay"></div>
+          <div class="dest-card__content">
+            <h3 class="dest-card__name">Morocco</h3>
+            <p class="dest-card__trips">31 trips available</p>
+            <span class="dest-card__cta">Explore →</span>
+          </div>
+        </div>
+        <div class="dest-card fade-in fade-in-delay-2">
+          <img class="dest-card__img"
+            src="https://images.unsplash.com/photo-1539635278303-d4002c07eae3?w=600&h=450&fit=crop" alt="Bali">
+          <div class="dest-card__overlay"></div>
+          <div class="dest-card__content">
+            <h3 class="dest-card__name">Bali</h3>
+            <p class="dest-card__trips">27 trips available</p>
+            <span class="dest-card__cta">Explore →</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== Travel Styles ========== -->
+  <section class="styles section-padding" id="styles">
+    <div class="container">
+      <div class="fade-in" style="text-align: center;">
+        <p class="section-label">Find Your Style</p>
+        <h2 class="section-title">Travel Your Way</h2>
+        <p class="section-subtitle" style="margin: 0 auto;">Whether you crave adventure, culture, or relaxation, our AI
+          matches you with the perfect travel style.</p>
+      </div>
+
+      <div class="styles__grid">
+        <div class="style-card fade-in">
+          <img class="style-card__img"
+            src="https://images.unsplash.com/photo-1551632811-561732d1e306?w=600&h=400&fit=crop" alt="Adventure">
+          <div class="style-card__overlay"></div>
+          <div class="style-card__content">
+            <h3 class="style-card__name">Adventure</h3>
+            <p class="style-card__count">86 trips</p>
+          </div>
+        </div>
+        <div class="style-card fade-in fade-in-delay-1">
+          <img class="style-card__img"
+            src="https://images.unsplash.com/photo-1533669955142-6a73332af4db?w=600&h=400&fit=crop" alt="Cultural">
+          <div class="style-card__overlay"></div>
+          <div class="style-card__content">
+            <h3 class="style-card__name">Cultural</h3>
+            <p class="style-card__count">94 trips</p>
+          </div>
+        </div>
+        <div class="style-card fade-in fade-in-delay-2">
+          <img class="style-card__img"
+            src="https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=600&h=400&fit=crop" alt="Luxury">
+          <div class="style-card__overlay"></div>
+          <div class="style-card__content">
+            <h3 class="style-card__name">Luxury</h3>
+            <p class="style-card__count">52 trips</p>
+          </div>
+        </div>
+        <div class="style-card fade-in">
+          <img class="style-card__img"
+            src="https://images.unsplash.com/photo-1511895426328-dc8714191300?w=600&h=400&fit=crop" alt="Family">
+          <div class="style-card__overlay"></div>
+          <div class="style-card__content">
+            <h3 class="style-card__name">Family</h3>
+            <p class="style-card__count">63 trips</p>
+          </div>
+        </div>
+        <div class="style-card fade-in fade-in-delay-1">
+          <img class="style-card__img"
+            src="https://images.unsplash.com/photo-1501555088652-021faa106b9b?w=600&h=400&fit=crop" alt="Solo">
+          <div class="style-card__overlay"></div>
+          <div class="style-card__content">
+            <h3 class="style-card__name">Solo</h3>
+            <p class="style-card__count">71 trips</p>
+          </div>
+        </div>
+        <div class="style-card fade-in fade-in-delay-2">
+          <img class="style-card__img"
+            src="https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=600&h=400&fit=crop" alt="Wellness">
+          <div class="style-card__overlay"></div>
+          <div class="style-card__content">
+            <h3 class="style-card__name">Wellness</h3>
+            <p class="style-card__count">38 trips</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== Testimonials ========== -->
+  <section class="testimonials section-padding" id="testimonials">
+    <div class="container">
+      <div class="fade-in" style="text-align: center;">
+        <p class="section-label" style="color: rgba(255,255,255,0.7);">Traveler Stories</p>
+        <h2 class="section-title" style="color: #fff;">What Our Travelers Say</h2>
+      </div>
+
+      <div class="testimonials__slider">
+        <div class="testimonial active" data-index="0">
+          <p class="testimonial__quote">"FlexeTravels' AI agent built us the most incredible Japan itinerary. Hidden
+            temples, amazing food spots, and we saved over $800 compared to other agencies. Absolutely mind-blowing
+            service!"</p>
+          <div class="testimonial__author">
+            <div class="testimonial__avatar">
+              <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=112&h=112&fit=crop&crop=face"
+                alt="Sarah M.">
+            </div>
+            <span class="testimonial__name">Sarah M.</span>
+            <span class="testimonial__trip">Discover Japan — 14 days</span>
+          </div>
+        </div>
+        <div class="testimonial" data-index="1">
+          <p class="testimonial__quote">"I was skeptical about AI planning my trip, but the personalized touches blew me
+            away. The AI even suggested a sunset camel ride in the Sahara that became the highlight of our entire trip."
+          </p>
+          <div class="testimonial__author">
+            <div class="testimonial__avatar">
+              <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=112&h=112&fit=crop&crop=face"
+                alt="James K.">
+            </div>
+            <span class="testimonial__name">James K.</span>
+            <span class="testimonial__trip">Moroccan Wonders — 12 days</span>
+          </div>
+        </div>
+        <div class="testimonial" data-index="2">
+          <p class="testimonial__quote">"Best travel platform I've ever used. The chat agent helped us plan a family
+            trip to Bali in under 10 minutes. Great rates, smooth booking, and the itinerary was perfect for kids AND
+            adults."</p>
+          <div class="testimonial__author">
+            <div class="testimonial__avatar">
+              <img src="https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=112&h=112&fit=crop&crop=face"
+                alt="Emily R.">
+            </div>
+            <span class="testimonial__name">Emily R.</span>
+            <span class="testimonial__trip">Bali & Beyond — 8 days</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="testimonials__dots" id="testimonials-dots">
+        <div class="testimonials__dot active" data-slide="0"></div>
+        <div class="testimonials__dot" data-slide="1"></div>
+        <div class="testimonials__dot" data-slide="2"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== Newsletter ========== -->
+  <section class="newsletter section-padding" id="newsletter">
+    <div class="container">
+      <div class="fade-in" style="text-align: center;">
+        <p class="section-label">Stay In The Loop</p>
+        <h2 class="section-title">Get AI-Curated Travel Deals</h2>
+        <p class="section-subtitle" style="margin: 0 auto;">Subscribe and let our AI find exclusive deals, secret
+          destinations, and travel tips personalized just for you.</p>
+
+        <form class="newsletter__form" id="newsletter-form">
+          <input type="email" class="newsletter__input" placeholder="Enter your email address" required>
+          <button type="submit" class="btn btn--primary">Subscribe</button>
+        </form>
+
+        <div class="newsletter__social">
+          <a href="#" aria-label="Instagram">📷</a>
+          <a href="#" aria-label="TikTok">🎵</a>
+          <a href="#" aria-label="YouTube">▶️</a>
+          <a href="#" aria-label="X / Twitter">✕</a>
+          <a href="#" aria-label="LinkedIn">💼</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== Footer ========== -->
+  <footer class="footer" id="footer">
+    <div class="container">
+      <div class="footer__grid">
+        <div class="footer__brand">
+          <div class="footer__logo">
+            <div class="footer__logo-icon">✈</div>
+            Flexe<span style="color: var(--color-primary);">Travels</span>
+          </div>
+          <p class="footer__brand-text">AI-powered travel agency delivering personalized tours with the best rates. Your
+            dream trip is one conversation away.</p>
+        </div>
+
+        <div>
+          <h4 class="footer__col-title">Company</h4>
+          <ul class="footer__links">
+            <li><a href="#">About Us</a></li>
+            <li><a href="#">Our AI Technology</a></li>
+            <li><a href="#">Careers</a></li>
+            <li><a href="#">Press</a></li>
+            <li><a href="#">Blog</a></li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 class="footer__col-title">Support</h4>
+          <ul class="footer__links">
+            <li><a href="#">Help Center</a></li>
+            <li><a href="#">Contact Us</a></li>
+            <li><a href="#">Booking FAQ</a></li>
+            <li><a href="#">Cancellation Policy</a></li>
+            <li><a href="#">Travel Insurance</a></li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 class="footer__col-title">Top Destinations</h4>
+          <ul class="footer__links">
+            <li><a href="#">Japan Tours</a></li>
+            <li><a href="#">Italy Tours</a></li>
+            <li><a href="#">Peru Tours</a></li>
+            <li><a href="#">Bali Tours</a></li>
+            <li><a href="#">Iceland Tours</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer__bottom">
+        <span>© 2026 FlexeTravels. All rights reserved.</span>
+        <div class="footer__bottom-links">
+          <a href="#">Privacy Policy</a>
+          <a href="#">Terms of Service</a>
+          <a href="#">Cookie Policy</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ========== AI Chat Widget ========== -->
+  <div class="chat-widget" id="chat-widget">
+    <div class="chat-panel" id="chat-panel">
+      <div class="chat-panel__header">
+        <div class="chat-panel__header-info">
+          <div class="chat-panel__avatar">🤖</div>
+          <div>
+            <div class="chat-panel__title">FlexeBot</div>
+            <div class="chat-panel__subtitle">Your AI Travel Agent</div>
+          </div>
+        </div>
+        <button class="chat-panel__close" id="chat-close" aria-label="Close chat">✕</button>
+      </div>
+
+      <div class="chat-panel__messages" id="chat-messages">
+        <div class="chat-msg chat-msg--bot">
+          Hey there! 👋 I'm FlexeBot, your personal AI travel agent. Where would you like to go? I'll find you the best
+          deals and build a custom itinerary!
+        </div>
+      </div>
+
+      <div class="chat-panel__quick-replies" id="quick-replies">
+        <button class="chat-panel__quick-reply">🏖️ Beach vacation</button>
+        <button class="chat-panel__quick-reply">🏔️ Adventure trip</button>
+        <button class="chat-panel__quick-reply">🏛️ Cultural tour</button>
+        <button class="chat-panel__quick-reply">💰 Best deals</button>
+        <button class="chat-panel__quick-reply" id="quick-custom">🎨 Custom trip</button>
+        <button class="chat-panel__quick-reply chat-panel__quick-reply--planner" id="quick-planner">🤖 Full AI
+          Planner</button>
+      </div>
+
+      <div class="chat-panel__input">
+        <input type="text" placeholder="Type your message…" id="chat-input">
+        <button class="chat-panel__send" id="chat-send" aria-label="Send">➤</button>
+      </div>
+    </div>
+
+    <button class="chat-widget__trigger" id="chat-trigger" aria-label="Open AI Chat">
+      <span class="pulse-ring"></span>
+      💬
+    </button>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+
+</html>

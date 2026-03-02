@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FlexeTravels — Amadeus Search Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✈️</text></svg>">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Montserrat', sans-serif;
+      background: #0a0f1c;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      padding: 1.25rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .header__brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .header__logo { font-size: 1.5rem; }
+    .header__title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #f8fafc;
+    }
+    .header__subtitle {
+      font-size: 0.75rem;
+      color: #94a3b8;
+      font-weight: 400;
+    }
+    .header__back {
+      color: #60a5fa;
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+    .header__back:hover { color: #93bbfc; }
+
+    /* ── Status Bar ── */
+    .status-bar {
+      padding: 0.75rem 2rem;
+      background: #111827;
+      display: flex;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+      align-items: center;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.3rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .status-chip--live {
+      background: rgba(34,197,94,0.15);
+      color: #4ade80;
+      border: 1px solid rgba(34,197,94,0.3);
+    }
+    .status-chip--mock {
+      background: rgba(250,204,21,0.15);
+      color: #fbbf24;
+      border: 1px solid rgba(250,204,21,0.3);
+    }
+    .status-chip--off {
+      background: rgba(239,68,68,0.15);
+      color: #f87171;
+      border: 1px solid rgba(239,68,68,0.3);
+    }
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .status-dot--live { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+    .status-dot--mock { background: #fbbf24; }
+    .status-dot--off { background: #f87171; }
+
+    /* ── Layout ── */
+    .main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .tab {
+      padding: 0.6rem 1.25rem;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: transparent;
+      color: #94a3b8;
+      font-family: inherit;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .tab:hover { border-color: rgba(96,165,250,0.4); color: #cbd5e1; }
+    .tab.active {
+      background: rgba(96,165,250,0.15);
+      border-color: #60a5fa;
+      color: #60a5fa;
+    }
+
+    /* ── Search Panel ── */
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    .search-form {
+      background: #111827;
+      border-radius: 12px;
+      padding: 1.5rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      align-items: flex-end;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .field label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #64748b;
+      font-weight: 600;
+    }
+    .field input, .field select {
+      background: #1e293b;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      padding: 0.55rem 0.75rem;
+      color: #e2e8f0;
+      font-family: inherit;
+      font-size: 0.85rem;
+      width: 150px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .field input:focus, .field select:focus {
+      border-color: #60a5fa;
+    }
+    .field input::placeholder { color: #475569; }
+
+    .btn {
+      padding: 0.6rem 1.5rem;
+      border-radius: 8px;
+      border: none;
+      font-family: inherit;
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .btn--primary {
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      color: white;
+      box-shadow: 0 2px 8px rgba(59,130,246,0.3);
+    }
+    .btn--primary:hover { box-shadow: 0 4px 16px rgba(59,130,246,0.4); transform: translateY(-1px); }
+    .btn--primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .btn--secondary {
+      background: rgba(255,255,255,0.06);
+      color: #94a3b8;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .btn--secondary:hover { color: #e2e8f0; border-color: rgba(255,255,255,0.2); }
+
+    /* ── Results ── */
+    .results {
+      margin-top: 1.5rem;
+    }
+    .results__header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+    .results__title {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #f1f5f9;
+    }
+    .results__source {
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+    }
+    .results__source--live {
+      background: rgba(34,197,94,0.15);
+      color: #4ade80;
+    }
+    .results__source--mock {
+      background: rgba(250,204,21,0.15);
+      color: #fbbf24;
+    }
+    .results__source--google {
+      background: rgba(96,165,250,0.15);
+      color: #60a5fa;
+    }
+    .card__source {
+      display: inline-block;
+      padding: 0.1rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.6rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      margin-left: 0.4rem;
+      vertical-align: middle;
+    }
+    .card__source--amadeus {
+      background: rgba(34,197,94,0.12);
+      color: #4ade80;
+    }
+    .card__source--google_flights,
+    .card__source--google_hotels {
+      background: rgba(96,165,250,0.12);
+      color: #60a5fa;
+    }
+
+    /* ── Cards ── */
+    .card-grid {
+      display: grid;
+      gap: 1rem;
+    }
+    .card {
+      background: #111827;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      padding: 1.25rem;
+      transition: border-color 0.2s;
+    }
+    .card:hover { border-color: rgba(96,165,250,0.3); }
+    .card__row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+    .card__airline {
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: #f1f5f9;
+    }
+    .card__price {
+      font-weight: 800;
+      font-size: 1.1rem;
+      color: #60a5fa;
+    }
+    .card__details {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin-top: 0.75rem;
+    }
+    .card__detail {
+      font-size: 0.8rem;
+      color: #94a3b8;
+    }
+    .card__detail strong {
+      color: #cbd5e1;
+    }
+    .card__tag {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      margin-top: 0.5rem;
+    }
+    .card__tag--direct {
+      background: rgba(34,197,94,0.15);
+      color: #4ade80;
+    }
+    .card__tag--stops {
+      background: rgba(250,204,21,0.15);
+      color: #fbbf24;
+    }
+    .card__tag--id {
+      background: rgba(255,255,255,0.06);
+      color: #64748b;
+    }
+
+    /* Hotel cards */
+    .card__rating { color: #fbbf24; font-weight: 700; }
+    .card__amenities {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin-top: 0.5rem;
+    }
+    .card__amenity {
+      background: rgba(255,255,255,0.06);
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      color: #94a3b8;
+    }
+
+    /* ── Cost Summary ── */
+    .cost-summary {
+      background: linear-gradient(135deg, #1e293b, #0f172a);
+      border: 1px solid rgba(96,165,250,0.2);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-top: 1.5rem;
+    }
+    .cost-summary__title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #f1f5f9;
+      margin-bottom: 1rem;
+    }
+    .cost-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.4rem 0;
+      font-size: 0.85rem;
+      color: #94a3b8;
+    }
+    .cost-row strong { color: #e2e8f0; }
+    .cost-row--total {
+      border-top: 1px solid rgba(255,255,255,0.1);
+      margin-top: 0.5rem;
+      padding-top: 0.75rem;
+      color: #60a5fa;
+      font-weight: 700;
+      font-size: 1rem;
+    }
+
+    /* ── Loading ── */
+    .loading {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 2rem;
+      justify-content: center;
+      color: #64748b;
+      font-size: 0.85rem;
+    }
+    .spinner {
+      width: 20px; height: 20px;
+      border: 2px solid rgba(96,165,250,0.2);
+      border-top-color: #60a5fa;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Empty / Error ── */
+    .empty-state {
+      text-align: center;
+      padding: 3rem;
+      color: #475569;
+    }
+    .empty-state__icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+    .error-msg {
+      background: rgba(239,68,68,0.1);
+      border: 1px solid rgba(239,68,68,0.2);
+      border-radius: 8px;
+      padding: 1rem;
+      color: #f87171;
+      font-size: 0.85rem;
+    }
+
+    /* ── JSON Toggle ── */
+    .json-toggle {
+      margin-top: 1rem;
+    }
+    .json-content {
+      display: none;
+      background: #0d1117;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-top: 0.5rem;
+      overflow-x: auto;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.75rem;
+      color: #7ee787;
+      line-height: 1.6;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .json-content.open { display: block; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .main { padding: 1rem; }
+      .search-form { flex-direction: column; }
+      .field input { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header__brand">
+      <span class="header__logo">✈️</span>
+      <div>
+        <div class="header__title">FlexeTravels Admin Console</div>
+        <div class="header__subtitle">Amadeus API Search & Verification</div>
+      </div>
+    </div>
+    <a href="index.html" class="header__back">← Back to Website</a>
+  </header>
+
+  <!-- Status Bar -->
+  <div class="status-bar" id="status-bar">
+    <span style="color:#64748b; font-size:0.75rem;">Loading status...</span>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab active" data-panel="flights">Flights</button>
+      <button class="tab" data-panel="hotels">Hotels</button>
+      <button class="tab" data-panel="itinerary">Full Itinerary</button>
+    </div>
+
+    <!-- ── Flights Panel ── -->
+    <div class="panel active" id="panel-flights">
+      <form class="search-form" id="form-flights">
+        <div class="field">
+          <label>Origin</label>
+          <input type="text" id="fl-origin" placeholder="JFK" maxlength="3" required>
+        </div>
+        <div class="field">
+          <label>Destination</label>
+          <input type="text" id="fl-dest" placeholder="NRT" maxlength="3" required>
+        </div>
+        <div class="field">
+          <label>Departure</label>
+          <input type="date" id="fl-depart" required>
+        </div>
+        <div class="field">
+          <label>Return</label>
+          <input type="date" id="fl-return">
+        </div>
+        <div class="field">
+          <label>Adults</label>
+          <input type="number" id="fl-adults" value="1" min="1" max="9" style="width:70px;">
+        </div>
+        <button type="submit" class="btn btn--primary" id="btn-flights">Search Flights</button>
+        <button type="button" class="btn btn--secondary" id="btn-clear-cache">Clear Cache</button>
+      </form>
+      <div id="results-flights" class="results"></div>
+    </div>
+
+    <!-- ── Hotels Panel ── -->
+    <div class="panel" id="panel-hotels">
+      <form class="search-form" id="form-hotels">
+        <div class="field">
+          <label>City Code</label>
+          <input type="text" id="ht-city" placeholder="LAS" maxlength="3" required>
+        </div>
+        <div class="field">
+          <label>Check-in</label>
+          <input type="date" id="ht-checkin" required>
+        </div>
+        <div class="field">
+          <label>Check-out</label>
+          <input type="date" id="ht-checkout" required>
+        </div>
+        <div class="field">
+          <label>Adults</label>
+          <input type="number" id="ht-adults" value="1" min="1" max="9">
+        </div>
+        <div class="field">
+          <label>Rooms</label>
+          <input type="number" id="ht-rooms" value="1" min="1" max="5">
+        </div>
+        <button type="submit" class="btn btn--primary" id="btn-hotels">Search Hotels</button>
+      </form>
+      <div id="results-hotels" class="results"></div>
+    </div>
+
+    <!-- ── Itinerary Panel ── -->
+    <div class="panel" id="panel-itinerary">
+      <form class="search-form" id="form-itinerary">
+        <div class="field">
+          <label>Origin</label>
+          <input type="text" id="it-origin" placeholder="JFK" maxlength="3" required>
+        </div>
+        <div class="field">
+          <label>Destination</label>
+          <input type="text" id="it-dest" placeholder="NRT" maxlength="3" required>
+        </div>
+        <div class="field">
+          <label>Departure</label>
+          <input type="date" id="it-depart" required>
+        </div>
+        <div class="field">
+          <label>Return</label>
+          <input type="date" id="it-return">
+        </div>
+        <div class="field">
+          <label>Adults</label>
+          <input type="number" id="it-adults" value="1" min="1" max="9" style="width:70px;">
+        </div>
+        <button type="submit" class="btn btn--primary" id="btn-itinerary">Build Itinerary</button>
+      </form>
+      <div id="results-itinerary" class="results"></div>
+    </div>
+
+  </div>
+
+<script>
+const API = 'http://localhost:8000';
+
+// ── Tabs ──
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.panel).classList.add('active');
+  });
+});
+
+// ── Set default dates ──
+const today = new Date();
+const future = new Date(today); future.setDate(today.getDate() + 30);
+const fmt = d => d.toISOString().split('T')[0];
+['fl-depart','it-depart'].forEach(id => document.getElementById(id).value = fmt(future));
+const ret = new Date(future); ret.setDate(ret.getDate() + 7);
+['fl-return','it-return'].forEach(id => document.getElementById(id).value = fmt(ret));
+
+// ── Status Check ──
+async function checkStatus() {
+  const bar = document.getElementById('status-bar');
+  try {
+    const [health, amadeus] = await Promise.all([
+      fetch(API + '/api/health').then(r => r.json()),
+      fetch(API + '/api/amadeus/status').then(r => r.json()),
+    ]);
+
+    const chips = [];
+    // Claude
+    const claudeOk = health.services?.claude_ai;
+    chips.push(`<span class="status-chip status-chip--${claudeOk ? 'live' : 'off'}">
+      <span class="status-dot status-dot--${claudeOk ? 'live' : 'off'}"></span>Claude AI: ${claudeOk ? 'Connected' : 'Off'}</span>`);
+
+    // Amadeus
+    const amaLive = amadeus.connection === 'live';
+    const amaConfigured = amadeus.configured;
+    const amaClass = amaLive ? 'live' : (amaConfigured ? 'mock' : 'off');
+    const amaText = amaLive ? 'Live API' : (amaConfigured ? 'Configured (testing...)' : 'Not Configured');
+    chips.push(`<span class="status-chip status-chip--${amaClass}">
+      <span class="status-dot status-dot--${amaClass}"></span>Amadeus: ${amaText}</span>`);
+
+    // Sandbox/Production indicator
+    const envType = amadeus.environment || 'test';
+    const isSandbox = envType === 'test' || !envType.includes('production');
+    chips.push(`<span class="status-chip status-chip--${isSandbox ? 'mock' : 'live'}">
+      ${isSandbox ? 'SANDBOX' : 'PRODUCTION'} — ${isSandbox ? 'Test data, not real prices' : 'Live market prices'}</span>`);
+
+    if (amadeus.test_result) {
+      chips.push(`<span class="status-chip status-chip--live">
+        <span class="status-dot status-dot--live"></span>${amadeus.test_result}</span>`);
+    }
+    if (amadeus.error) {
+      chips.push(`<span class="status-chip status-chip--off">${amadeus.error}</span>`);
+    }
+
+    // Other services
+    ['stripe_payments','serper_maps','mailchimp_email','buffer_social'].forEach(svc => {
+      const on = health.services?.[svc];
+      const name = svc.split('_').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+      chips.push(`<span class="status-chip status-chip--${on ? 'live' : 'off'}">
+        <span class="status-dot status-dot--${on ? 'live' : 'off'}"></span>${name}: ${on ? 'On' : 'Off'}</span>`);
+    });
+
+    bar.innerHTML = chips.join('');
+  } catch (e) {
+    bar.innerHTML = '<span class="status-chip status-chip--off"><span class="status-dot status-dot--off"></span>Backend Offline - start with: python3 main.py</span>';
+  }
+}
+checkStatus();
+
+// ── Helpers ──
+function showLoading(container, msg) {
+  container.innerHTML = `<div class="loading"><div class="spinner"></div>${msg}</div>`;
+}
+
+function showError(container, msg) {
+  container.innerHTML = `<div class="error-msg">${msg}</div>`;
+}
+
+function sourceTag(src) {
+  if (src === 'amadeus_live_api' || src === 'amadeus') {
+    return `<span class="results__source results__source--live">AMADEUS LIVE</span>`;
+  } else if (src === 'google_flights') {
+    return `<span class="results__source results__source--google">GOOGLE FLIGHTS</span>`;
+  } else if (src === 'google_hotels') {
+    return `<span class="results__source results__source--google">GOOGLE HOTELS</span>`;
+  } else {
+    return `<span class="results__source results__source--mock">${src || 'UNKNOWN'}</span>`;
+  }
+}
+
+function cardSourceBadge(source) {
+  if (!source) return '';
+  const label = source === 'amadeus' ? 'Amadeus' : source === 'google_flights' ? 'Google' : source === 'google_hotels' ? 'Google' : source;
+  return `<span class="card__source card__source--${source}">${label}</span>`;
+}
+
+function jsonToggle(data) {
+  const id = 'json-' + Math.random().toString(36).slice(2, 8);
+  return `<div class="json-toggle">
+    <button class="btn btn--secondary" onclick="document.getElementById('${id}').classList.toggle('open')">
+      Toggle Raw JSON
+    </button>
+    <pre class="json-content" id="${id}">${JSON.stringify(data, null, 2)}</pre>
+  </div>`;
+}
+
+// ── Flight Search ──
+document.getElementById('form-flights').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const container = document.getElementById('results-flights');
+  showLoading(container, 'Searching Amadeus for flights...');
+
+  try {
+    const res = await fetch(API + '/api/amadeus/flights', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        origin: document.getElementById('fl-origin').value.toUpperCase(),
+        destination: document.getElementById('fl-dest').value.toUpperCase(),
+        departure_date: document.getElementById('fl-depart').value,
+        return_date: document.getElementById('fl-return').value || null,
+        adults: parseInt(document.getElementById('fl-adults').value) || 1,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      showError(container, `Error ${res.status}: ${err.detail || JSON.stringify(err)}`);
+      return;
+    }
+
+    const data = await res.json();
+    const flights = data.data?.results?.flights || data.data?.flights || [];
+
+    const flightSource = data.data?.source || data.source || 'unknown';
+    let html = `<div class="results__header">
+      <span class="results__title">${flights.length} Flight${flights.length !== 1 ? 's' : ''} Found</span>
+      ${sourceTag(flightSource)}
+    </div><div class="card-grid">`;
+
+    for (const f of flights) {
+      // Support both old and new field names for backward compatibility
+      const price = f.price_total || f.price || 0;
+      const stops = (f.stops_outbound !== undefined ? f.stops_outbound : f.stops) || 0;
+      const duration = f.duration_outbound || f.duration || '-';
+
+      const stopsTag = stops === 0 ? '<span class="card__tag card__tag--direct">Direct</span>' :
+        `<span class="card__tag card__tag--stops">${stops} stop${stops > 1 ? 's' : ''}</span>`;
+      html += `<div class="card">
+        <div class="card__row">
+          <span class="card__airline">${f.airline || f.airline_name || 'Unknown Airline'} ${cardSourceBadge(f.source)}</span>
+          <span class="card__price">$${(price).toLocaleString()} ${f.currency || 'USD'}</span>
+        </div>
+        <div class="card__details">
+          <span class="card__detail"><strong>${f.origin || f.departure || '?'}</strong> → <strong>${f.destination || f.arrival || '?'}</strong></span>
+          <span class="card__detail">Departs: ${f.departure_time || '-'}</span>
+          <span class="card__detail">Arrives: ${f.arrival_time || '-'}</span>
+          <span class="card__detail">Duration: ${duration}</span>
+        </div>
+        ${stopsTag}
+        ${f.offer_id ? `<span class="card__tag card__tag--id">ID: ${f.offer_id}</span>` : ''}
+      </div>`;
+    }
+    html += '</div>';
+    html += jsonToggle(data);
+    container.innerHTML = html;
+
+  } catch (err) {
+    showError(container, 'Could not reach backend: ' + err.message);
+  }
+});
+
+// ── Hotel Search ──
+document.getElementById('form-hotels').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const container = document.getElementById('results-hotels');
+  showLoading(container, 'Searching Amadeus for hotels...');
+
+  try {
+    const res = await fetch(API + '/api/amadeus/hotels', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        city_code: document.getElementById('ht-city').value.toUpperCase(),
+        check_in_date: document.getElementById('ht-checkin').value,
+        check_out_date: document.getElementById('ht-checkout').value,
+        adults: parseInt(document.getElementById('ht-adults').value) || 1,
+        rooms: parseInt(document.getElementById('ht-rooms').value) || 1,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      showError(container, `Error ${res.status}: ${err.detail || JSON.stringify(err)}`);
+      return;
+    }
+
+    const data = await res.json();
+    const hotels = data.data?.results?.hotels || data.data?.hotels || [];
+
+    let html = `<div class="results__header">
+      <span class="results__title">${hotels.length} Hotel${hotels.length !== 1 ? 's' : ''} Found</span>
+      ${sourceTag(data.data?.source || data.source)}
+    </div><div class="card-grid">`;
+
+    for (const h of hotels) {
+      const stars = h.rating ? `<span class="card__rating">${'★'.repeat(Math.round(h.rating))} ${h.rating}</span>` : '';
+      const price = h.price_per_night ? `<span class="card__price">$${h.price_per_night}/night</span>` : '';
+      const amenities = (h.amenities || []).map(a => `<span class="card__amenity">${a}</span>`).join('');
+      const checkIn = h.check_in_date || '-';
+      const checkOut = h.check_out_date || '-';
+      const nights = h.number_of_nights ? `(${h.number_of_nights} night${h.number_of_nights > 1 ? 's' : ''})` : '';
+
+      html += `<div class="card">
+        <div class="card__row">
+          <span class="card__airline">${h.name || 'Unknown Hotel'} ${cardSourceBadge(h.source)}</span>
+          ${price}
+        </div>
+        <div class="card__details">
+          <span class="card__detail">Location: <strong>${h.location || '-'}</strong></span>
+          <span class="card__detail">Check-in: <strong>${checkIn}</strong> → Check-out: <strong>${checkOut}</strong> ${nights}</span>
+          ${stars}
+          ${h.hotel_id ? `<span class="card__detail">ID: ${h.hotel_id}</span>` : ''}
+        </div>
+        ${amenities ? `<div class="card__amenities">${amenities}</div>` : ''}
+        <span class="card__tag card__tag--id">ID: ${h.offer_id || h.hotel_id || '-'}</span>
+      </div>`;
+    }
+    html += '</div>';
+    html += jsonToggle(data);
+    container.innerHTML = html;
+
+  } catch (err) {
+    showError(container, 'Could not reach backend: ' + err.message);
+  }
+});
+
+// ── Itinerary Builder ──
+document.getElementById('form-itinerary').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const container = document.getElementById('results-itinerary');
+  showLoading(container, 'Building full itinerary from Amadeus...');
+
+  try {
+    const res = await fetch(API + '/api/amadeus/itinerary', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        origin: document.getElementById('it-origin').value.toUpperCase(),
+        destination: document.getElementById('it-dest').value.toUpperCase(),
+        departure_date: document.getElementById('it-depart').value,
+        return_date: document.getElementById('it-return').value || null,
+        adults: parseInt(document.getElementById('it-adults').value) || 1,
+        check_in_date: document.getElementById('it-depart').value,
+        check_out_date: document.getElementById('it-return').value || null,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      showError(container, `Error ${res.status}: ${err.detail || JSON.stringify(err)}`);
+      return;
+    }
+
+    const data = await res.json();
+    const flights = data.flights || [];
+    const hotels = data.hotels || [];
+    const cost = data.cost_breakdown || {};
+    const sources = data.sources || {};
+
+    let html = `<div class="results__header">
+      <span class="results__title">Itinerary: ${data.query?.origin} → ${data.query?.destination} (${data.query?.nights} nights, ${data.query?.adults} adult${data.query?.adults > 1 ? 's' : ''})</span>
+    </div>`;
+
+    // Sources
+    html += `<div style="display:flex;gap:0.75rem;margin-bottom:1rem;">
+      <span style="font-size:0.8rem;color:#64748b;">Flights: ${sourceTag(sources.flights)}</span>
+      <span style="font-size:0.8rem;color:#64748b;">Hotels: ${sourceTag(sources.hotels)}</span>
+    </div>`;
+
+    // Flights section
+    html += `<h3 style="color:#f1f5f9;font-size:0.9rem;margin:1rem 0 0.5rem;">Flights (${flights.length})</h3><div class="card-grid">`;
+    for (const f of flights) {
+      html += `<div class="card">
+        <div class="card__row">
+          <span class="card__airline">${f.airline || 'Unknown'}</span>
+          <span class="card__price">$${(f.price || 0).toLocaleString()}</span>
+        </div>
+        <div class="card__details">
+          <span class="card__detail"><strong>${f.departure || '?'}</strong> → <strong>${f.arrival || '?'}</strong></span>
+          <span class="card__detail">${f.stops === 0 ? 'Direct' : f.stops + ' stop(s)'}</span>
+          <span class="card__detail">${f.duration || ''}</span>
+        </div>
+      </div>`;
+    }
+    html += '</div>';
+
+    // Hotels section
+    html += `<h3 style="color:#f1f5f9;font-size:0.9rem;margin:1.5rem 0 0.5rem;">Hotels (${hotels.length})</h3><div class="card-grid">`;
+    for (const h of hotels) {
+      html += `<div class="card">
+        <div class="card__row">
+          <span class="card__airline">${h.name || 'Unknown'}</span>
+          ${h.price_per_night ? `<span class="card__price">$${h.price_per_night}/night</span>` : ''}
+        </div>
+        <div class="card__details">
+          ${h.rating ? `<span class="card__rating">${'★'.repeat(Math.round(h.rating))} ${h.rating}</span>` : ''}
+        </div>
+      </div>`;
+    }
+    html += '</div>';
+
+    // Cost breakdown
+    if (Object.keys(cost).length) {
+      html += `<div class="cost-summary">
+        <div class="cost-summary__title">Cost Breakdown (Cheapest Options)</div>`;
+      if (cost.flight_airline) html += `<div class="cost-row"><span>Flight (${cost.flight_airline})</span><strong>$${(cost.flight_total || 0).toLocaleString()}</strong></div>`;
+      if (cost.flight_per_person) html += `<div class="cost-row"><span>Per person flight</span><strong>$${cost.flight_per_person.toLocaleString()}</strong></div>`;
+      if (cost.hotel_name) html += `<div class="cost-row"><span>Hotel (${cost.hotel_name}) × ${cost.nights || 1} nights</span><strong>$${(cost.hotel_total || 0).toLocaleString()}</strong></div>`;
+      if (cost.hotel_per_night) html += `<div class="cost-row"><span>Per night</span><strong>$${cost.hotel_per_night}</strong></div>`;
+      html += `<div class="cost-row cost-row--total"><span>Grand Total</span><strong>$${(cost.grand_total || 0).toLocaleString()} ${cost.currency || 'USD'}</strong></div>`;
+      html += '</div>';
+    }
+
+    html += jsonToggle(data);
+    container.innerHTML = html;
+
+  } catch (err) {
+    showError(container, 'Could not reach backend: ' + err.message);
+  }
+});
+
+// ── Clear Cache ──
+document.getElementById('btn-clear-cache').addEventListener('click', async () => {
+  try {
+    const res = await fetch(API + '/api/amadeus/clear-cache', {method:'POST'});
+    const data = await res.json();
+    alert(`Cache cleared! ${data.files_removed} file(s) removed. Next search will hit Amadeus API directly.`);
+  } catch (e) {
+    alert('Could not clear cache: ' + e.message);
+  }
+});
+</script>
+</body>
+</html>
