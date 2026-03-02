@@ -1,0 +1,153 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║          🚀 FLEXETRAVELS DEPLOYMENT - QUICK CHECKLIST 🚀                   ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+✅ BEFORE YOU START - Gather These Credentials:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+□ ANTHROPIC_API_KEY                 (sk-ant-...)  from your account
+□ AMADEUS_API_KEY                   (...) from Amadeus self-service
+□ AMADEUS_API_SECRET                (...) from Amadeus self-service
+□ UNSPLASH_ACCESS_KEY               (...) from unsplash.com/developers
+□ SERPAPI_API_KEY                   (...) from serpapi.com
+□ SMTP_PASSWORD                     (Neomail app password)
+□ GitHub Account                    (for creating repository)
+□ Railway.app Account               (free, login with GitHub)
+□ Vercel Account                    (free, login with GitHub)
+□ Namecheap Account                 (for flexetravels.com domain)
+
+
+✅ DEPLOYMENT STEPS (In This Order):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STEP 1: CREATE GITHUB REPOSITORY
+  1. Go to https://github.com/new
+  2. Name: flexetravels
+  3. Public: YES
+  4. Create repository
+  5. Copy your repo URL: https://github.com/YOUR_USERNAME/flexetravels.git
+  ⏱️  Time: 2 minutes
+  ✅ Status: [  ]
+
+
+STEP 2: PUSH CODE TO GITHUB
+  Command (replace YOUR_USERNAME):
+
+    cd "/Users/sumanthumboli/Downloads/FlexeTravels website"
+    git remote add origin https://github.com/YOUR_USERNAME/flexetravels.git
+    git branch -M main
+    git push -u origin main
+
+  ⏱️  Time: 1 minute
+  ✅ Status: [  ]
+
+
+STEP 3: DEPLOY BACKEND TO RAILWAY
+  1. Go to https://railway.app
+  2. Click "Start Now" → "Deploy from GitHub"
+  3. Authorize with GitHub
+  4. Select flexetravels repo
+  5. Set root directory: /backend ⚠️  IMPORTANT
+  6. Click Deploy
+  7. Copy Railway URL from dashboard
+  8. Add Environment Variables (Railway Dashboard → Variables):
+
+     ANTHROPIC_API_KEY=sk-ant-...
+     AMADEUS_API_KEY=...
+     AMADEUS_API_SECRET=...
+     UNSPLASH_ACCESS_KEY=...
+     SERPAPI_API_KEY=...
+     SMTP_USER=suman@flexetravels.com
+     SMTP_PASSWORD=...
+     SMTP_HOST=smtp0001.neo.space
+     SMTP_PORT=587
+     SMTP_USE_TLS=true
+     MARKETING_EMAIL_RECIPIENT=suman@flexetravels.com
+     CHATBOT_URL=https://flexetravels.com
+     ALLOWED_ORIGINS=https://flexetravels.com,https://www.flexetravels.com,http://localhost:3000
+
+  9. Test: curl https://YOUR_RAILWAY_URL/api/featured-tours
+
+  ⏱️  Time: 3 minutes
+  ✅ Status: [  ]
+  Railway URL: _________________________________
+
+
+STEP 4: UPDATE API URL & PUSH
+  1. Edit app.js (line ~115)
+  2. Change: const API_BASE = 'http://localhost:8000';
+  3. To:     const API_BASE = 'https://YOUR_RAILWAY_URL.railway.app';
+  4. Save & commit:
+
+     git add app.js
+     git commit -m "Update API_BASE to Railway URL"
+     git push origin main
+
+  ⏱️  Time: 2 minutes
+  ✅ Status: [  ]
+
+
+STEP 5: DEPLOY FRONTEND TO VERCEL
+  1. Go to https://vercel.com
+  2. Click "New Project"
+  3. Import flexetravels GitHub repo
+  4. Framework: Other
+  5. Deploy
+  6. Copy Vercel URL
+  7. Test: https://flexetravels-xxxxx.vercel.app
+
+  ⏱️  Time: 2 minutes
+  ✅ Status: [  ]
+  Vercel URL: _________________________________
+
+
+STEP 6: CONNECT DOMAIN
+  In Vercel:
+    1. Project Settings → Domains
+    2. Add: flexetravels.com
+    3. Copy DNS records
+
+  In Namecheap:
+    1. Manage Domain → Advanced DNS
+    2. Update records to match Vercel settings
+    3. Save
+
+  ⏱️  Time: 5 minutes (wait 24h for DNS)
+  ✅ Status: [  ]
+
+
+STEP 7: TEST EVERYTHING
+  □ Open https://flexetravels.com (wait if getting 404)
+  □ Press F12 → Console (check for errors)
+  □ Should see tour cards with images loading
+  □ Click a tour → Chat opens with pre-filled message
+  □ Test email: curl -X POST https://YOUR_RAILWAY_URL/api/marketing/run-weekly
+  □ Check email inbox for HTML email
+
+  ⏱️  Time: 5 minutes
+  ✅ Status: [  ]
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TOTAL TIME: ~20 minutes (+ 24h for DNS)
+TOTAL COST: $10/year (domain only) - Everything else is FREE
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎯 YOUR FINAL URLS AFTER DEPLOYMENT:
+  Frontend:    https://flexetravels.com
+  Backend API: https://your-project.railway.app
+  GitHub:      https://github.com/YOUR_USERNAME/flexetravels
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+❓ TROUBLESHOOTING QUICK LINKS:
+  - Full guide: See GITHUB_DEPLOYMENT.md
+  - Backend issues: See DEPLOYMENT_GUIDE.md (Railway section)
+  - Email issues: See EMAIL_TROUBLESHOOTING.md
+  - Frontend issues: See DEBUGGING_GUIDE.md
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+For detailed help with each step, see GITHUB_DEPLOYMENT.md ✨
