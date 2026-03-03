@@ -6,6 +6,23 @@
 
 const API_BASE = 'https://flexetravels-production.up.railway.app';
 
+// ── Shared state (accessible from both outer scope and DOMContentLoaded) ──
+let userLocation = null; // set by fetchFeaturedTours()
+
+// Bridge to send chat messages from outside DOMContentLoaded scope.
+// Assigned inside DOMContentLoaded; outer functions use openChatWithMessage().
+let _sendChat = null;
+
+function openChatWithMessage(msg) {
+  const panel = document.getElementById('chat-panel');
+  if (panel && !panel.classList.contains('open')) {
+    panel.classList.toggle('open');
+  }
+  setTimeout(() => {
+    if (_sendChat) _sendChat(msg);
+  }, 400);
+}
+
 // ────────────────────────────────────────────────────────
 // Dynamic Featured Tours — render tour card HTML from API data
 // ────────────────────────────────────────────────────────
@@ -29,6 +46,7 @@ function renderTourCard(t) {
           onerror="this.src='https://images.unsplash.com/photo-1488085061851-d223a4463480?w=600&h=400&fit=crop'">
         ${badge}
         <button class="tour-card__save" aria-label="Save">♡</button>
+        <div class="tour-card__cta">Plan This Trip &rarr;</div>
       </div>
       <div class="tour-card__body">
         <div class="tour-card__meta">
@@ -66,11 +84,8 @@ function attachTourCardHandlers() {
       const price = card.dataset.price ? `$${Number(card.dataset.price).toLocaleString()}` : '';
       const tagline = card.dataset.tagline || '';
       if (title) {
-        if (!chatPanel.classList.contains('open')) toggleChat();
-        setTimeout(() => {
-          const msg = `I'm interested in the "${title}" tour to ${dest} for ${duration} days${price ? ` starting from ${price}` : ''}. ${tagline ? tagline + '. ' : ''}Can you help me plan this trip with real pricing?`;
-          sendChatMessage(msg);
-        }, 400);
+        const msg = `I'm interested in the "${title}" tour to ${dest} for ${duration} days${price ? ` starting from ${price}` : ''}. ${tagline ? tagline + '. ' : ''}Can you help me plan this trip with real flights and hotels?`;
+        openChatWithMessage(msg);
       }
     });
   });
@@ -80,37 +95,109 @@ async function fetchFeaturedTours() {
   const carousel = document.getElementById('tours-carousel');
   const label = document.getElementById('tours-location-label');
   if (!carousel) {
-    console.error('❌ tours-carousel element not found');
+    console.error('tours-carousel element not found');
     return;
   }
   try {
-    console.log('🚀 Fetching featured tours from ' + API_BASE + '/api/featured-tours');
     const res = await fetch(`${API_BASE}/api/featured-tours`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    console.log('✅ Featured tours API response:', data);
     if (data.tours && data.tours.length > 0) {
+      // Store user location globally for other sections
+      if (data.location) {
+        userLocation = data.location;
+      }
       // Update location label
       const city = data.location?.city;
       const country = data.location?.country;
       if (city && label) {
-        const newLabel = `Trending for visitors from ${city}${country ? ', ' + country : ''}`;
-        console.log('📍 Updating location label:', newLabel);
-        label.textContent = newLabel;
+        label.textContent = `Trending for visitors from ${city}${country ? ', ' + country : ''}`;
       }
       // Render dynamic cards
-      console.log(`📦 Rendering ${data.tours.length} dynamic tour cards`);
       carousel.innerHTML = data.tours.map(renderTourCard).join('');
       attachTourCardHandlers();
-      console.log('✅ Dynamic tours rendered successfully!');
     }
+    // After we have location, fetch travel styles
+    fetchTravelStyles();
   } catch (e) {
-    console.error('❌ Featured tours API error:', e);
-    console.warn('Keeping skeleton cards as fallback');
+    console.error('Featured tours API error:', e);
     // Skeleton cards remain as graceful fallback
+    // Still try to fetch travel styles (will use default region)
+    fetchTravelStyles();
   }
 }
 
+// ────────────────────────────────────────────────────────
+// Dynamic Travel Styles — location-relevant destination suggestions
+// ────────────────────────────────────────────────────────
+function renderStyleCard(s, delayClass) {
+  const dests = (s.destinations || []).map(d => d.name).join(' · ');
+  const imgSrc = s.image || 'https://images.unsplash.com/photo-1488085061851-d223a4463480?w=600&h=400&fit=crop';
+  const destsData = (s.destinations || []).map(d => `${d.name}, ${d.country}`).join('|');
+  return `
+    <div class="style-card fade-in ${delayClass}"
+      data-style="${(s.name || '').replace(/"/g, '&quot;')}"
+      data-destinations="${destsData.replace(/"/g, '&quot;')}">
+      <img class="style-card__img" src="${imgSrc}" alt="${s.name}" loading="lazy">
+      <div class="style-card__overlay"></div>
+      <div class="style-card__content">
+        <h3 class="style-card__name">${s.emoji || ''} ${s.name}</h3>
+        <p class="style-card__destinations">${dests}</p>
+        <span class="style-card__cta">Explore ${s.name} &rarr;</span>
+      </div>
+    </div>`;
+}
+
+function attachStyleCardHandlers() {
+  document.querySelectorAll('.style-card:not(.style-card--skeleton)').forEach(card => {
+    card.addEventListener('click', () => {
+      const style = card.dataset.style || '';
+      const dests = card.dataset.destinations || '';
+      if (style) {
+        const city = userLocation?.city || '';
+        const destList = dests ? dests.split('|').slice(0, 3).join(', ') : '';
+        let msg = `I'm looking for ${style.toLowerCase()} travel experiences`;
+        if (city) msg += ` from ${city}`;
+        msg += '.';
+        if (destList) msg += ` I'm considering destinations like ${destList}.`;
+        msg += ' What do you recommend? I need help with flights, hotels, and the best things to do.';
+        openChatWithMessage(msg);
+      }
+    });
+  });
+}
+
+async function fetchTravelStyles() {
+  const grid = document.getElementById('styles-grid');
+  if (!grid) return;
+  try {
+    const res = await fetch(`${API_BASE}/api/travel-styles`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.styles && data.styles.length > 0) {
+      const delays = ['', 'fade-in-delay-1', 'fade-in-delay-2', '', 'fade-in-delay-1', 'fade-in-delay-2'];
+      grid.innerHTML = data.styles.map((s, i) => renderStyleCard(s, delays[i] || '')).join('');
+      attachStyleCardHandlers();
+      // Re-observe new elements for scroll animations
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+            observer.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.15, rootMargin: '0px 0px -50px 0px' });
+      grid.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+    }
+  } catch (e) {
+    console.error('Travel styles API error:', e);
+    // Keep skeleton cards as fallback
+  }
+}
+
+// ────────────────────────────────────────────────────────
+// Main DOMContentLoaded — UI interactions, chat widget, carousels
+// ────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
 
   // ── Config ──────────────────────────────────────────────
@@ -376,6 +463,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Expose sendChatMessage to outer-scope functions via bridge
+  _sendChat = sendChatMessage;
+
   async function planTrip(description) {
     addMessage(description, 'user');
     chatInput.value = '';
@@ -498,8 +588,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function handleUserMessage(text) {
     if (!text.trim()) return;
-    // All messages go through the main chat — Claude has Amadeus tools
-    // and will search automatically when it has enough info
     sendChatMessage(text);
   }
 
@@ -606,39 +694,29 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ────────────────────────────────────────
-  // 10 & 11. Tour Card Handlers (save + click → chat)
-  // Dynamic cards: handled by attachTourCardHandlers() after fetch
+  // 10. Tour Card Handlers (dynamic — attached by fetchFeaturedTours)
   // ────────────────────────────────────────
   // (Attached dynamically after fetchFeaturedTours() renders cards)
 
   // ────────────────────────────────────────
-  // 12. Destination Card Click → Open Chat
+  // 11. Destination Card Click → Open Chat
   // ────────────────────────────────────────
   document.querySelectorAll('.dest-card').forEach(card => {
     card.addEventListener('click', () => {
       const name = card.querySelector('.dest-card__name')?.textContent;
       if (name) {
-        if (!chatPanel.classList.contains('open')) toggleChat();
-        setTimeout(() => {
-          sendChatMessage(`I'm interested in traveling to ${name}. What do you recommend?`);
-        }, 400);
+        const city = userLocation?.city || '';
+        let msg = `I want to explore ${name}!`;
+        if (city) msg += ` I'll be traveling from ${city}.`;
+        msg += ' Can you show me the best tours, flights, and hotels available?';
+        openChatWithMessage(msg);
       }
     });
   });
 
   // ────────────────────────────────────────
-  // 13. Style Card Click → Open Chat
+  // 12. Travel Style Card Handlers (dynamic — attached by fetchTravelStyles)
   // ────────────────────────────────────────
-  document.querySelectorAll('.style-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const style = card.querySelector('.style-card__name')?.textContent;
-      if (style) {
-        if (!chatPanel.classList.contains('open')) toggleChat();
-        setTimeout(() => {
-          sendChatMessage(`I'm looking for ${style.toLowerCase()} travel experiences. What do you suggest?`);
-        }, 400);
-      }
-    });
-  });
+  // (Attached dynamically after fetchTravelStyles() renders cards)
 
 });

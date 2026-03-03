@@ -796,6 +796,28 @@ h6 {
   transform: scale(1.05);
 }
 
+.tour-card__cta {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 0.75rem 1rem;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.7), transparent);
+  color: var(--color-white);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-align: center;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: all var(--transition-base);
+  pointer-events: none;
+}
+
+.tour-card:hover .tour-card__cta {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .tour-card__badge {
   position: absolute;
   top: var(--space-sm);
@@ -1292,6 +1314,48 @@ h6 {
 .style-card__count {
   font-size: 0.8125rem;
   opacity: 0.8;
+}
+
+.style-card__destinations {
+  font-size: 0.75rem;
+  opacity: 0.75;
+  margin-top: 0.125rem;
+  letter-spacing: 0.01em;
+}
+
+.style-card__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-white);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: all var(--transition-base);
+}
+
+.style-card:hover .style-card__cta {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.style-card:hover .style-card__overlay {
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.75) 0%, rgba(0, 0, 0, 0.25) 60%, rgba(0, 0, 0, 0.05) 100%);
+}
+
+/* Style card skeleton */
+.style-card--skeleton {
+  background: var(--color-gray-100);
+}
+
+.style-card--skeleton .sk-img {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-gray-100) 25%, var(--color-gray-200) 50%, var(--color-gray-100) 75%);
+  background-size: 200% 100%;
+  animation: sk-shimmer 1.4s infinite linear;
 }
 
 /* ---------- Testimonials ---------- */

@@ -867,6 +867,29 @@ async def get_featured_tours(request: Request, count: int = 6, test_city: str = 
     return {"location": location, "tours": tours, "count": len(tours)}
 
 
+@app.get("/api/travel-styles")
+async def get_travel_styles(request: Request):
+    """
+    Return 6 travel style cards with destination suggestions relevant to user's location.
+    Uses IP geolocation to determine region, then maps to curated destinations per style.
+    """
+    from tools.ip_geolocation import get_location_from_ip
+    from tools.travel_styles import get_travel_style_suggestions
+
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    ip = forwarded.split(",")[0].strip() if forwarded else request.client.host
+
+    location = get_location_from_ip(ip)
+    logger.info(f"Travel styles request from {location.get('city')}, {location.get('country_code')}")
+
+    styles = get_travel_style_suggestions(
+        city=location.get("city", ""),
+        country_code=location.get("country_code", "US"),
+    )
+
+    return {"location": location, "styles": styles}
+
+
 @app.post("/api/marketing/run-weekly")
 async def run_weekly_marketing(destination: str = None):
     """
