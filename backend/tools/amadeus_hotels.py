@@ -73,22 +73,23 @@ class AmadeusHotelsTool:
             check_out = datetime.strptime(check_out_date, "%Y-%m-%d")
             nights = max((check_out - check_in).days, 1)
 
-            # ===== STEP 1: Get hotel IDs by city (cached 24 hours) =====
+            # ===== STEP 1: Get hotel IDs by city (cached 1 hour) =====
             def fetch_hotel_ids():
-                return amadeus.reference_data.locations.hotels.by_city.get(
+                resp = amadeus.reference_data.locations.hotels.by_city.get(
                     cityCode=city_code.upper()
                 )
+                return resp.data if resp.data else []
 
-            hotel_ids_response = cached_api_call(
+            hotel_ids_data = cached_api_call(
                 prefix="amadeus_hotel_ids",
                 params={"city": city_code.lower()},
                 fn=fetch_hotel_ids,
-                ttl=3600  # 1 hour (reduced from 24h - stale IDs caused no-results)
+                ttl=3600  # 1 hour
             )
 
             hotel_ids = []
-            if hasattr(hotel_ids_response, 'data') and hotel_ids_response.data:
-                hotel_ids = [h.get("hotelId") for h in hotel_ids_response.data[:20] if h.get("hotelId")]
+            if hotel_ids_data:
+                hotel_ids = [h.get("hotelId") for h in (hotel_ids_data or [])[:20] if h.get("hotelId")]
 
             if not hotel_ids:
                 # Try SerpAPI fallback
@@ -130,9 +131,10 @@ class AmadeusHotelsTool:
                 hotel_search_params["priceRange"] = f"1-{max_price_per_night}"
 
             def fetch_hotel_offers():
-                return amadeus.shopping.hotel_offers_search.get(**hotel_search_params)
+                resp = amadeus.shopping.hotel_offers_search.get(**hotel_search_params)
+                return resp.data if resp.data else []
 
-            offers_response = cached_api_call(
+            offers_data = cached_api_call(
                 prefix="amadeus_hotel_offers",
                 params={
                     "cities": [city_code],
@@ -147,8 +149,8 @@ class AmadeusHotelsTool:
 
             # Parse hotels from response
             hotels = []
-            if hasattr(offers_response, 'data') and offers_response.data:
-                for item in offers_response.data[:20]:  # Limit to 20 results
+            if offers_data:
+                for item in (offers_data or [])[:20]:  # Limit to 20 results
                     try:
                         hotel_info = item.get("hotel", {})
                         offers_list = item.get("offers", [])

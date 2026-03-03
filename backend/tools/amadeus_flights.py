@@ -88,12 +88,13 @@ class AmadeusFlightsTool:
             if non_stop:
                 api_params["nonStop"] = True
 
-            # Define the API call function for caching
+            # Define the API call function — cache only the .data list (not the Response object)
             def fetch_flights():
-                return amadeus.shopping.flight_offers_search.get(**api_params)
+                resp = amadeus.shopping.flight_offers_search.get(**api_params)
+                return resp.data if resp.data else []
 
             # Use caching with 30-minute TTL for flights
-            response = cached_api_call(
+            flight_data = cached_api_call(
                 prefix="amadeus_flights_v2",
                 params=api_params,
                 fn=fetch_flights,
@@ -102,8 +103,8 @@ class AmadeusFlightsTool:
 
             # Parse flights from response
             flights = []
-            if hasattr(response, 'data') and response.data:
-                for offer in response.data[:10]:  # Limit to 10
+            if flight_data:
+                for offer in (flight_data or [])[:10]:  # Limit to 10
                     try:
                         # Extract outbound flight info
                         outbound = offer.get("itineraries", [{}])[0]

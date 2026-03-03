@@ -51,26 +51,27 @@ class AmadeusExperiencesTool:
 
             # ===== STEP 1: Get city coordinates (cached 7 days) =====
             def fetch_city_location():
-                return amadeus.reference_data.locations.get(
+                resp = amadeus.reference_data.locations.get(
                     keyword=city_name,
                     subType='CITY'
                 )
+                return resp.data if resp.data else []
 
-            city_response = cached_api_call(
+            city_data_list = cached_api_call(
                 prefix="amadeus_city_geo",
                 params={"city": city_name.lower()},
                 fn=fetch_city_location,
                 ttl=604800  # 7 days
             )
 
-            if not hasattr(city_response, 'data') or not city_response.data:
+            if not city_data_list:
                 return json.dumps({
                     "status": "city_not_found",
                     "message": f"City not found: {city_name}",
                     "experiences": []
                 })
 
-            city_data = city_response.data[0]
+            city_data = (city_data_list or [{}])[0]
             geo_code = city_data.get("geoCode", {})
             latitude = float(geo_code.get("latitude", 0))
             longitude = float(geo_code.get("longitude", 0))
@@ -90,9 +91,10 @@ class AmadeusExperiencesTool:
             }
 
             def fetch_activities():
-                return amadeus.shopping.activities.get(**activities_params)
+                resp = amadeus.shopping.activities.get(**activities_params)
+                return resp.data if resp.data else []
 
-            activities_response = cached_api_call(
+            activities_data = cached_api_call(
                 prefix="amadeus_activities",
                 params={
                     "lat": latitude,
@@ -105,8 +107,8 @@ class AmadeusExperiencesTool:
 
             # Parse activities from response
             experiences = []
-            if hasattr(activities_response, 'data') and activities_response.data:
-                for activity in activities_response.data[:30]:  # Limit to 30 results
+            if activities_data:
+                for activity in (activities_data or [])[:30]:  # Limit to 30 results
                     try:
                         # Extract price if available
                         price_info = activity.get("price", {})
