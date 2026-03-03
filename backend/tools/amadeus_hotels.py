@@ -83,7 +83,7 @@ class AmadeusHotelsTool:
                 prefix="amadeus_hotel_ids",
                 params={"city": city_code.lower()},
                 fn=fetch_hotel_ids,
-                ttl=86400  # 24 hours
+                ttl=3600  # 1 hour (reduced from 24h - stale IDs caused no-results)
             )
 
             hotel_ids = []
