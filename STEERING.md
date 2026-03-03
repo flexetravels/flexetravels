@@ -160,6 +160,42 @@ FlexeTravels is an AI-powered travel agency platform that uses Claude AI and the
   - CNAME www → `b747e5f49e358475.vercel-dns-017.com.` ← Vercel verification
   - TXT records for Neomail SPF/DKIM (untouched)
 
+### 8. **Interactive Cards + Dynamic Travel Styles** ✅ *(March 2026)*
+
+**Every card on the site is now clickable and opens the chatbot with rich context.**
+
+**Tour Cards (Featured Tours section)**:
+- Click → chatbot opens with pre-filled message: tour name, destination, duration, price
+- Chatbot asks follow-up questions: origin city, travel dates, number of travelers, budget
+- "Plan This Trip →" CTA overlay appears on hover
+- Save/favorite toggle (♡ ↔ ♥) on each card
+
+**Destination Cards (Popular Destinations section)**:
+- Click → chatbot opens with: "I want to explore [destination]! I'll be traveling from [user's city]."
+- User's detected location included automatically for better context
+
+**Travel Your Way Cards (Travel Styles section)**:
+- **Now dynamic** — fetched from `/api/travel-styles` endpoint
+- **Location-relevant destinations** per style (e.g., from Vancouver: Adventure → Banff, Costa Rica, Patagonia; from London: Adventure → Swiss Alps, Iceland, Norwegian Fjords)
+- 7 supported regions: North America, Europe, Asia, Oceania, Middle East, Latin America, Africa
+- Click → chatbot opens with style + suggested destinations + user's city
+- Skeleton loading while API loads, same pattern as Featured Tours
+- "Explore [Style] →" CTA overlay on hover
+
+**New Backend Endpoint**:
+- `GET /api/travel-styles` — Returns 6 travel styles with 3 destination suggestions each
+- Region detection from user IP (same as featured-tours)
+- Cached 24h per country code
+
+**Files Created**:
+- `backend/tools/travel_styles.py` — Region-based destination mapping for 6 styles × 7 regions
+
+**Files Modified**:
+- `app.js` — `fetchTravelStyles()`, `renderStyleCard()`, `openChatWithMessage()` bridge, improved card click handlers
+- `index.html` — Travel Your Way section now uses skeleton loading
+- `styles.css` — Tour card CTA overlay, style card destinations/CTA, skeleton styles
+- `backend/main.py` — `/api/travel-styles` endpoint
+
 ---
 
 ## System Architecture (Updated)
@@ -170,17 +206,20 @@ FlexeTravels is an AI-powered travel agency platform that uses Claude AI and the
 ├─────────────────────────────────────────────────────────────┤
 │                                                               │
 │  Frontend (Vercel)          Backend (Railway.app)             │
+│  Frontend (Vercel)          Backend (Railway.app)             │
 │  ├─ index.html              ├─ FastAPI main.py               │
 │  ├─ app.js                  ├─ /api/chat                     │
-│  ├─ styles.css              ├─ /api/featured-tours ⭐NEW     │
-│  └─ admin.html              ├─ /api/marketing/run-weekly ⭐  │
+│  ├─ styles.css              ├─ /api/featured-tours           │
+│  └─ admin.html              ├─ /api/travel-styles ⭐NEW     │
+│                             ├─ /api/marketing/run-weekly     │
 │                             ├─ /api/plan-trip                │
 │                             ├─ /api/book-trip                │
 │                             └─ tools/                        │
 │                                ├─ amadeus_*.py               │
-│                                ├─ ip_geolocation.py ⭐NEW    │
-│                                ├─ unsplash_images.py ⭐NEW   │
-│                                ├─ trending_destinations.py⭐ │
+│                                ├─ ip_geolocation.py          │
+│                                ├─ unsplash_images.py         │
+│                                ├─ trending_destinations.py   │
+│                                ├─ travel_styles.py ⭐NEW    │
 │                                └─ ...                        │
 │                                                               │
 │  External APIs                 Marketing System ⭐NEW        │
@@ -203,6 +242,7 @@ FlexeTravels is an AI-powered travel agency platform that uses Claude AI and the
 | Unsplash Images | 24h | File-based | Cache destination photos |
 | Amadeus Analytics | 6h | File-based | Cache trending destinations |
 | Claude Tours | 6h | File-based | Cache generated packages |
+| Travel Styles | 24h | File-based | Cache style suggestions per country |
 | SerpAPI | 1h | File-based | Cache fallback searches |
 
 ---
@@ -716,6 +756,17 @@ docker-compose up
 - [x] Skeleton loading UI
 - [x] Dynamic card rendering
 - [x] Frontend integration with console logging
+
+### Interactive Cards & Travel Styles ✅
+- [x] All cards clickable → chatbot with rich context
+- [x] Tour cards: "Plan This Trip →" CTA, pre-filled chat message
+- [x] Destination cards: click includes user's detected city
+- [x] Travel Your Way: dynamic, location-relevant destination suggestions
+- [x] 6 travel styles × 7 world regions = 42 curated destination sets
+- [x] `/api/travel-styles` endpoint with IP-based region detection
+- [x] Chatbot asks follow-up questions (origin, dates, travelers, budget)
+- [x] Skeleton loading for Travel Your Way section
+- [x] Hover CTAs on all card types
 
 ### Marketing Automation ✅
 - [x] Weekly marketing workflow (4-node process)
