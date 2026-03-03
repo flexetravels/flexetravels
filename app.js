@@ -112,7 +112,7 @@ async function fetchFeaturedTours() {
 document.addEventListener('DOMContentLoaded', () => {
 
   // ── Config ──────────────────────────────────────────────
-  const API_BASE = 'http://localhost:8000';
+  const API_BASE = 'flexetravels.railway.internal';
   let sessionId = null;
   let currentPhase = 'chat';
 
