@@ -24,6 +24,7 @@ SERPAPI_API_KEY = os.getenv("SERPAPI_API_KEY", "")  # SerpAPI for Google Flights
 AMADEUS_API_KEY = os.getenv("AMADEUS_API_KEY", "")
 AMADEUS_API_SECRET = os.getenv("AMADEUS_API_SECRET", "")
 AMADEUS_CURRENCY = os.getenv("AMADEUS_CURRENCY", "USD")  # Default to USD
+DUFFEL_API_KEY = os.getenv("DUFFEL_API_KEY", "")  # Duffel API (alternative to Amadeus)
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "")
 MAILCHIMP_API_KEY = os.getenv("MAILCHIMP_API_KEY", "")
@@ -47,11 +48,17 @@ HAS_CLAUDE = bool(ANTHROPIC_API_KEY)
 HAS_SERPER = bool(SERPER_API_KEY)
 HAS_SERPAPI = bool(SERPAPI_API_KEY)
 HAS_AMADEUS = bool(AMADEUS_API_KEY and AMADEUS_API_SECRET)
+HAS_DUFFEL = bool(DUFFEL_API_KEY)
 HAS_STRIPE = bool(STRIPE_SECRET_KEY)
 HAS_MAILCHIMP = bool(MAILCHIMP_API_KEY and MAILCHIMP_LIST_ID)
 HAS_BUFFER = bool(BUFFER_ACCESS_TOKEN)
 HAS_UNSPLASH = bool(UNSPLASH_ACCESS_KEY)
 HAS_EMAIL = bool(SMTP_USER and SMTP_PASSWORD)
+
+# ── API Selector (choose primary travel API) ────────────────────
+# Options: "amadeus" (limited hotel coverage) or "duffel" (global coverage)
+# Falls back automatically if primary API unavailable or returns 0 results
+ACTIVE_TRAVEL_API = os.getenv("ACTIVE_TRAVEL_API", "amadeus")
 
 # ── Server Config ──────────────────────────────────────────
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
@@ -92,8 +99,8 @@ def validate_required_keys():
         warnings.append("SERPER_API_KEY not set - web search will use mock data")
     if not HAS_SERPAPI:
         warnings.append("SERPAPI_API_KEY not set - Google Flights/Hotels fallback disabled")
-    if not HAS_AMADEUS:
-        warnings.append("Amadeus keys not set - flight/hotel search uses mock data")
+    if not HAS_AMADEUS and not HAS_DUFFEL:
+        warnings.append("Neither Amadeus nor Duffel configured - flight/hotel search disabled")
     if not HAS_STRIPE:
         warnings.append("Stripe key not set - payments use mock checkout links")
     if not HAS_MAILCHIMP:
@@ -112,9 +119,11 @@ def get_status():
     return {
         "ai_engine": "Claude (Anthropic)" if HAS_CLAUDE else "Fallback (no API key)",
         "model": CLAUDE_MODEL,
+        "active_travel_api": ACTIVE_TRAVEL_API,
         "services": {
             "claude_ai": HAS_CLAUDE,
             "amadeus_flights": HAS_AMADEUS,
+            "duffel_api": HAS_DUFFEL,
             "serpapi_fallback": HAS_SERPAPI,
             "stripe_payments": HAS_STRIPE,
             "serper_maps": HAS_SERPER,

@@ -21,7 +21,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from config import (
     ANTHROPIC_API_KEY, CLAUDE_MODEL, CLAUDE_MAX_TOKENS, CLAUDE_TEMPERATURE,
-    HAS_CLAUDE, ALLOWED_ORIGINS, API_HOST, API_PORT,
+    HAS_CLAUDE, HAS_AMADEUS, HAS_DUFFEL, ACTIVE_TRAVEL_API,
+    ALLOWED_ORIGINS, API_HOST, API_PORT,
     get_status, validate_required_keys
 )
 
@@ -177,6 +178,14 @@ class AmadeusItineraryRequest(BaseModel):
     check_out_date: Optional[str] = None
 
 
+class DuffelBookingRequest(BaseModel):
+    offer_id: str = Field(..., description="Flight offer ID from search results")
+    passenger_name: str = Field(..., description="Full passenger name (e.g., John Doe)")
+    passenger_email: str = Field(..., description="Passenger email address")
+    passenger_phone: str = Field(default="+1555123456", description="Phone number with country code")
+    passenger_dob: str = Field(default="1990-01-01", description="Date of birth YYYY-MM-DD")
+
+
 # ── Session Management ─────────────────────────────────────
 
 def get_or_create_session(session_id: Optional[str] = None) -> dict:
@@ -202,12 +211,17 @@ def get_or_create_session(session_id: Optional[str] = None) -> dict:
 
 
 def _get_chat_tools():
-    """Build Claude tool schemas for the 3 Amadeus tools."""
-    return [
-        {
-            "name": "amadeus_flights_search",
+    """Build Claude tool schemas based on ACTIVE_TRAVEL_API setting."""
+    tools = []
+
+    # Add tools for the active API provider
+    if ACTIVE_TRAVEL_API == "duffel" and HAS_DUFFEL:
+        # Duffel tools (global coverage, better hotels)
+        tools.append({
+            "name": "duffel_flights_search",
             "description": (
-                "Search real-time Amadeus flight offers. No mock data. Returns structured JSON with available flights and pricing. "
+                "Search real-time flight offers via Duffel API with global airline coverage. "
+                "No mock data. Returns structured JSON with available flights and pricing. "
                 "Searches both outbound and return flights if return_date provided."
             ),
             "input_schema": {
@@ -243,25 +257,25 @@ def _get_chat_tools():
                     },
                     "travel_class": {
                         "type": "string",
-                        "enum": ["ECONOMY", "PREMIUM_ECONOMY", "BUSINESS", "FIRST"],
-                        "description": "Cabin class. Default: ECONOMY."
+                        "enum": ["economy", "premium_economy", "business", "first"],
+                        "description": "Cabin class. Default: economy."
                     }
                 },
                 "required": ["origin", "destination", "departure_date"]
             }
-        },
-        {
-            "name": "amadeus_hotels_search",
+        })
+        tools.append({
+            "name": "duffel_stays_search",
             "description": (
-                "Search Amadeus hotel availability and live pricing (2-step: hotel IDs from city, then pricing). "
-                "Returns real prices per night and total stay cost. Filters by star rating if specified."
+                "Search hotel and accommodation availability via Duffel API with GLOBAL coverage (millions of properties). "
+                "Works for any city worldwide. Returns real prices per night and total stay cost."
             ),
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "city_code": {
                         "type": "string",
-                        "description": "IATA city code (3 letters, e.g., LAS for Las Vegas, PAR for Paris, LON for London). Required."
+                        "description": "City code or IATA airport code (3 letters, e.g., NYC, JFK, PAR, LON, TYO). Required."
                     },
                     "check_in_date": {
                         "type": "string",
@@ -273,7 +287,7 @@ def _get_chat_tools():
                     },
                     "adults": {
                         "type": "integer",
-                        "description": "Number of adults per room. Default: 1."
+                        "description": "Number of adults. Default: 1."
                     },
                     "rooms": {
                         "type": "integer",
@@ -290,11 +304,11 @@ def _get_chat_tools():
                 },
                 "required": ["city_code", "check_in_date", "check_out_date"]
             }
-        },
-        {
+        })
+        tools.append({
             "name": "amadeus_experiences_search",
             "description": (
-                "Search Amadeus tours and activities at a destination (2-step: get city coordinates, then fetch activities). "
+                "Search Amadeus tours and activities at a destination. "
                 "Returns activities with pricing, ratings, duration, and booking links."
             ),
             "input_schema": {
@@ -315,14 +329,160 @@ def _get_chat_tools():
                 },
                 "required": ["city_name"]
             }
-        }
-    ]
+        })
+    else:
+        # Default: Amadeus tools
+        tools = [
+            {
+                "name": "amadeus_flights_search",
+                "description": (
+                    "Search real-time Amadeus flight offers. No mock data. Returns structured JSON with available flights and pricing. "
+                    "Searches both outbound and return flights if return_date provided."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "origin": {
+                            "type": "string",
+                            "description": "IATA airport code for departure (e.g., YVR, JFK, LAX, CDG). Required."
+                        },
+                        "destination": {
+                            "type": "string",
+                            "description": "IATA airport code for arrival (e.g., LAS, NRT, FCO, DXB). Required."
+                        },
+                        "departure_date": {
+                            "type": "string",
+                            "description": "Departure date in YYYY-MM-DD format. Required."
+                        },
+                        "return_date": {
+                            "type": "string",
+                            "description": "Return date in YYYY-MM-DD format for round-trip. Optional for one-way."
+                        },
+                        "adults": {
+                            "type": "integer",
+                            "description": "Number of adult passengers (1-9). Default: 1."
+                        },
+                        "max_price": {
+                            "type": "integer",
+                            "description": "Maximum total price in USD (for all passengers). 0 = no limit. Optional."
+                        },
+                        "non_stop": {
+                            "type": "boolean",
+                            "description": "True for direct flights only. Default: false."
+                        },
+                        "travel_class": {
+                            "type": "string",
+                            "enum": ["ECONOMY", "PREMIUM_ECONOMY", "BUSINESS", "FIRST"],
+                            "description": "Cabin class. Default: ECONOMY."
+                        }
+                    },
+                    "required": ["origin", "destination", "departure_date"]
+                }
+            },
+            {
+                "name": "amadeus_hotels_search",
+                "description": (
+                    "Search Amadeus hotel availability and live pricing (2-step: hotel IDs from city, then pricing). "
+                    "Returns real prices per night and total stay cost. Filters by star rating if specified."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "city_code": {
+                            "type": "string",
+                            "description": "IATA city code (3 letters, e.g., LAS for Las Vegas, PAR for Paris, LON for London). Required."
+                        },
+                        "check_in_date": {
+                            "type": "string",
+                            "description": "Check-in date in YYYY-MM-DD format. Required."
+                        },
+                        "check_out_date": {
+                            "type": "string",
+                            "description": "Check-out date in YYYY-MM-DD format. Required."
+                        },
+                        "adults": {
+                            "type": "integer",
+                            "description": "Number of adults per room. Default: 1."
+                        },
+                        "rooms": {
+                            "type": "integer",
+                            "description": "Number of rooms needed. Default: 1."
+                        },
+                        "max_price_per_night": {
+                            "type": "integer",
+                            "description": "Maximum price per night in USD. 0 = no limit. Optional."
+                        },
+                        "min_star_rating": {
+                            "type": "integer",
+                            "description": "Minimum star rating (0-5). 0 = no filter. Optional."
+                        }
+                    },
+                    "required": ["city_code", "check_in_date", "check_out_date"]
+                }
+            },
+            {
+                "name": "amadeus_experiences_search",
+                "description": (
+                    "Search Amadeus tours and activities at a destination (2-step: get city coordinates, then fetch activities). "
+                    "Returns activities with pricing, ratings, duration, and booking links."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "city_name": {
+                            "type": "string",
+                            "description": "City name (e.g., 'Las Vegas', 'Paris', 'Tokyo', 'London'). Required."
+                        },
+                        "max_price_per_person": {
+                            "type": "number",
+                            "description": "Maximum price per person in USD. 0 = no limit. Optional."
+                        },
+                        "radius_km": {
+                            "type": "integer",
+                            "description": "Search radius in kilometers (1-50). Default: 20."
+                        }
+                    },
+                    "required": ["city_name"]
+                }
+            }
+        ]
+
+    return tools
 
 
 def _execute_chat_tool(tool_name: str, tool_input: dict, session_id: str = "") -> str:
-    """Execute a tool call from the chat agent. Routes to 3 Amadeus tools only."""
+    """Execute a tool call from the chat agent. Routes to Amadeus or Duffel tools based on config."""
     try:
-        if tool_name == "amadeus_flights_search":
+        # Handle Duffel tools
+        if tool_name == "duffel_flights_search":
+            from tools.duffel_flights import DuffelFlightsTool
+            tool = DuffelFlightsTool()
+            return tool._run(
+                origin=tool_input.get("origin", "").upper(),
+                destination=tool_input.get("destination", "").upper(),
+                departure_date=tool_input.get("departure_date", ""),
+                adults=tool_input.get("adults", 1),
+                return_date=tool_input.get("return_date", ""),
+                max_price=tool_input.get("max_price", 0),
+                non_stop=tool_input.get("non_stop", False),
+                travel_class=tool_input.get("travel_class", "economy").lower(),
+            )
+
+        elif tool_name == "duffel_stays_search":
+            from tools.duffel_stays import DuffelStaysTool
+            tool = DuffelStaysTool()
+            return tool._run(
+                city_code=tool_input.get("city_code", "").upper(),
+                check_in_date=tool_input.get("check_in_date", ""),
+                check_out_date=tool_input.get("check_out_date", ""),
+                adults=tool_input.get("adults", 1),
+                rooms=tool_input.get("rooms", 1),
+                max_price_per_night=tool_input.get("max_price_per_night", 0),
+                min_star_rating=tool_input.get("min_star_rating", 0),
+            )
+
+        # Handle Amadeus tools
+        elif tool_name == "amadeus_flights_search":
             from tools.amadeus_flights import AmadeusFlightsTool
             tool = AmadeusFlightsTool()
             return tool._run(
@@ -811,6 +971,30 @@ async def clear_amadeus_cache():
     from utils.cache import clear_cache
     count = clear_cache()
     return {"status": "cleared", "files_removed": count}
+
+@app.post("/api/duffel/booking")
+async def create_duffel_booking(request: DuffelBookingRequest):
+    """Create a flight booking (order/PNR) on Duffel API — Test Mode."""
+    from tools.duffel_booking import DuffelBookingTool
+    
+    tool = DuffelBookingTool()
+    raw_result = tool._run(
+        offer_id=request.offer_id,
+        passenger_name=request.passenger_name,
+        passenger_email=request.passenger_email,
+        passenger_phone=request.passenger_phone,
+        passenger_dob=request.passenger_dob,
+    )
+    
+    import json as _json
+    result = _json.loads(raw_result)
+    
+    return {
+        "status": "success" if result.get("status") == "pending" else result.get("status"),
+        "booking": result,
+        "message": result.get("message", ""),
+    }
+
 
 
 # ── Dynamic Featured Tours ──────────────────────────────────

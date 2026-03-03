@@ -455,6 +455,7 @@
       <button class="tab active" data-panel="flights">Flights</button>
       <button class="tab" data-panel="hotels">Hotels</button>
       <button class="tab" data-panel="itinerary">Full Itinerary</button>
+      <button class="tab" data-panel="booking">Duffel Booking</button>
     </div>
 
     <!-- ── Flights Panel ── -->
@@ -543,6 +544,43 @@
     </div>
 
   </div>
+
+    <!-- ── Duffel Booking Panel ── -->
+    <div class="panel" id="panel-booking">
+      <form class="search-form" id="form-booking">
+        <h3 style="color:#f1f5f9;margin:0 0 1rem;">Duffel Flight Booking (Test Mode)</h3>
+        <p style="color:#cbd5e1;font-size:0.85rem;margin-bottom:1rem;">
+          1. First, search for flights using the <strong>Flights</strong> tab to get offer IDs.<br>
+          2. Then fill in passenger details below and submit to create a test booking (PNR).
+        </p>
+        <div class="field">
+          <label>Offer ID</label>
+          <input type="text" id="bk-offer-id" placeholder="paste offer_id from flights search" required>
+        </div>
+        <div class="field">
+          <label>Passenger Name</label>
+          <input type="text" id="bk-name" placeholder="John Doe" required>
+        </div>
+        <div class="field">
+          <label>Email</label>
+          <input type="email" id="bk-email" placeholder="john@example.com" required>
+        </div>
+        <div class="field">
+          <label>Phone</label>
+          <input type="tel" id="bk-phone" placeholder="+1-555-123-4567" value="+1555123456">
+        </div>
+        <div class="field">
+          <label>Date of Birth</label>
+          <input type="date" id="bk-dob" value="1990-01-01" required>
+        </div>
+        <p style="color:#94a3b8;font-size:0.8rem;margin:0.5rem 0;">
+          ℹ️ Using test card (4242424242424242). Status will be PENDING (no real charge).
+        </p>
+        <button type="submit" class="btn btn--primary" id="btn-booking">Create Booking (PNR)</button>
+      </form>
+      <div id="results-booking" class="results"></div>
+    </div>
+
 
 <script>
 const API = 'https://flexetravels-production.up.railway.app';
@@ -882,6 +920,96 @@ document.getElementById('form-itinerary').addEventListener('submit', async (e) =
 
 // ── Clear Cache ──
 document.getElementById('btn-clear-cache').addEventListener('click', async () => {
+
+// ── Duffel Booking ──
+document.getElementById('form-booking').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const container = document.getElementById('results-booking');
+  showLoading(container, 'Creating booking (PNR)...');
+
+  try {
+    const res = await fetch(API + '/api/duffel/booking', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        offer_id: document.getElementById('bk-offer-id').value,
+        passenger_name: document.getElementById('bk-name').value,
+        passenger_email: document.getElementById('bk-email').value,
+        passenger_phone: document.getElementById('bk-phone').value,
+        passenger_dob: document.getElementById('bk-dob').value,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      showError(container, `Error ${res.status}: ${err.detail || JSON.stringify(err)}`);
+      return;
+    }
+
+    const data = await res.json();
+    const booking = data.booking || {};
+
+    let html = `<div class="results__header">
+      <span class="results__title" style="color:#10b981;">✓ Booking Created!</span>
+    </div>`;
+
+    // Booking details
+    if (booking.order_id) {
+      html += `<div style="background:#1e293b;padding:1.5rem;border-radius:0.5rem;margin-bottom:1rem;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;color:#f1f5f9;">
+          <div>
+            <div style="color:#94a3b8;font-size:0.8rem;">ORDER ID</div>
+            <div style="font-size:1.1rem;font-weight:600;font-family:monospace;">${booking.order_id}</div>
+          </div>
+          <div>
+            <div style="color:#94a3b8;font-size:0.8rem;">PNR CODE</div>
+            <div style="font-size:1.1rem;font-weight:600;color:#10b981;font-family:monospace;">${booking.pnr || 'N/A'}</div>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    // Details grid
+    html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">`;
+    if (booking.passenger_name) html += `<div class="detail"><span style="color:#94a3b8;">Passenger</span><strong>${booking.passenger_name}</strong></div>`;
+    if (booking.passenger_email) html += `<div class="detail"><span style="color:#94a3b8;">Email</span><strong>${booking.passenger_email}</strong></div>`;
+    if (booking.passengers_count) html += `<div class="detail"><span style="color:#94a3b8;">Passengers</span><strong>${booking.passengers_count}</strong></div>`;
+    if (booking.live_mode !== undefined) html += `<div class="detail"><span style="color:#94a3b8;">Mode</span><strong>${booking.live_mode ? 'LIVE' : 'TEST'}</strong></div>`;
+    html += `</div>`;
+
+    // Message
+    if (booking.message) {
+      html += `<div style="background:#064e3b;padding:1rem;border-radius:0.5rem;color:#d1fae5;font-size:0.9rem;margin-bottom:1rem;">
+        ℹ️ ${booking.message}
+      </div>`;
+    }
+
+    // Next steps
+    if (booking.next_steps && Array.isArray(booking.next_steps)) {
+      html += `<div style="color:#cbd5e1;font-size:0.9rem;">
+        <strong>Next Steps:</strong>
+        <ul style="margin:0.5rem 0 0;">`;
+      for (const step of booking.next_steps) {
+        html += `<li>${step}</li>`;
+      }
+      html += `</ul></div>`;
+    }
+
+    // Link to Duffel dashboard
+    html += `<div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid #334155;">
+      <a href="https://duffel.com/dashboard" target="_blank" style="color:#0ea5e9;text-decoration:none;">
+        → View order in Duffel Dashboard
+      </a>
+    </div>`;
+
+    html += jsonToggle(data);
+    container.innerHTML = html;
+
+  } catch (err) {
+    showError(container, 'Could not reach backend: ' + err.message);
+  }
+});
+
   try {
     const res = await fetch(API + '/api/amadeus/clear-cache', {method:'POST'});
     const data = await res.json();
