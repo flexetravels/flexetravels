@@ -384,12 +384,16 @@ def get_chat_response(session: dict, user_message: str) -> str:
         tools = _get_chat_tools()
         max_tool_rounds = 6  # Allow up to 6 tool calls per user message
 
+        # Inject current date so Claude uses the right year for date parsing
+        today = datetime.now().strftime("%Y-%m-%d")
+        system_with_date = f"Today's date is {today}. When users mention months without specifying a year, always use {datetime.now().year} (or {datetime.now().year + 1} if the date has already passed this year).\n\n{CHAT_SYSTEM_PROMPT}"
+
         for _ in range(max_tool_rounds):
             response = client.messages.create(
                 model=CLAUDE_MODEL,
                 max_tokens=CLAUDE_MAX_TOKENS,
                 temperature=CLAUDE_TEMPERATURE,
-                system=CHAT_SYSTEM_PROMPT,
+                system=system_with_date,
                 tools=tools,
                 messages=messages,
             )
