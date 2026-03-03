@@ -111,6 +111,57 @@ FlexeTravels is an AI-powered travel agency platform that uses Claude AI and the
 
 ---
 
+### 7. **Live Deployment** ✅ *(March 2026)*
+
+**Site is now live at https://flexetravels.com**
+
+**Live URLs**:
+- **Frontend**: https://flexetravels.com (Vercel)
+- **Backend API**: https://flexetravels-production.up.railway.app (Railway)
+- **GitHub**: https://github.com/flexetravels/flexetravels
+
+**Deployment Steps Completed**:
+1. Initialized git repository with 69 files committed
+2. Pushed to GitHub (`flexetravels/flexetravels`, public repo)
+3. Deployed backend to Railway.app → Status: **Online** ✅
+4. Generated public Railway domain (`flexetravels-production.up.railway.app`)
+5. Added all environment variables in Railway (API keys, SMTP config)
+6. Deployed frontend to Vercel → Auto-deploys on every `git push` ✅
+7. Added `flexetravels.com` domain in Vercel
+8. Fixed DNS in Namecheap (see DNS Fix below)
+9. Site confirmed working end-to-end ✅
+
+**Bugs Fixed During Deployment**:
+
+**Bug 1 — Railway build failure (requirements.txt)**
+- **Error**: `Could not install packages due to an OSError: /AppleInternal/Library/BuildRoots/...`
+- **Root cause**: `pip freeze` on macOS captured 4 Apple-internal packages with `file://` paths pointing to Mac build directories that don't exist on Railway's Linux servers (`altgraph`, `future`, `macholib`, `six`)
+- **Fix**: Rewrote `requirements.txt` from scratch with only the ~30 packages actually used by the backend. Removed all unused libraries (langchain, google-generativeai, streamlit, supabase, pandas, etc.)
+
+**Bug 2 — API_BASE scope error (tour cards stuck on skeleton)**
+- **Error**: Tour cards showed skeleton loading but never populated
+- **Root cause**: `fetchFeaturedTours()` was defined at the top level of `app.js`, but `API_BASE` was a `const` declared inside the `DOMContentLoaded` callback — a different scope. The function fell back to a hardcoded `http://localhost:8000` URL which fails in production.
+- **Fix**: Moved `API_BASE` to global scope at the very top of `app.js` (line 7), removed the local declaration inside the callback, and updated `fetchFeaturedTours()` to use the global constant.
+
+**Bug 3 — Railway internal URL used instead of public URL**
+- **Error**: `API_BASE` was set to `flexetravels.railway.internal` — Railway's private network hostname, not reachable from browsers
+- **Fix**: In Railway → Settings → Networking → clicked **Generate Domain** to get the public URL (`flexetravels-production.up.railway.app`)
+
+**DNS Fix (Namecheap)**
+- **Problem**: "Invalid Configuration" in Vercel — 4 conflicting A records plus a wrong CNAME for `www`
+- **Records deleted**:
+  - A @ `107.23.157.161` (old)
+  - A @ `34.206.170.199` (old)
+  - A @ `44.197.32.160` (old)
+  - A @ `44.219.244.211` (old)
+  - CNAME www → `flexetravels.com.` (pointed to itself — wrong)
+- **Records kept**:
+  - A @ `216.198.79.1` ← Vercel's IP
+  - CNAME www → `b747e5f49e358475.vercel-dns-017.com.` ← Vercel verification
+  - TXT records for Neomail SPF/DKIM (untouched)
+
+---
+
 ## System Architecture (Updated)
 
 ```
@@ -732,25 +783,26 @@ docker-compose up
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| **Travel Chatbot** | ✅ Production | Real Amadeus pricing |
-| **Dynamic Tours** | ✅ Production | IP geolocation + Unsplash |
-| **Marketing Workflow** | ✅ Production | Weekly campaigns working |
-| **Email System** | ✅ Production | Neomail SMTP configured |
-| **Frontend** | ✅ Ready | Deployment-ready |
-| **Backend** | ✅ Ready | Railway-compatible |
-| **Deployment** | ✅ Ready | Free stack (Railway + Vercel) |
+| **Travel Chatbot** | ✅ Live | Real Amadeus pricing at flexetravels.com |
+| **Dynamic Tours** | ✅ Live | IP geolocation + Unsplash images loading |
+| **Marketing Workflow** | ✅ Live | Weekly campaigns via Railway endpoint |
+| **Email System** | ✅ Live | Neomail SMTP confirmed working |
+| **Frontend** | ✅ Live | https://flexetravels.com (Vercel) |
+| **Backend** | ✅ Live | https://flexetravels-production.up.railway.app |
+| **Domain** | ✅ Live | flexetravels.com → Vercel (DNS propagated) |
+| **GitHub** | ✅ Live | https://github.com/flexetravels/flexetravels |
 | **Documentation** | ✅ Complete | All guides created |
 
 ---
 
 ## 🚀 Next Steps
 
-### Immediate (Today)
-1. Push code to GitHub
-2. Deploy backend to Railway.app
-3. Deploy frontend to Vercel
-4. Configure domain (flexetravels.com → Vercel)
-5. Test live on https://flexetravels.com
+### Immediate (Done ✅)
+- [x] Push code to GitHub
+- [x] Deploy backend to Railway.app
+- [x] Deploy frontend to Vercel
+- [x] Configure domain (flexetravels.com → Vercel)
+- [x] Test live on https://flexetravels.com
 
 ### Short-term (This Week)
 1. Monitor production logs
@@ -806,11 +858,12 @@ docker-compose up
 ### Debug Commands
 
 ```bash
-# Test featured tours API
-curl https://your-railway-url/api/featured-tours?test_city=London
+# Test featured tours API (production)
+curl https://flexetravels-production.up.railway.app/api/featured-tours
+curl "https://flexetravels-production.up.railway.app/api/featured-tours?test_city=London"
 
-# Test marketing workflow
-curl -X POST https://your-railway-url/api/marketing/run-weekly
+# Test marketing workflow (production)
+curl -X POST https://flexetravels-production.up.railway.app/api/marketing/run-weekly
 
 # View recent logs
 tail -50 backend/logs/flexetravels.log
