@@ -112,7 +112,7 @@ async function fetchFeaturedTours() {
 document.addEventListener('DOMContentLoaded', () => {
 
   // ── Config ──────────────────────────────────────────────
-  const API_BASE = 'flexetravels.railway.internal';
+  const API_BASE = 'https://flexetravels-production.up.railway.app';
   let sessionId = null;
   let currentPhase = 'chat';
 
