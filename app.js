@@ -4,6 +4,8 @@
    Connected to FastAPI + Claude AI Backend
    ============================================================ */
 
+const API_BASE = 'https://flexetravels-production.up.railway.app';
+
 // ────────────────────────────────────────────────────────
 // Dynamic Featured Tours — render tour card HTML from API data
 // ────────────────────────────────────────────────────────
@@ -82,8 +84,8 @@ async function fetchFeaturedTours() {
     return;
   }
   try {
-    console.log('🚀 Fetching featured tours from http://localhost:8000/api/featured-tours');
-    const res = await fetch(`http://localhost:8000/api/featured-tours`);
+    console.log('🚀 Fetching featured tours from ' + API_BASE + '/api/featured-tours');
+    const res = await fetch(`${API_BASE}/api/featured-tours`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     console.log('✅ Featured tours API response:', data);
@@ -112,7 +114,6 @@ async function fetchFeaturedTours() {
 document.addEventListener('DOMContentLoaded', () => {
 
   // ── Config ──────────────────────────────────────────────
-  const API_BASE = 'https://flexetravels-production.up.railway.app';
   let sessionId = null;
   let currentPhase = 'chat';
 
