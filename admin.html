@@ -611,6 +611,7 @@ async function checkStatus() {
       fetch(API + '/api/health').then(r => r.json()),
       fetch(API + '/api/amadeus/status').then(r => r.json()),
     ]);
+    const activeTravelApi = health.active_travel_api || 'amadeus';
 
     const chips = [];
     // Claude
@@ -618,16 +619,26 @@ async function checkStatus() {
     chips.push(`<span class="status-chip status-chip--${claudeOk ? 'live' : 'off'}">
       <span class="status-dot status-dot--${claudeOk ? 'live' : 'off'}"></span>Claude AI: ${claudeOk ? 'Connected' : 'Off'}</span>`);
 
-    // Amadeus
-    const amaLive = amadeus.connection === 'live';
-    const amaConfigured = amadeus.configured;
-    const amaClass = amaLive ? 'live' : (amaConfigured ? 'mock' : 'off');
-    const amaText = amaLive ? 'Live API' : (amaConfigured ? 'Configured (testing...)' : 'Not Configured');
-    chips.push(`<span class="status-chip status-chip--${amaClass}">
-      <span class="status-dot status-dot--${amaClass}"></span>Amadeus: ${amaText}</span>`);
+    // Flight API status — show active provider
+    if (activeTravelApi === 'duffel') {
+      const dufClass = health.services?.duffel_api ? 'live' : 'off';
+      const dufText = health.services?.duffel_api ? 'Live API' : 'Not Configured';
+      chips.push(`<span class="status-chip status-chip--${dufClass}" style="background:rgba(109,40,217,0.15);border-color:#6d28d9;">
+        <span class="status-dot status-dot--${dufClass}"></span>Duffel: ${dufText}</span>`);
+    } else {
+      const amaLive = amadeus.connection === 'live';
+      const amaConfigured = amadeus.configured;
+      const amaClass = amaLive ? 'live' : (amaConfigured ? 'mock' : 'off');
+      const amaText = amaLive ? 'Live API' : (amaConfigured ? 'Configured (testing...)' : 'Not Configured');
+      chips.push(`<span class="status-chip status-chip--${amaClass}">
+        <span class="status-dot status-dot--${amaClass}"></span>Amadeus: ${amaText}</span>`);
+    }
+
+    // Store active API for use in search
+    window._activeApi = activeTravelApi;
 
     // Sandbox/Production indicator
-    const envType = amadeus.environment || 'test';
+    const envType = activeTravelApi === 'duffel' ? 'duffel_test' : (amadeus.environment || 'test');
     const isSandbox = envType === 'test' || !envType.includes('production');
     chips.push(`<span class="status-chip status-chip--${isSandbox ? 'mock' : 'live'}">
       ${isSandbox ? 'SANDBOX' : 'PRODUCTION'} — ${isSandbox ? 'Test data, not real prices' : 'Live market prices'}</span>`);
@@ -665,6 +676,9 @@ function showError(container, msg) {
 }
 
 function sourceTag(src) {
+  if (src === 'duffel_live_api' || src === 'duffel') {
+    return `<span class="results__source results__source--live" style="background:#6d28d9;">DUFFEL LIVE</span>`;
+  }
   if (src === 'amadeus_live_api' || src === 'amadeus') {
     return `<span class="results__source results__source--live">AMADEUS LIVE</span>`;
   } else if (src === 'google_flights') {
@@ -696,10 +710,13 @@ function jsonToggle(data) {
 document.getElementById('form-flights').addEventListener('submit', async (e) => {
   e.preventDefault();
   const container = document.getElementById('results-flights');
-  showLoading(container, 'Searching Amadeus for flights...');
+  const activeApi = window._activeApi || 'amadeus';
+  const flightEndpoint = activeApi === 'duffel' ? '/api/duffel/flights' : '/api/amadeus/flights';
+  const providerName = activeApi === 'duffel' ? 'Duffel' : 'Amadeus';
+  showLoading(container, `Searching ${providerName} for flights...`);
 
   try {
-    const res = await fetch(API + '/api/amadeus/flights', {
+    const res = await fetch(API + flightEndpoint, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({

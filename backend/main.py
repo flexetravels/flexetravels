@@ -822,6 +822,36 @@ async def search_flights_direct(request: AmadeusFlightSearch):
     }
 
 
+@app.post("/api/duffel/flights")
+async def search_duffel_flights(request: AmadeusFlightSearch):
+    """Direct Duffel flight search — global coverage, real pricing."""
+    from tools.duffel_flights import DuffelFlightsTool
+    import json as _json
+
+    tool = DuffelFlightsTool()
+    raw_result = tool._run(
+        origin=request.origin.upper(),
+        destination=request.destination.upper(),
+        departure_date=request.departure_date,
+        return_date=request.return_date or "",
+        adults=request.adults,
+    )
+
+    parsed = _json.loads(raw_result)
+    source = "duffel_live_api" if parsed.get("status") == "success" else "api_error"
+
+    return {
+        "source": source,
+        "query": {
+            "origin": request.origin.upper(),
+            "destination": request.destination.upper(),
+            "departure_date": request.departure_date,
+            "return_date": request.return_date,
+            "adults": request.adults,
+        },
+        "data": parsed,
+    }
+
 @app.post("/api/amadeus/hotels")
 async def search_hotels_direct(request: AmadeusHotelSearch):
     """Direct Amadeus hotel search — uses new tool with real pricing."""
