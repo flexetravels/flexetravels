@@ -674,9 +674,10 @@ function showLoading(container, msg) {
 function showError(container, msg) {
   // Handle multi-line errors with proper formatting
   const lines = msg.split('\n').map(line => line.replace(/</g, '&lt;').replace(/>/g, '&gt;'));
-  const html = lines.map(line => {
-    if (line.startsWith('Details:')) {
-      return `<div style="margin-top:1rem;padding:0.75rem;background:#0d1117;border-left:2px solid #f87171;font-family:monospace;font-size:0.75rem;overflow-x:auto;">${line}</div>`;
+  const html = lines.map((line, idx) => {
+    // Format code blocks and details sections
+    if (line.startsWith('Details:') || line.startsWith('Why:') || line.startsWith('{') || line.startsWith('[')) {
+      return `<div style="margin-top:1rem;padding:0.75rem;background:#0d1117;border-left:2px solid #f87171;font-family:monospace;font-size:0.75rem;overflow-x:auto;line-height:1.5;">${line}</div>`;
     }
     return line;
   }).join('<br>');
@@ -982,16 +983,18 @@ document.getElementById('form-booking').addEventListener('submit', async (e) => 
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      let errorMsg = `Error ${res.status}: `;
-      if (data.message) errorMsg += data.message;
-      else if (data.detail) errorMsg += data.detail;
-      else if (data.errors) errorMsg += JSON.stringify(data.errors);
-      else errorMsg += 'Unknown error';
+      let errorMsg = `Error ${res.status}`;
+      if (data.message) errorMsg += `: ${data.message}`;
+      else errorMsg += ': Request failed';
 
       // Add details if available
       let fullError = errorMsg;
       if (data.details) {
-        fullError += '\n\nDetails: ' + (typeof data.details === 'string' ? data.details : JSON.stringify(data.details, null, 2));
+        if (typeof data.details === 'string') {
+          fullError += '\n\nWhy: ' + data.details;
+        } else {
+          fullError += '\n\nDetails:\n' + JSON.stringify(data.details, null, 2);
+        }
       }
 
       showError(container, fullError);
@@ -1002,9 +1005,13 @@ document.getElementById('form-booking').addEventListener('submit', async (e) => 
 
     // Check if booking was actually created
     if (!booking.order_id && booking.status !== 'pending') {
-      let errorMsg = booking.message || 'Booking failed';
-      if (data.details) {
-        errorMsg += '\n\nDetails: ' + (typeof data.details === 'string' ? data.details : JSON.stringify(data.details, null, 2));
+      let errorMsg = booking.message || `Booking failed (${booking.status || 'unknown error'})`;
+      if (booking.details) {
+        if (typeof booking.details === 'string') {
+          errorMsg += '\n\nWhy: ' + booking.details;
+        } else {
+          errorMsg += '\n\nDetails:\n' + JSON.stringify(booking.details, null, 2);
+        }
       }
       showError(container, errorMsg);
       return;

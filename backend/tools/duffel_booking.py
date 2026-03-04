@@ -156,19 +156,32 @@ class DuffelBookingTool:
             if response.status_code not in [200, 201]:
                 error_text = response.text
                 error_json = {}
+                error_messages = []
+
                 try:
                     error_json = response.json()
+                    # Extract error messages from Duffel errors array
+                    if "errors" in error_json and isinstance(error_json["errors"], list):
+                        for err in error_json["errors"]:
+                            if isinstance(err, dict):
+                                # Try to get a meaningful message
+                                msg = err.get("message") or err.get("title") or str(err)
+                                error_messages.append(msg)
                 except:
                     pass
 
                 logger.warning(
                     f"Duffel order creation failed: {response.status_code} - {error_text[:500]}"
                 )
+
+                # Use extracted messages or fall back to raw error
+                error_details = "\n".join(error_messages) if error_messages else error_json.get("errors", error_text) if error_json else error_text
+
                 return {
                     "status": "api_error",
                     "error_code": response.status_code,
                     "message": f"Duffel API error: {response.status_code}",
-                    "details": error_json.get("errors", error_text) if error_json else error_text,
+                    "details": error_details,
                 }
 
             order_data = response.json().get("data", {})
