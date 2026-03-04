@@ -1002,7 +1002,10 @@ document.getElementById('form-booking').addEventListener('submit', async (e) => 
 
     // Check if booking was actually created
     if (!booking.order_id && booking.status !== 'pending') {
-      const errorMsg = booking.message || `Booking failed: ${JSON.stringify(booking).slice(0, 100)}`;
+      let errorMsg = booking.message || 'Booking failed';
+      if (data.details) {
+        errorMsg += '\n\nDetails: ' + (typeof data.details === 'string' ? data.details : JSON.stringify(data.details, null, 2));
+      }
       showError(container, errorMsg);
       return;
     }

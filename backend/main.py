@@ -13,7 +13,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 import sys
@@ -991,7 +991,7 @@ async def clear_amadeus_cache():
 async def create_duffel_booking(request: DuffelBookingRequest):
     """Create a flight booking (order/PNR) on Duffel API — Test Mode."""
     from tools.duffel_booking import DuffelBookingTool
-    
+
     tool = DuffelBookingTool()
     raw_result = tool._run(
         offer_id=request.offer_id,
@@ -1000,12 +1000,25 @@ async def create_duffel_booking(request: DuffelBookingRequest):
         passenger_phone=request.passenger_phone,
         passenger_dob=request.passenger_dob,
     )
-    
+
     import json as _json
     result = _json.loads(raw_result)
-    
+
+    # If booking failed, return error response with proper HTTP status
+    if result.get("status") != "pending":
+        error_code = result.get("error_code", 400)
+        return JSONResponse(
+            status_code=error_code,
+            content={
+                "status": result.get("status", "error"),
+                "booking": result,
+                "message": result.get("message", ""),
+                "details": result.get("details", ""),
+            }
+        )
+
     return {
-        "status": "success" if result.get("status") == "pending" else result.get("status"),
+        "status": "success",
         "booking": result,
         "message": result.get("message", ""),
     }
