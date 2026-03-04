@@ -255,6 +255,7 @@ class DuffelFlightsTool:
                     "currency": price_currency,
                     "travel_class": offer.get("cabin_class", "economy").lower(),
                     "number_of_passengers": offer.get("passengers_count", 1),
+                    "expires_at": offer.get("expires_at", ""),
                     "source": "duffel",
                 }
 

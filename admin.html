@@ -761,6 +761,7 @@ document.getElementById('form-flights').addEventListener('submit', async (e) => 
           <span class="card__detail">Departs: ${f.departure_time || '-'}</span>
           <span class="card__detail">Arrives: ${f.arrival_time || '-'}</span>
           <span class="card__detail">Duration: ${duration}</span>
+          ${f.expires_at ? `<span class="card__detail" style="color:#fbbf24;font-size:0.75rem;">⏰ Expires: ${new Date(f.expires_at).toLocaleTimeString()}</span>` : ''}
         </div>
         ${stopsTag}
         ${f.offer_id ? `<span class="card__tag card__tag--id" style="cursor:pointer;display:inline-flex;align-items:center;gap:0.4rem;" onclick="
@@ -973,7 +974,12 @@ document.getElementById('form-booking').addEventListener('submit', async (e) => 
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      showError(container, `Error ${res.status}: ${data.detail || data.message || JSON.stringify(data)}`);
+      let errorMsg = `Error ${res.status}`;
+      if (data.detail) errorMsg += `: ${data.detail}`;
+      else if (data.message) errorMsg += `: ${data.message}`;
+      else if (data.errors) errorMsg += `: ${JSON.stringify(data.errors)}`;
+      else if (res.status === 422) errorMsg += ': Invalid offer ID (may be expired — try a fresh search)';
+      showError(container, errorMsg);
       return;
     }
 
@@ -981,7 +987,8 @@ document.getElementById('form-booking').addEventListener('submit', async (e) => 
 
     // Check if booking was actually created
     if (!booking.order_id && booking.status !== 'pending') {
-      showError(container, `Booking failed: ${booking.message || JSON.stringify(booking)}`);
+      const errorMsg = booking.message || `Booking failed: ${JSON.stringify(booking).slice(0, 100)}`;
+      showError(container, errorMsg);
       return;
     }
 
