@@ -143,6 +143,7 @@ class DuffelBookingTool:
             }
 
             logger.info(f"Creating Duffel order for offer {offer_id}")
+            logger.debug(f"Order payload: {json.dumps(order_payload, indent=2)}")
 
             # Create the order
             response = requests.post(
@@ -151,6 +152,8 @@ class DuffelBookingTool:
                 headers=self.headers,
                 timeout=15,
             )
+
+            logger.debug(f"Duffel response status: {response.status_code}")
 
             if response.status_code not in [200, 201]:
                 error_text = response.text
@@ -179,7 +182,9 @@ class DuffelBookingTool:
                     logger.error(f"Error parsing Duffel errors: {e}")
 
                 logger.warning(
-                    f"Duffel order creation failed: {response.status_code} - {error_text[:500]}"
+                    f"Duffel order creation failed: {response.status_code}\n"
+                    f"Error text: {error_text[:1000]}\n"
+                    f"Error JSON: {json.dumps(error_json, indent=2) if error_json else 'N/A'}"
                 )
 
                 # Use extracted messages or fall back to raw error
