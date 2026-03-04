@@ -763,7 +763,14 @@ document.getElementById('form-flights').addEventListener('submit', async (e) => 
           <span class="card__detail">Duration: ${duration}</span>
         </div>
         ${stopsTag}
-        ${f.offer_id ? `<span class="card__tag card__tag--id">ID: ${f.offer_id}</span>` : ''}
+        ${f.offer_id ? `<span class="card__tag card__tag--id" style="cursor:pointer;display:inline-flex;align-items:center;gap:0.4rem;" onclick="
+          navigator.clipboard.writeText('${f.offer_id}').then(() => {
+            const tag = event.target;
+            const original = tag.textContent;
+            tag.textContent = '✓ Copied!';
+            setTimeout(() => { tag.textContent = original; }, 2000);
+          });
+        ">📋 ${f.offer_id}</span>` : ''}
       </div>`;
     }
     html += '</div>';
@@ -945,11 +952,17 @@ document.getElementById('form-booking').addEventListener('submit', async (e) => 
   showLoading(container, 'Creating booking (PNR)...');
 
   try {
+    const offerIdValue = document.getElementById('bk-offer-id').value.trim();
+    if (!offerIdValue) {
+      showError(container, 'Please paste the Offer ID from flight search results');
+      return;
+    }
+
     const res = await fetch(API + '/api/duffel/booking', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        offer_id: document.getElementById('bk-offer-id').value,
+        offer_id: offerIdValue,
         passenger_name: document.getElementById('bk-name').value,
         passenger_email: document.getElementById('bk-email').value,
         passenger_phone: document.getElementById('bk-phone').value,
@@ -957,14 +970,20 @@ document.getElementById('form-booking').addEventListener('submit', async (e) => 
       }),
     });
 
+    const data = await res.json().catch(() => ({}));
+
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      showError(container, `Error ${res.status}: ${err.detail || JSON.stringify(err)}`);
+      showError(container, `Error ${res.status}: ${data.detail || data.message || JSON.stringify(data)}`);
       return;
     }
 
-    const data = await res.json();
-    const booking = data.booking || {};
+    const booking = data.booking || data || {};
+
+    // Check if booking was actually created
+    if (!booking.order_id && booking.status !== 'pending') {
+      showError(container, `Booking failed: ${booking.message || JSON.stringify(booking)}`);
+      return;
+    }
 
     let html = `<div class="results__header">
       <span class="results__title" style="color:#10b981;">✓ Booking Created!</span>
