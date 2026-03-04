@@ -164,18 +164,32 @@ class DuffelBookingTool:
                     if "errors" in error_json and isinstance(error_json["errors"], list):
                         for err in error_json["errors"]:
                             if isinstance(err, dict):
-                                # Try to get a meaningful message
-                                msg = err.get("message") or err.get("title") or str(err)
-                                error_messages.append(msg)
-                except:
-                    pass
+                                # Get error type (usually the actual error code)
+                                error_type = err.get("type", "")
+                                # Get human-readable message
+                                message = err.get("message", "")
+                                title = err.get("title", "")
+
+                                if error_type:
+                                    error_messages.append(f"{error_type}: {message or title}")
+                                elif message:
+                                    error_messages.append(message)
+                                elif title:
+                                    error_messages.append(title)
+                except Exception as e:
+                    logger.error(f"Error parsing Duffel errors: {e}")
 
                 logger.warning(
                     f"Duffel order creation failed: {response.status_code} - {error_text[:500]}"
                 )
 
                 # Use extracted messages or fall back to raw error
-                error_details = "\n".join(error_messages) if error_messages else error_json.get("errors", error_text) if error_json else error_text
+                if error_messages:
+                    error_details = "\n".join(error_messages)
+                elif error_json.get("errors"):
+                    error_details = json.dumps(error_json.get("errors"), indent=2)
+                else:
+                    error_details = error_text
 
                 return {
                     "status": "api_error",
