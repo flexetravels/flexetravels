@@ -154,14 +154,21 @@ class DuffelBookingTool:
             )
 
             if response.status_code not in [200, 201]:
+                error_text = response.text
+                error_json = {}
+                try:
+                    error_json = response.json()
+                except:
+                    pass
+
                 logger.warning(
-                    f"Duffel order creation failed: {response.status_code} - {response.text[:300]}"
+                    f"Duffel order creation failed: {response.status_code} - {error_text[:500]}"
                 )
                 return {
                     "status": "api_error",
                     "error_code": response.status_code,
                     "message": f"Duffel API error: {response.status_code}",
-                    "details": response.text[:200],
+                    "details": error_json.get("errors", error_text) if error_json else error_text,
                 }
 
             order_data = response.json().get("data", {})

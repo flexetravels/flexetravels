@@ -672,7 +672,15 @@ function showLoading(container, msg) {
 }
 
 function showError(container, msg) {
-  container.innerHTML = `<div class="error-msg">${msg}</div>`;
+  // Handle multi-line errors with proper formatting
+  const lines = msg.split('\n').map(line => line.replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+  const html = lines.map(line => {
+    if (line.startsWith('Details:')) {
+      return `<div style="margin-top:1rem;padding:0.75rem;background:#0d1117;border-left:2px solid #f87171;font-family:monospace;font-size:0.75rem;overflow-x:auto;">${line}</div>`;
+    }
+    return line;
+  }).join('<br>');
+  container.innerHTML = `<div class="error-msg" style="white-space:pre-wrap;">${html}</div>`;
 }
 
 function sourceTag(src) {
@@ -974,12 +982,19 @@ document.getElementById('form-booking').addEventListener('submit', async (e) => 
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      let errorMsg = `Error ${res.status}`;
-      if (data.detail) errorMsg += `: ${data.detail}`;
-      else if (data.message) errorMsg += `: ${data.message}`;
-      else if (data.errors) errorMsg += `: ${JSON.stringify(data.errors)}`;
-      else if (res.status === 422) errorMsg += ': Invalid offer ID (may be expired — try a fresh search)';
-      showError(container, errorMsg);
+      let errorMsg = `Error ${res.status}: `;
+      if (data.message) errorMsg += data.message;
+      else if (data.detail) errorMsg += data.detail;
+      else if (data.errors) errorMsg += JSON.stringify(data.errors);
+      else errorMsg += 'Unknown error';
+
+      // Add details if available
+      let fullError = errorMsg;
+      if (data.details) {
+        fullError += '\n\nDetails: ' + (typeof data.details === 'string' ? data.details : JSON.stringify(data.details, null, 2));
+      }
+
+      showError(container, fullError);
       return;
     }
 
