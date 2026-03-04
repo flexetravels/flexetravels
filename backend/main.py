@@ -265,17 +265,17 @@ def _get_chat_tools():
             }
         })
         tools.append({
-            "name": "duffel_stays_search",
+            "name": "amadeus_hotels_search",
             "description": (
-                "Search hotel and accommodation availability via Duffel API with GLOBAL coverage (millions of properties). "
-                "Works for any city worldwide. Returns real prices per night and total stay cost."
+                "Search hotel availability and live pricing with global coverage. "
+                "Returns real prices per night and total stay cost. Works for any city worldwide with automatic SerpAPI fallback for unsupported cities."
             ),
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "city_code": {
                         "type": "string",
-                        "description": "City code or IATA airport code (3 letters, e.g., NYC, JFK, PAR, LON, TYO). Required."
+                        "description": "City name or IATA city code (e.g., NYC, LAX, PAR, LON, TYO, Bangkok). Required."
                     },
                     "check_in_date": {
                         "type": "string",
@@ -296,15 +296,12 @@ def _get_chat_tools():
                     "max_price_per_night": {
                         "type": "integer",
                         "description": "Maximum price per night in USD. 0 = no limit. Optional."
-                    },
-                    "min_star_rating": {
-                        "type": "integer",
-                        "description": "Minimum star rating (0-5). 0 = no filter. Optional."
                     }
                 },
                 "required": ["city_code", "check_in_date", "check_out_date"]
             }
         })
+
         tools.append({
             "name": "amadeus_experiences_search",
             "description": (
@@ -468,18 +465,6 @@ def _execute_chat_tool(tool_name: str, tool_input: dict, session_id: str = "") -
                 travel_class=tool_input.get("travel_class", "economy").lower(),
             )
 
-        elif tool_name == "duffel_stays_search":
-            from tools.duffel_stays import DuffelStaysTool
-            tool = DuffelStaysTool()
-            return tool._run(
-                city_code=tool_input.get("city_code", "").upper(),
-                check_in_date=tool_input.get("check_in_date", ""),
-                check_out_date=tool_input.get("check_out_date", ""),
-                adults=tool_input.get("adults", 1),
-                rooms=tool_input.get("rooms", 1),
-                max_price_per_night=tool_input.get("max_price_per_night", 0),
-                min_star_rating=tool_input.get("min_star_rating", 0),
-            )
 
         # Handle Amadeus tools
         elif tool_name == "amadeus_flights_search":
