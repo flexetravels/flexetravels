@@ -111,9 +111,9 @@ class DuffelBookingTool:
             passenger_id = str(uuid.uuid4())
 
             # Build order payload (Duffel v2 API format)
+            # Note: Removed "type": "instant" as it's not part of the v2 API spec
             order_payload = {
                 "data": {
-                    "type": "instant",
                     "selected_offers": [offer_id],  # Array of offer IDs to book
                     "passengers": [
                         {
@@ -132,7 +132,6 @@ class DuffelBookingTool:
                         "email": passenger_email,
                         "phone_number": passenger_phone,
                     },
-                    "live_mode": False,  # Test mode
                     "payments": [
                         {
                             "type": "balance",
