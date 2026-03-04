@@ -558,6 +558,16 @@
           <input type="text" id="bk-offer-id" placeholder="paste offer_id from flights search" required>
         </div>
         <div class="field">
+          <label>Title</label>
+          <select id="bk-title" required>
+            <option value="mr">Mr</option>
+            <option value="mrs">Mrs</option>
+            <option value="ms">Ms</option>
+            <option value="miss">Miss</option>
+            <option value="dr">Dr</option>
+          </select>
+        </div>
+        <div class="field">
           <label>Passenger Name</label>
           <input type="text" id="bk-name" placeholder="John Doe" required>
         </div>
@@ -973,6 +983,7 @@ document.getElementById('form-booking').addEventListener('submit', async (e) => 
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         offer_id: offerIdValue,
+        passenger_title: document.getElementById('bk-title').value,
         passenger_name: document.getElementById('bk-name').value,
         passenger_email: document.getElementById('bk-email').value,
         passenger_phone: document.getElementById('bk-phone').value,

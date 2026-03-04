@@ -180,6 +180,7 @@ class AmadeusItineraryRequest(BaseModel):
 
 class DuffelBookingRequest(BaseModel):
     offer_id: str = Field(..., description="Flight offer ID from search results")
+    passenger_title: str = Field(default="mr", description="Title (mr, mrs, ms, miss, dr, etc.)")
     passenger_name: str = Field(..., description="Full passenger name (e.g., John Doe)")
     passenger_email: str = Field(..., description="Passenger email address")
     passenger_phone: str = Field(default="+1555123456", description="Phone number with country code")
@@ -999,6 +1000,7 @@ async def create_duffel_booking(request: DuffelBookingRequest):
         passenger_email=request.passenger_email,
         passenger_phone=request.passenger_phone,
         passenger_dob=request.passenger_dob,
+        passenger_title=request.passenger_title,
     )
 
     import json as _json
