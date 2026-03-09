@@ -1,0 +1,133 @@
+// ─── Duffel Search Provider ────────────────────────────────────────────────────
+// Docs: https://duffel.com/docs/api
+// Test mode: DUFFEL_ACCESS_TOKEN starts with "duffel_test_"
+// Rate limits: 10 req/s test, 100 req/s live
+
+import type {
+  SearchProvider, FlightSearchParams, HotelSearchParams,
+  NormalizedFlight, NormalizedHotel,
+} from './types';
+
+// ─── Duffel raw API types ──────────────────────────────────────────────────────
+interface DuffelSegment {
+  origin:       { iata_code: string };
+  destination:  { iata_code: string };
+  departing_at: string;
+  arriving_at:  string;
+  duration:     string;
+  marketing_carrier:               { iata_code: string; name: string; logo_symbol_url?: string };
+  marketing_carrier_flight_number: string;
+}
+interface DuffelSlice {
+  duration: string;
+  segments: DuffelSegment[];
+}
+interface DuffelOffer {
+  id:             string;
+  total_amount:   string;
+  total_currency: string;
+  owner:          { name: string; logo_symbol_url?: string };
+  slices:         DuffelSlice[];
+  conditions?:    { refund_before_departure?: { allowed: boolean } };
+}
+
+/** Convert Duffel ISO 8601 duration (PT14H20M) → "14h 20m" */
+function fmtDuration(iso: string): string {
+  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?/);
+  if (!m) return iso;
+  const h   = m[1] ? `${m[1]}h` : '';
+  const min = m[2] ? ` ${m[2]}m` : '';
+  return `${h}${min}`.trim() || iso;
+}
+
+function mapOffer(offer: DuffelOffer, cabinClass: string): NormalizedFlight {
+  const slice0 = offer.slices?.[0];
+  const segs   = slice0?.segments ?? [];
+  const first  = segs[0];
+  const last   = segs[segs.length - 1];
+
+  return {
+    id:           offer.id,
+    provider:     'duffel',
+    airline:      offer.owner?.name ?? 'Unknown',
+    airlineLogo:  offer.owner?.logo_symbol_url,
+    origin:       first?.origin?.iata_code ?? '',
+    destination:  last?.destination?.iata_code ?? '',
+    departure:    first?.departing_at ?? '',
+    arrival:      last?.arriving_at ?? '',
+    duration:     fmtDuration(slice0?.duration ?? ''),
+    stops:        segs.length - 1,
+    stopAirports: segs.slice(0, -1).map(s => s.destination?.iata_code ?? ''),
+    price:        parseFloat(offer.total_amount ?? '0'),
+    currency:     offer.total_currency ?? 'USD',
+    cabinClass,
+    refundable:   offer.conditions?.refund_before_departure?.allowed ?? false,
+    bookingToken: offer.id,
+    segments:     segs.map(seg => ({
+      origin:       seg.origin?.iata_code ?? '',
+      destination:  seg.destination?.iata_code ?? '',
+      departure:    seg.departing_at ?? '',
+      arrival:      seg.arriving_at ?? '',
+      duration:     fmtDuration(seg.duration ?? ''),
+      carrier:      seg.marketing_carrier?.name ?? '',
+      flightNumber: `${seg.marketing_carrier?.iata_code ?? ''}${seg.marketing_carrier_flight_number ?? ''}`,
+    })),
+  };
+}
+
+export class DuffelProvider implements SearchProvider {
+  readonly name = 'duffel';
+  private readonly token: string;
+  private readonly baseUrl = 'https://api.duffel.com';
+
+  constructor(token: string) {
+    this.token = token;
+  }
+
+  private get headers() {
+    return {
+      Authorization:    `Bearer ${this.token}`,
+      'Duffel-Version': 'v2',
+      'Content-Type':   'application/json',
+      Accept:           'application/json',
+    };
+  }
+
+  async searchFlights(params: FlightSearchParams): Promise<NormalizedFlight[]> {
+    const slices: { origin: string; destination: string; departure_date: string }[] = [
+      { origin: params.origin, destination: params.destination, departure_date: params.departureDate },
+    ];
+    if (params.returnDate) {
+      slices.push({ origin: params.destination, destination: params.origin, departure_date: params.returnDate });
+    }
+
+    const res = await fetch(`${this.baseUrl}/air/offer_requests?return_offers=true`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({
+        data: {
+          slices,
+          passengers: Array.from({ length: params.adults }, () => ({ type: 'adult' })),
+          cabin_class: params.cabinClass,
+        },
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Duffel ${res.status}: ${txt.slice(0, 200)}`);
+    }
+
+    const json = await res.json() as { data?: { offers?: DuffelOffer[] } };
+    return (json.data?.offers ?? [])
+      .sort((a, b) => parseFloat(a.total_amount) - parseFloat(b.total_amount))
+      .slice(0, 6)
+      .map(o => mapOffer(o, params.cabinClass));
+  }
+
+  // Duffel doesn't have a hotel search API — return empty, Amadeus handles hotels
+  async searchHotels(_params: HotelSearchParams): Promise<NormalizedHotel[]> {
+    return [];
+  }
+}
