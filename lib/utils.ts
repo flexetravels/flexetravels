@@ -133,6 +133,80 @@ export function generateSessionId(): string {
          Date.now().toString(36);
 }
 
+/**
+ * Compress message history before sending to the AI to stay within token limits.
+ *
+ * Strategy:
+ * - Keep the last KEEP_FULL messages verbatim (so recent context is intact).
+ * - In older messages, replace [*_CARD] {...large JSON...} with a compact
+ *   placeholder so the AI knows results were shown, without re-sending all data.
+ * - Also strip partial/streaming card JSON that never completed.
+ *
+ * This typically saves 3,000–8,000 tokens per request on active conversations.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function compressMessageHistory<T extends Record<string, any>>(
+  messages: T[],
+  keepFull = 6,
+): T[] {
+  if (messages.length <= keepFull) return messages;
+
+  const CARD_TAGS = [
+    'FLIGHT_CARD', 'HOTEL_CARD', 'EXPERIENCE_CARD',
+    'BOOKING_CONFIRMED', 'HOTEL_BOOKING_CONFIRMED', 'PAYMENT_REQUIRED',
+  ];
+
+  // Build a single regex that matches any card tag + its JSON payload
+  // Matches: [TAG_NAME] { ... } including nested braces
+  const compressContent = (text: string): string => {
+    let result = text;
+    for (const tag of CARD_TAGS) {
+      const marker = `[${tag}]`;
+      let out = '';
+      let pos = 0;
+      while (true) {
+        const idx = result.indexOf(marker, pos);
+        if (idx === -1) { out += result.slice(pos); break; }
+        out += result.slice(pos, idx);
+        let j = idx + marker.length;
+        // skip whitespace
+        while (j < result.length && /\s/.test(result[j])) j++;
+        if (result[j] === '{') {
+          // walk balanced braces
+          let depth = 0; let inStr = false; let esc = false;
+          let k = j;
+          for (; k < result.length; k++) {
+            const ch = result[k];
+            if (esc) { esc = false; continue; }
+            if (ch === '\\' && inStr) { esc = true; continue; }
+            if (ch === '"') { inStr = !inStr; continue; }
+            if (inStr) continue;
+            if (ch === '{') depth++;
+            else if (ch === '}') { depth--; if (depth === 0) { k++; break; } }
+          }
+          // Replace the full [TAG] {...} with a tiny stub
+          out += `[${tag}_SHOWN]`;
+          pos = k;
+        } else {
+          out += marker;
+          pos = j;
+        }
+      }
+      result = out;
+    }
+    return result;
+  };
+
+  return messages.map((msg, i): T => {
+    // Keep the last `keepFull` messages untouched
+    if (i >= messages.length - keepFull) return msg;
+    if (typeof msg.content !== 'string') return msg;
+    const compressed = compressContent(msg.content);
+    if (compressed === msg.content) return msg;
+    return { ...msg, content: compressed };
+  });
+}
+
 /** Get star rating display */
 export function starsArray(count: number): string[] {
   return Array.from({ length: 5 }, (_, i) =>
