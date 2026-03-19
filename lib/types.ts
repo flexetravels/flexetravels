@@ -148,13 +148,25 @@ export interface BookingConfirmation {
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'data';
 
+// ─── Payment card ─────────────────────────────────────────────────────────
+
+/** Data emitted in [PAYMENT_REQUIRED] tags — triggers in-chat Stripe form */
+export interface PaymentRequiredData {
+  bookingReference: string;
+  bookingType:      'flight' | 'hotel';
+  customerEmail?:   string;
+  amount?:          number;   // cents — defaults to 2000 ($20 USD)
+  currency?:        string;   // defaults to 'usd'
+}
+
 /** Parsed embedded card data inside an assistant message */
 export type EmbeddedCard =
   | { type: 'flight';                   data: FlightResult }
   | { type: 'hotel';                    data: HotelResult }
   | { type: 'experience';               data: ExperienceResult }
   | { type: 'booking_confirmed';        data: BookingConfirmation }
-  | { type: 'hotel_booking_confirmed';  data: BookingConfirmation };
+  | { type: 'hotel_booking_confirmed';  data: BookingConfirmation }
+  | { type: 'payment_required';         data: PaymentRequiredData };
 
 // ─── UI preference ─────────────────────────────────────────────────────────
 

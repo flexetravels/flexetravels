@@ -73,6 +73,7 @@ export function parseEmbeddedCards(text: string): EmbeddedCard[] {
     { tag: 'EXPERIENCE_CARD',          type: 'experience' },
     { tag: 'BOOKING_CONFIRMED',        type: 'booking_confirmed' },
     { tag: 'HOTEL_BOOKING_CONFIRMED',  type: 'hotel_booking_confirmed' },
+    { tag: 'PAYMENT_REQUIRED',         type: 'payment_required' },
   ];
 
   for (const { tag, type } of tagDefs) {
@@ -100,7 +101,7 @@ export function parseEmbeddedCards(text: string): EmbeddedCard[] {
 
 /** Strip embedded card tags from text before rendering markdown */
 export function stripCardTags(text: string): string {
-  const tags = ['FLIGHT_CARD', 'HOTEL_CARD', 'EXPERIENCE_CARD', 'BOOKING_CONFIRMED', 'HOTEL_BOOKING_CONFIRMED'];
+  const tags = ['FLIGHT_CARD', 'HOTEL_CARD', 'EXPERIENCE_CARD', 'BOOKING_CONFIRMED', 'HOTEL_BOOKING_CONFIRMED', 'PAYMENT_REQUIRED'];
   let result = text;
   for (const tag of tags) {
     const marker = `[${tag}]`;

@@ -97,6 +97,80 @@ export async function createServiceFeeCheckout(params: StripeCheckoutParams): Pr
   return { url: session.url, sessionId: session.id };
 }
 
+// ─── Payment Intent (for embedded in-chat payment form) ──────────────────────
+
+export interface PaymentIntentResult {
+  clientSecret:    string;
+  paymentIntentId: string;
+  amount:          number;   // in cents
+  currency:        string;
+}
+
+/**
+ * Create a Stripe PaymentIntent for the $20 FlexeTravels service fee.
+ * Returns the clientSecret used by Stripe.js on the client.
+ */
+export async function createPaymentIntent(params: {
+  bookingReference: string;
+  bookingType:      'flight' | 'hotel';
+  customerEmail?:   string;
+  amount?:          number;   // cents — defaults to 2000 ($20.00)
+  currency?:        string;   // defaults to 'usd'
+}): Promise<PaymentIntentResult> {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  if (!secretKey || secretKey.trim() === '') {
+    throw new Error('STRIPE_SECRET_KEY not configured');
+  }
+
+  const amount   = params.amount   ?? 2000;   // $20.00 USD
+  const currency = params.currency ?? 'usd';
+
+  const body: Record<string, unknown> = {
+    amount,
+    currency,
+    payment_method_types: ['card'],
+    description: `FlexeTravels service fee — ${params.bookingType} booking (ref: ${params.bookingReference})`,
+    metadata: {
+      booking_reference: params.bookingReference,
+      booking_type:      params.bookingType,
+      service:           'flexetravels_booking_fee',
+    },
+  };
+
+  if (params.customerEmail) {
+    body.receipt_email = params.customerEmail;
+  }
+
+  const res = await fetch(`${STRIPE_BASE}/payment_intents`, {
+    method: 'POST',
+    headers: {
+      Authorization:  `Bearer ${secretKey}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: encode(body),
+    signal: AbortSignal.timeout(15_000),
+  });
+
+  if (!res.ok) {
+    const err = await res.json() as { error?: { message?: string } };
+    throw new Error(`Stripe PaymentIntent error: ${err.error?.message ?? 'Unknown error'}`);
+  }
+
+  const intent = await res.json() as {
+    id: string;
+    client_secret: string;
+    amount: number;
+    currency: string;
+  };
+
+  return {
+    clientSecret:    intent.client_secret,
+    paymentIntentId: intent.id,
+    amount:          intent.amount,
+    currency:        intent.currency,
+  };
+}
+
 /**
  * Retrieve a Stripe Checkout session to verify payment status.
  */

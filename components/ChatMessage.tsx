@@ -11,7 +11,8 @@ import { cn, parseEmbeddedCards, stripCardTags } from '@/lib/utils';
 import { FlightCard } from './FlightCard';
 import { HotelCard } from './HotelCard';
 import { ExperienceCard } from './ExperienceCard';
-import type { FlightResult, HotelResult, ExperienceResult, BookingConfirmation } from '@/lib/types';
+import { StripePaymentForm } from './StripePaymentForm';
+import type { FlightResult, HotelResult, ExperienceResult, BookingConfirmation, PaymentRequiredData } from '@/lib/types';
 
 // ─── Copy button ──────────────────────────────────────────────────────────────
 function CopyButton({ text }: { text: string }) {
@@ -542,6 +543,7 @@ export function ChatMessage({
   const bookingCards     = cards.filter(c => c.type === 'booking_confirmed').map(c => ({ data: c.data as BookingConfirmation, type: 'booking_confirmed' }));
   const hotelBookingCards= cards.filter(c => c.type === 'hotel_booking_confirmed').map(c => ({ data: c.data as BookingConfirmation, type: 'hotel_booking_confirmed' }));
   const allBookingCards  = [...bookingCards, ...hotelBookingCards];
+  const paymentCards     = cards.filter(c => c.type === 'payment_required').map(c => c.data as PaymentRequiredData);
 
   // Detect which tools are actively loading (for skeleton display)
   const isSearchingFlights = toolCalls?.some(
@@ -659,6 +661,11 @@ export function ChatMessage({
         {/* Booking confirmations (flight + hotel) */}
         {allBookingCards.map((bc, i) => (
           <BookingCard key={i} data={bc.data} type={bc.type} />
+        ))}
+
+        {/* Stripe $20 service fee payment form — appears after booking confirmation */}
+        {paymentCards.map((pd, i) => (
+          <StripePaymentForm key={i} data={pd} />
         ))}
       </div>
     </div>
