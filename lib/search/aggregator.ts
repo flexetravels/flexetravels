@@ -5,9 +5,12 @@
 import type {
   SearchProvider, FlightSearchParams, HotelSearchParams,
   NormalizedFlight, NormalizedHotel, SearchResult,
+  ExperienceSearchParams, NormalizedExperience,
 } from './types';
 import { DuffelProvider } from './duffel';
 import { AmadeusProvider } from './amadeus';
+import { LiteApiProvider } from './liteapi';
+import { OpenTripMapProvider } from './opentripmap';
 
 // ─── North America airport geography (for context + validation) ───────────────
 // Major NA hubs used for suggestion if user provides city name
@@ -42,6 +45,12 @@ function buildProviders(): SearchProvider[] {
     process.env.AMADEUS_API_SECRET || '';
   if (amadeusId && amadeusSecret) {
     providers.push(new AmadeusProvider(amadeusId, amadeusSecret));
+  }
+
+  // LiteAPI — real-time hotel rates (hotels-only provider)
+  const liteApiKey = process.env.LITEAPI_KEY;
+  if (liteApiKey && !liteApiKey.includes('PASTE') && !liteApiKey.includes('your_')) {
+    providers.push(new LiteApiProvider(liteApiKey));
   }
 
   return providers;
@@ -189,7 +198,7 @@ export async function aggregateHotels(params: HotelSearchParams): Promise<{
   isSample: boolean;
   latencyMs: number;
 }> {
-  const providers = buildProviders().filter(p => p.name !== 'duffel'); // Duffel has no hotels
+  const providers = buildProviders().filter(p => p.name !== 'duffel'); // Duffel is flights-only
   const start = Date.now();
 
   if (providers.length === 0) {
@@ -247,4 +256,24 @@ export async function aggregateHotels(params: HotelSearchParams): Promise<{
   }
 
   return { hotels: filtered, sources, errors, isSample: false, latencyMs: Date.now() - start };
+}
+
+// ─── Experience aggregation ────────────────────────────────────────────────────
+export async function aggregateExperiences(params: ExperienceSearchParams): Promise<{
+  experiences: NormalizedExperience[];
+  sources: string[];
+  errors: string[];
+}> {
+  const otmKey = process.env.OPENTRIPMAP_KEY;
+  if (!otmKey || otmKey.includes('PASTE') || otmKey.includes('your_')) {
+    return { experiences: [], sources: [], errors: ['OpenTripMap not configured (OPENTRIPMAP_KEY missing)'] };
+  }
+
+  try {
+    const provider = new OpenTripMapProvider(otmKey);
+    const experiences = await provider.searchExperiences(params);
+    return { experiences, sources: ['opentripmap'], errors: [] };
+  } catch (err) {
+    return { experiences: [], sources: [], errors: [`OpenTripMap: ${String(err)}`] };
+  }
 }

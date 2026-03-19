@@ -84,3 +84,34 @@ export interface SearchProvider {
   searchFlights(params: FlightSearchParams): Promise<NormalizedFlight[]>;
   searchHotels(params: HotelSearchParams): Promise<NormalizedHotel[]>;
 }
+
+// ─── Experiences / Points of Interest ────────────────────────────────────────
+export interface ExperienceSearchParams {
+  destination: string;   // City name e.g. "Cancun", "Tokyo"
+  category?: string;     // 'cultural' | 'natural' | 'adventure' | 'entertainment'
+  radius?: number;       // Metres from city centre (default 10000)
+  limit?: number;        // Max results (default 10)
+}
+
+export interface NormalizedExperience {
+  id: string;
+  provider: string;        // 'opentripmap' | 'viator'
+  name: string;
+  category: string;        // Friendly label e.g. 'Museum', 'Nature', 'Culture'
+  description?: string;
+  location: string;        // Address or city
+  city: string;
+  image?: string;
+  rating?: number;         // 0–5 scale
+  price?: number;          // null = free or unknown
+  currency?: string;
+  duration?: string;       // e.g. "2–3 hours"
+  bookable: boolean;
+  bookingUrl?: string;
+  coordinates?: { lat: number; lon: number };
+}
+
+export interface ExperienceProvider {
+  name: string;
+  searchExperiences(params: ExperienceSearchParams): Promise<NormalizedExperience[]>;
+}
