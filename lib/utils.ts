@@ -68,9 +68,11 @@ function extractBalancedJson(text: string, start: number): string | null {
 export function parseEmbeddedCards(text: string): EmbeddedCard[] {
   const cards: EmbeddedCard[] = [];
   const tagDefs: { tag: string; type: EmbeddedCard['type'] }[] = [
-    { tag: 'FLIGHT_CARD',       type: 'flight' },
-    { tag: 'HOTEL_CARD',        type: 'hotel' },
-    { tag: 'BOOKING_CONFIRMED', type: 'booking_confirmed' },
+    { tag: 'FLIGHT_CARD',              type: 'flight' },
+    { tag: 'HOTEL_CARD',               type: 'hotel' },
+    { tag: 'EXPERIENCE_CARD',          type: 'experience' },
+    { tag: 'BOOKING_CONFIRMED',        type: 'booking_confirmed' },
+    { tag: 'HOTEL_BOOKING_CONFIRMED',  type: 'hotel_booking_confirmed' },
   ];
 
   for (const { tag, type } of tagDefs) {
@@ -98,7 +100,7 @@ export function parseEmbeddedCards(text: string): EmbeddedCard[] {
 
 /** Strip embedded card tags from text before rendering markdown */
 export function stripCardTags(text: string): string {
-  const tags = ['FLIGHT_CARD', 'HOTEL_CARD', 'BOOKING_CONFIRMED'];
+  const tags = ['FLIGHT_CARD', 'HOTEL_CARD', 'EXPERIENCE_CARD', 'BOOKING_CONFIRMED', 'HOTEL_BOOKING_CONFIRMED'];
   let result = text;
   for (const tag of tags) {
     const marker = `[${tag}]`;

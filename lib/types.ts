@@ -67,6 +67,23 @@ export interface Experience {
   location: string;
 }
 
+export interface ExperienceResult {
+  id:           string;
+  provider:     string;   // 'foursquare' | 'opentripmap' | 'viator'
+  name:         string;
+  category:     string;
+  description?: string;
+  city:         string;
+  location:     string;
+  image?:       string;
+  rating?:      number;   // 0–5
+  price?:       number;
+  currency?:    string;
+  duration?:    string;
+  bookable:     boolean;
+  bookingUrl?:  string;
+}
+
 // ─── Itinerary types ───────────────────────────────────────────────────────
 
 export interface ItineraryActivity {
@@ -113,13 +130,18 @@ export interface BookingConfirmation {
   reference:    string;
   type:         'flight' | 'hotel' | 'package';
   details?:     FlightResult | HotelResult;
-  total:        number;   // fare + serviceFee combined
-  fareAmount?:  number;   // flight/hotel cost only (from Duffel/provider)
-  serviceFee?:  number;   // FlexeTravels flat fee ($20)
+  total:        number;
+  fareAmount?:  number;
+  serviceFee?:  number;
   currency:     string;
   bookedAt?:    string;
   status?:      'confirmed' | 'pending' | 'failed';
   email?:       string;
+  // Hotel-specific
+  hotelName?:   string;
+  checkIn?:     string;
+  checkOut?:    string;
+  bookingId?:   string;
 }
 
 // ─── Chat-level types ──────────────────────────────────────────────────────
@@ -128,9 +150,11 @@ export type MessageRole = 'user' | 'assistant' | 'system' | 'data';
 
 /** Parsed embedded card data inside an assistant message */
 export type EmbeddedCard =
-  | { type: 'flight'; data: FlightResult }
-  | { type: 'hotel';  data: HotelResult }
-  | { type: 'booking_confirmed'; data: BookingConfirmation };
+  | { type: 'flight';                   data: FlightResult }
+  | { type: 'hotel';                    data: HotelResult }
+  | { type: 'experience';               data: ExperienceResult }
+  | { type: 'booking_confirmed';        data: BookingConfirmation }
+  | { type: 'hotel_booking_confirmed';  data: BookingConfirmation };
 
 // ─── UI preference ─────────────────────────────────────────────────────────
 

@@ -5,12 +5,13 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
   Plane, Building2, CheckCircle2, Copy, Check, Bot,
-  ArrowUpDown, ChevronDown,
+  ArrowUpDown, ChevronDown, Compass,
 } from 'lucide-react';
 import { cn, parseEmbeddedCards, stripCardTags } from '@/lib/utils';
 import { FlightCard } from './FlightCard';
 import { HotelCard } from './HotelCard';
-import type { FlightResult, HotelResult, BookingConfirmation } from '@/lib/types';
+import { ExperienceCard } from './ExperienceCard';
+import type { FlightResult, HotelResult, ExperienceResult, BookingConfirmation } from '@/lib/types';
 
 // ─── Copy button ──────────────────────────────────────────────────────────────
 function CopyButton({ text }: { text: string }) {
@@ -87,6 +88,19 @@ function SkeletonHotelCard() {
           <div className="h-3 bg-muted rounded w-10 ml-auto" />
           <div className="h-7 bg-muted rounded w-16 ml-auto mt-2" />
         </div>
+      </div>
+    </div>
+  );
+}
+
+function SkeletonExperienceCard() {
+  return (
+    <div className="travel-card overflow-hidden animate-pulse">
+      <div className="h-36 w-full bg-muted" />
+      <div className="p-3 space-y-2">
+        <div className="h-3 bg-muted rounded w-1/2" />
+        <div className="h-3 bg-muted rounded w-2/3" />
+        <div className="h-3 bg-muted rounded w-3/4" />
       </div>
     </div>
   );
@@ -296,11 +310,78 @@ function HotelResultsPanel({
   );
 }
 
+// ─── Experience results panel ─────────────────────────────────────────────────
+type ExpCategoryFilter = 'all' | 'Museum' | 'Nature' | 'Landmark' | 'Adventure' | 'Entertainment' | 'Beach' | 'Food & Drink';
+
+function ExperienceResultsPanel({ experiences }: { experiences: ExperienceResult[] }) {
+  const [catFilter, setCatFilter] = useState<ExpCategoryFilter>('all');
+
+  // Build unique category chips from actual results
+  const availableCategories = Array.from(new Set(experiences.map(e => e.category))).slice(0, 5);
+
+  const filtered = catFilter === 'all'
+    ? experiences
+    : experiences.filter(e => e.category === catFilter);
+
+  return (
+    <div className="space-y-2">
+      {/* Header + filter */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1 text-xs text-muted-foreground font-semibold">
+          <Compass className="w-3 h-3" />
+          {experiences.length} experience{experiences.length !== 1 ? 's' : ''}
+        </div>
+        <div className="flex gap-1 flex-wrap ml-auto">
+          <button
+            onClick={() => setCatFilter('all')}
+            className={cn(
+              'px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors',
+              catFilter === 'all'
+                ? 'bg-teal-600 text-white'
+                : 'bg-muted text-muted-foreground hover:bg-muted/80'
+            )}
+          >
+            All
+          </button>
+          {availableCategories.map(cat => (
+            <button
+              key={cat}
+              onClick={() => setCatFilter(cat as ExpCategoryFilter)}
+              className={cn(
+                'px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors',
+                catFilter === cat
+                  ? 'bg-teal-600 text-white'
+                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
+              )}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Cards in a responsive 2-column grid */}
+      {filtered.length === 0 ? (
+        <p className="text-xs text-muted-foreground text-center py-4">No experiences match this filter.</p>
+      ) : (
+        <div className="grid grid-cols-2 gap-2">
+          {filtered.map(exp => (
+            <div key={exp.id} className="animate-fade-in-up">
+              <ExperienceCard experience={exp} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Booking confirmation card ─────────────────────────────────────────────────
-function BookingCard({ data }: { data: BookingConfirmation }) {
+function BookingCard({ data, type }: { data: BookingConfirmation; type?: string }) {
   const fmt = (n: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: data.currency ?? 'USD' }).format(n);
 
+  const isHotel    = type === 'hotel_booking_confirmed' || data.type === 'hotel';
   const fee        = data.serviceFee ?? 20;
   const fare       = data.fareAmount ?? (data.total > fee ? data.total - fee : data.total);
   const grandTotal = fare + fee;
@@ -310,7 +391,9 @@ function BookingCard({ data }: { data: BookingConfirmation }) {
     <div className="confirmation-card mt-2">
       <div className="flex items-center gap-2 mb-3">
         <CheckCircle2 className="w-5 h-5 text-teal-600 dark:text-teal-400" />
-        <span className="font-bold text-foreground">Booking Confirmed!</span>
+        <span className="font-bold text-foreground">
+          {isHotel ? '🏨 Hotel Confirmed!' : '✈ Flight Confirmed!'}
+        </span>
         <span className={cn(
           'ml-auto text-xs font-semibold px-2 py-0.5 rounded-full',
           statusVal === 'confirmed'
@@ -322,31 +405,56 @@ function BookingCard({ data }: { data: BookingConfirmation }) {
       </div>
 
       <div className="space-y-1.5 text-sm">
+        {/* Reference / Booking ID */}
         <div className="flex justify-between items-center pb-2 border-b border-border">
-          <span className="text-muted-foreground">Booking Reference</span>
-          <code className="font-mono font-bold text-lg tracking-widest text-foreground">
-            {data.reference}
+          <span className="text-muted-foreground">
+            {isHotel ? 'Booking ID' : 'Booking Reference'}
+          </span>
+          <code className="font-mono font-bold text-base tracking-widest text-foreground">
+            {data.bookingId ?? data.reference}
           </code>
         </div>
+
+        {/* Hotel-specific fields */}
+        {isHotel && data.hotelName && (
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Hotel</span>
+            <span className="text-foreground font-medium">{data.hotelName}</span>
+          </div>
+        )}
+        {isHotel && data.checkIn && data.checkOut && (
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Dates</span>
+            <span className="text-foreground">{data.checkIn} → {data.checkOut}</span>
+          </div>
+        )}
+
+        {/* Fare / room cost */}
         <div className="flex justify-between">
-          <span className="text-muted-foreground">Flight Fare</span>
+          <span className="text-muted-foreground">{isHotel ? 'Room Total' : 'Flight Fare'}</span>
           <span className="text-foreground">{fmt(fare)}</span>
         </div>
+
         <div className="flex justify-between">
           <span className="text-muted-foreground">FlexeTravels Service Fee</span>
           <span className="text-foreground">{fmt(fee)}</span>
         </div>
+
         <div className="flex justify-between pt-2 border-t border-border">
           <span className="font-semibold text-foreground">Total</span>
-          <span className="font-bold text-foreground">{fmt(grandTotal)}</span>
+          <span className="font-bold text-lg text-foreground">{fmt(grandTotal)}</span>
         </div>
+
         {data.email && (
           <p className="text-xs text-muted-foreground pt-1 border-t border-border">
             Confirmation sent to {data.email}
           </p>
         )}
         <p className="text-[11px] text-muted-foreground pt-1">
-          Flight charged by Duffel · Service fee charged separately by FlexeTravels
+          {isHotel
+            ? 'Hotel charged via LiteAPI · Service fee charged separately by FlexeTravels'
+            : 'Flight charged by Duffel · Service fee charged separately by FlexeTravels'
+          }
         </p>
       </div>
     </div>
@@ -361,24 +469,30 @@ interface ToolCallStatusProps {
 
 export function ToolCallStatus({ toolName, state }: ToolCallStatusProps) {
   const labels: Record<string, string> = {
-    searchFlights:         '✈ Searching flights...',
-    searchBookableFlights: '✈ Finding bookable flights...',
-    searchHotels:          '🏨 Searching hotels...',
-    bookFlight:            '📋 Booking flight...',
-    getDestinationGuide:   '🗺 Loading destination guide...',
-    getSimilarDestinations:'💡 Finding alternatives...',
-    getPriceInsight:       '📊 Checking prices...',
-    getDestinationImage:   '📸 Fetching image...',
+    searchFlights:          '✈ Searching flights...',
+    searchBookableFlights:  '✈ Finding bookable flights...',
+    searchHotels:           '🏨 Searching hotels...',
+    searchExperiences:      '🧭 Finding experiences...',
+    bookFlight:             '📋 Booking flight...',
+    preBookHotel:           '🏨 Holding hotel room...',
+    confirmHotelBooking:    '✅ Confirming hotel booking...',
+    getDestinationGuide:    '🗺 Loading destination guide...',
+    getSimilarDestinations: '💡 Finding alternatives...',
+    getPriceInsight:        '📊 Checking prices...',
+    getDestinationImage:    '📸 Fetching image...',
   };
   const doneLabels: Record<string, string> = {
-    searchFlights:         '✈ Flights found',
-    searchBookableFlights: '✈ Bookable flights found',
-    searchHotels:          '🏨 Hotels found',
-    bookFlight:            '✅ Flight booked',
-    getDestinationGuide:   '🗺 Guide ready',
-    getSimilarDestinations:'💡 Alternatives ready',
-    getPriceInsight:       '📊 Price insight ready',
-    getDestinationImage:   '📸 Image ready',
+    searchFlights:          '✈ Flights found',
+    searchBookableFlights:  '✈ Bookable flights found',
+    searchHotels:           '🏨 Hotels found',
+    searchExperiences:      '🧭 Experiences found',
+    bookFlight:             '✅ Flight booked',
+    preBookHotel:           '🏨 Room held',
+    confirmHotelBooking:    '✅ Hotel booked',
+    getDestinationGuide:    '🗺 Guide ready',
+    getSimilarDestinations: '💡 Alternatives ready',
+    getPriceInsight:        '📊 Price insight ready',
+    getDestinationImage:    '📸 Image ready',
   };
 
   const label = state === 'call'
@@ -422,9 +536,12 @@ export function ChatMessage({
   const renderText = stripCardTags(content);
 
   // Separate cards by type for grouped rendering
-  const flightCards  = cards.filter(c => c.type === 'flight').map(c => c.data as FlightResult);
-  const hotelCards   = cards.filter(c => c.type === 'hotel').map(c => c.data as HotelResult);
-  const bookingCards = cards.filter(c => c.type === 'booking_confirmed').map(c => c.data as BookingConfirmation);
+  const flightCards      = cards.filter(c => c.type === 'flight').map(c => c.data as FlightResult);
+  const hotelCards       = cards.filter(c => c.type === 'hotel').map(c => c.data as HotelResult);
+  const experienceCards  = cards.filter(c => c.type === 'experience').map(c => c.data as ExperienceResult);
+  const bookingCards     = cards.filter(c => c.type === 'booking_confirmed').map(c => ({ data: c.data as BookingConfirmation, type: 'booking_confirmed' }));
+  const hotelBookingCards= cards.filter(c => c.type === 'hotel_booking_confirmed').map(c => ({ data: c.data as BookingConfirmation, type: 'hotel_booking_confirmed' }));
+  const allBookingCards  = [...bookingCards, ...hotelBookingCards];
 
   // Detect which tools are actively loading (for skeleton display)
   const isSearchingFlights = toolCalls?.some(
@@ -432,6 +549,9 @@ export function ChatMessage({
   ) ?? false;
   const isSearchingHotels = toolCalls?.some(
     tc => tc.toolName === 'searchHotels' && tc.state === 'call'
+  ) ?? false;
+  const isSearchingExperiences = toolCalls?.some(
+    tc => tc.toolName === 'searchExperiences' && tc.state === 'call'
   ) ?? false;
 
   // ── User bubble
@@ -475,6 +595,16 @@ export function ChatMessage({
               <Building2 className="w-3 h-3" /> Finding best hotels…
             </div>
             {[1, 2, 3].map(i => <SkeletonHotelCard key={i} />)}
+          </div>
+        )}
+        {isSearchingExperiences && experienceCards.length === 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-1 text-xs text-muted-foreground font-semibold">
+              <Compass className="w-3 h-3" /> Finding experiences…
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {[1, 2, 3, 4].map(i => <SkeletonExperienceCard key={i} />)}
+            </div>
           </div>
         )}
 
@@ -521,9 +651,14 @@ export function ChatMessage({
           <HotelResultsPanel hotels={hotelCards} onSelect={onSelectHotel} />
         )}
 
-        {/* Booking confirmations */}
-        {bookingCards.map((bc, i) => (
-          <BookingCard key={i} data={bc} />
+        {/* Experience results panel (grid, filterable by category) */}
+        {experienceCards.length > 0 && (
+          <ExperienceResultsPanel experiences={experienceCards} />
+        )}
+
+        {/* Booking confirmations (flight + hotel) */}
+        {allBookingCards.map((bc, i) => (
+          <BookingCard key={i} data={bc.data} type={bc.type} />
         ))}
       </div>
     </div>

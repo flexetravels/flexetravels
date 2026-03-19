@@ -11,6 +11,7 @@ import { DuffelProvider } from './duffel';
 import { AmadeusProvider } from './amadeus';
 import { LiteApiProvider } from './liteapi';
 import { OpenTripMapProvider } from './opentripmap';
+import { FoursquareProvider } from './foursquare';
 
 // ─── North America airport geography (for context + validation) ───────────────
 // Major NA hubs used for suggestion if user provides city name
@@ -259,21 +260,39 @@ export async function aggregateHotels(params: HotelSearchParams): Promise<{
 }
 
 // ─── Experience aggregation ────────────────────────────────────────────────────
+// Provider priority: Foursquare (primary) → OpenTripMap (fallback)
 export async function aggregateExperiences(params: ExperienceSearchParams): Promise<{
   experiences: NormalizedExperience[];
   sources: string[];
   errors: string[];
 }> {
+  const fsqKey = process.env.FOURSQUARE_API_KEY;
   const otmKey = process.env.OPENTRIPMAP_KEY;
-  if (!otmKey || otmKey.includes('PASTE') || otmKey.includes('your_')) {
-    return { experiences: [], sources: [], errors: ['OpenTripMap not configured (OPENTRIPMAP_KEY missing)'] };
+
+  // Try Foursquare first (richer data, photos, ratings)
+  if (fsqKey && !fsqKey.includes('PASTE') && !fsqKey.includes('your_')) {
+    try {
+      const provider = new FoursquareProvider(fsqKey);
+      const experiences = await provider.searchExperiences(params);
+      if (experiences.length > 0) {
+        return { experiences, sources: ['foursquare'], errors: [] };
+      }
+    } catch (err) {
+      // Fall through to OpenTripMap
+      console.warn('[aggregateExperiences] Foursquare failed, trying OpenTripMap:', String(err));
+    }
   }
 
-  try {
-    const provider = new OpenTripMapProvider(otmKey);
-    const experiences = await provider.searchExperiences(params);
-    return { experiences, sources: ['opentripmap'], errors: [] };
-  } catch (err) {
-    return { experiences: [], sources: [], errors: [`OpenTripMap: ${String(err)}`] };
+  // Fallback to OpenTripMap
+  if (otmKey && !otmKey.includes('PASTE') && !otmKey.includes('your_')) {
+    try {
+      const provider = new OpenTripMapProvider(otmKey);
+      const experiences = await provider.searchExperiences(params);
+      return { experiences, sources: ['opentripmap'], errors: [] };
+    } catch (err) {
+      return { experiences: [], sources: [], errors: [`OpenTripMap: ${String(err)}`] };
+    }
   }
+
+  return { experiences: [], sources: [], errors: ['No experience provider configured (add FOURSQUARE_API_KEY to .env.local)'] };
 }
