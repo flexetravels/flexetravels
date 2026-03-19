@@ -310,13 +310,27 @@ export default function ChatPage() {
     catch { /* skip */ }
   }, []);
 
-  // Card selection
+  // Card selection — sends a "I'll take X" selection message rather than
+  // triggering booking immediately. The AI collects all choices (flight +
+  // hotel + optional experiences) before asking for passenger details.
   const handleSelectFlight = useCallback((f: FlightResult) => {
-    append({ role: 'user', content: `Book the ${f.airline} flight ${f.origin}→${f.destination} for ${new Intl.NumberFormat('en-US',{style:'currency',currency:f.currency}).format(f.price)}.` });
+    const price = new Intl.NumberFormat('en-US', { style: 'currency', currency: f.currency }).format(f.price);
+    const dep   = new Date(f.departure).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    append({
+      role: 'user',
+      content: `I'll take the ${f.airline} flight — ${f.origin} → ${f.destination}, departing ${dep}, ${f.duration}, ${f.stops === 0 ? 'non-stop' : `${f.stops} stop`}, ${price}. Offer ID: ${f.id}`,
+    });
   }, [append]);
 
   const handleSelectHotel = useCallback((h: HotelResult) => {
-    append({ role: 'user', content: `Book ${h.name} at $${h.pricePerNight}/night.` });
+    const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: h.currency ?? 'USD' }).format(n);
+    const bookable = h.bookingToken && !h.isSample;
+    append({
+      role: 'user',
+      content: bookable
+        ? `I'll take ${h.name} — ${h.stars}★, ${fmt(h.pricePerNight)}/night (${fmt(h.totalPrice)} total), check-in ${h.checkIn} → ${h.checkOut}. Rate ID: ${h.bookingToken}`
+        : `I'm interested in ${h.name} — ${h.stars}★, ~${fmt(h.pricePerNight)}/night. Note: this is indicative pricing.`,
+    });
   }, [append]);
 
   const handleEditDay = useCallback((day: ItineraryDay) => {

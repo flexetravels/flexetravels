@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
   Plane, Building2, CheckCircle2, Copy, Check, Bot,
-  ArrowUpDown, ChevronDown, Compass,
+  ChevronDown, Compass,
 } from 'lucide-react';
 import { cn, parseEmbeddedCards, stripCardTags } from '@/lib/utils';
 import { FlightCard } from './FlightCard';
@@ -47,6 +47,43 @@ export function TypingIndicator() {
         <div className="typing-dots">
           <span /><span /><span />
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Composing indicator — shown while AI is streaming ───────────────────────
+// Replaces the partial-rendered content during streaming to avoid flicker/
+// card pop-in from incremental JSON parsing. Shows live tool-status pills
+// (so user sees "Searching flights…" feedback) plus a stable composing state.
+function ComposingBlock({
+  toolCalls,
+}: {
+  toolCalls: Array<{ toolName: string; state: 'call' | 'result' }>;
+}) {
+  const toolsActive  = toolCalls.some(tc => tc.state === 'call');
+  const toolsDone    = toolCalls.length > 0 && !toolsActive;
+
+  return (
+    <div className="bubble-bot">
+      <div className="flex items-center gap-2.5 py-0.5">
+        {/* Animated dots */}
+        <div className="flex gap-1">
+          {[0, 1, 2].map(i => (
+            <span
+              key={i}
+              className="w-1.5 h-1.5 rounded-full bg-teal-500 dark:bg-teal-400 animate-bounce"
+              style={{ animationDelay: `${i * 120}ms`, animationDuration: '900ms' }}
+            />
+          ))}
+        </div>
+        <span className="text-sm text-muted-foreground">
+          {toolsActive
+            ? 'Searching across providers…'
+            : toolsDone
+              ? 'Composing your results…'
+              : 'Thinking…'}
+        </span>
       </div>
     </div>
   );
@@ -533,30 +570,8 @@ export function ChatMessage({
   onSelectFlight,
   onSelectHotel,
 }: ChatMessageProps) {
-  const cards      = parseEmbeddedCards(content);
-  const renderText = stripCardTags(content);
 
-  // Separate cards by type for grouped rendering
-  const flightCards      = cards.filter(c => c.type === 'flight').map(c => c.data as FlightResult);
-  const hotelCards       = cards.filter(c => c.type === 'hotel').map(c => c.data as HotelResult);
-  const experienceCards  = cards.filter(c => c.type === 'experience').map(c => c.data as ExperienceResult);
-  const bookingCards     = cards.filter(c => c.type === 'booking_confirmed').map(c => ({ data: c.data as BookingConfirmation, type: 'booking_confirmed' }));
-  const hotelBookingCards= cards.filter(c => c.type === 'hotel_booking_confirmed').map(c => ({ data: c.data as BookingConfirmation, type: 'hotel_booking_confirmed' }));
-  const allBookingCards  = [...bookingCards, ...hotelBookingCards];
-  const paymentCards     = cards.filter(c => c.type === 'payment_required').map(c => c.data as PaymentRequiredData);
-
-  // Detect which tools are actively loading (for skeleton display)
-  const isSearchingFlights = toolCalls?.some(
-    tc => (tc.toolName === 'searchFlights' || tc.toolName === 'searchBookableFlights') && tc.state === 'call'
-  ) ?? false;
-  const isSearchingHotels = toolCalls?.some(
-    tc => tc.toolName === 'searchHotels' && tc.state === 'call'
-  ) ?? false;
-  const isSearchingExperiences = toolCalls?.some(
-    tc => tc.toolName === 'searchExperiences' && tc.state === 'call'
-  ) ?? false;
-
-  // ── User bubble
+  // ── User bubble ────────────────────────────────────────────────────────────
   if (role === 'user') {
     return (
       <div className="msg-row-user">
@@ -565,48 +580,58 @@ export function ChatMessage({
     );
   }
 
-  // ── Assistant bubble
+  // ── Assistant bubble — STREAMING state ────────────────────────────────────
+  // While the AI is still generating we ONLY show tool status pills + a stable
+  // composing indicator.  We deliberately skip all card parsing during streaming
+  // to prevent layout thrashing / flicker from incremental partial-JSON output.
+  if (streaming) {
+    return (
+      <div className="msg-row-bot">
+        <div className="bot-avatar flex-shrink-0 self-start mt-0.5">
+          <Bot className="w-4 h-4" />
+        </div>
+        <div className="flex flex-col gap-2 min-w-0 flex-1">
+          {/* Live tool status pills */}
+          {toolCalls && toolCalls.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {toolCalls.map((tc, i) => (
+                <ToolCallStatus key={i} toolName={tc.toolName} state={tc.state} />
+              ))}
+            </div>
+          )}
+          {/* Stable composing placeholder — no partial content shown */}
+          <ComposingBlock toolCalls={toolCalls ?? []} />
+        </div>
+      </div>
+    );
+  }
+
+  // ── Assistant bubble — COMPLETE state ─────────────────────────────────────
+  // Only reached once streaming=false, so all card JSON is fully formed.
+  const cards      = parseEmbeddedCards(content);
+  const renderText = stripCardTags(content);
+
+  const flightCards       = cards.filter(c => c.type === 'flight').map(c => c.data as FlightResult);
+  const hotelCards        = cards.filter(c => c.type === 'hotel').map(c => c.data as HotelResult);
+  const experienceCards   = cards.filter(c => c.type === 'experience').map(c => c.data as ExperienceResult);
+  const bookingCards      = cards.filter(c => c.type === 'booking_confirmed').map(c => ({ data: c.data as BookingConfirmation, type: 'booking_confirmed' }));
+  const hotelBookingCards = cards.filter(c => c.type === 'hotel_booking_confirmed').map(c => ({ data: c.data as BookingConfirmation, type: 'hotel_booking_confirmed' }));
+  const allBookingCards   = [...bookingCards, ...hotelBookingCards];
+  const paymentCards      = cards.filter(c => c.type === 'payment_required').map(c => c.data as PaymentRequiredData);
+
   return (
-    <div className="msg-row-bot group">
+    <div className="msg-row-bot group animate-fade-in-up">
       <div className="bot-avatar flex-shrink-0 self-start mt-0.5">
         <Bot className="w-4 h-4" />
       </div>
 
       <div className="flex flex-col gap-3 min-w-0 flex-1">
-        {/* Tool call status pills */}
+        {/* Tool call status pills (completed state) */}
         {toolCalls && toolCalls.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {toolCalls.map((tc, i) => (
               <ToolCallStatus key={i} toolName={tc.toolName} state={tc.state} />
             ))}
-          </div>
-        )}
-
-        {/* Skeleton loaders — shown while tools are running, before cards appear */}
-        {isSearchingFlights && flightCards.length === 0 && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-1 text-xs text-muted-foreground font-semibold">
-              <Plane className="w-3 h-3" /> Finding best flights…
-            </div>
-            {[1, 2, 3].map(i => <SkeletonFlightCard key={i} />)}
-          </div>
-        )}
-        {isSearchingHotels && hotelCards.length === 0 && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-1 text-xs text-muted-foreground font-semibold">
-              <Building2 className="w-3 h-3" /> Finding best hotels…
-            </div>
-            {[1, 2, 3].map(i => <SkeletonHotelCard key={i} />)}
-          </div>
-        )}
-        {isSearchingExperiences && experienceCards.length === 0 && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-1 text-xs text-muted-foreground font-semibold">
-              <Compass className="w-3 h-3" /> Finding experiences…
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {[1, 2, 3, 4].map(i => <SkeletonExperienceCard key={i} />)}
-            </div>
           </div>
         )}
 
@@ -638,32 +663,31 @@ export function ChatMessage({
               >
                 {renderText}
               </ReactMarkdown>
-              {streaming && <span className="stream-cursor" />}
             </div>
           </div>
         )}
 
-        {/* Flight results panel (grouped, filterable, sortable) */}
+        {/* Flight results */}
         {flightCards.length > 0 && (
           <FlightResultsPanel flights={flightCards} onSelect={onSelectFlight} />
         )}
 
-        {/* Hotel results panel (grouped, filterable, sortable) */}
+        {/* Hotel results */}
         {hotelCards.length > 0 && (
           <HotelResultsPanel hotels={hotelCards} onSelect={onSelectHotel} />
         )}
 
-        {/* Experience results panel (grid, filterable by category) */}
+        {/* Experience results */}
         {experienceCards.length > 0 && (
           <ExperienceResultsPanel experiences={experienceCards} />
         )}
 
-        {/* Booking confirmations (flight + hotel) */}
+        {/* Booking confirmations */}
         {allBookingCards.map((bc, i) => (
           <BookingCard key={i} data={bc.data} type={bc.type} />
         ))}
 
-        {/* Stripe $20 service fee payment form — appears after booking confirmation */}
+        {/* Stripe service fee payment form */}
         {paymentCards.map((pd, i) => (
           <StripePaymentForm key={i} data={pd} />
         ))}
