@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { ChatMessage, TypingIndicator } from '@/components/ChatMessage';
 import { ItinerarySidebar } from '@/components/ItinerarySidebar';
+import { CheckoutCard } from '@/components/CheckoutCard';
 import { cn, generateSessionId, detectCommand } from '@/lib/utils';
 import type { Itinerary, ItineraryDay, FlightResult, HotelResult } from '@/lib/types';
 
@@ -52,16 +53,16 @@ function ThemeToggle() {
   );
 }
 
-// ─── Destination chips (North America focus) ─────────────────────────────
+// ─── Destination chips — only cities with confirmed LiteAPI hotel inventory ───
 const DESTINATIONS = [
-  { name: 'Cancún, Mexico',     img: 'https://images.unsplash.com/photo-1552074284-5e88ef1aef18?w=56&h=56&fit=crop&q=80', msg: 'I want a beach vacation to Cancun Mexico for 7 days flying from Toronto' },
-  { name: 'New York City',      img: 'https://images.unsplash.com/photo-1534430480872-3498386e7856?w=56&h=56&fit=crop&q=80', msg: 'Plan a 5 day NYC trip from Vancouver for 2 adults' },
-  { name: 'Santorini, Greece',  img: 'https://images.unsplash.com/photo-1613395877344-13d4a8e0d49e?w=56&h=56&fit=crop&q=80', msg: 'I want to visit Santorini Greece for 7 days flying from Montreal in July' },
-  { name: 'Kyoto, Japan',       img: 'https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?w=56&h=56&fit=crop&q=80', msg: 'Plan a cultural trip to Kyoto Japan for 10 days from Vancouver' },
-  { name: 'Bali, Indonesia',    img: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=56&h=56&fit=crop&q=80', msg: 'I want a relaxing wellness trip to Bali for 10 days departing Toronto' },
-  { name: 'Machu Picchu, Peru', img: 'https://images.unsplash.com/photo-1587595431973-160d0d94add1?w=56&h=56&fit=crop&q=80', msg: 'Plan an adventure trip to Machu Picchu Peru for 12 days from Calgary' },
-  { name: 'Iceland',            img: 'https://images.unsplash.com/photo-1520769669658-f07657f5a307?w=56&h=56&fit=crop&q=80', msg: 'Plan a northern lights and nature trip to Iceland for 8 days' },
-  { name: 'Morocco',            img: 'https://images.unsplash.com/photo-1539020140153-e479b8c22e70?w=56&h=56&fit=crop&q=80', msg: 'I want to explore the souks, desert and coasts of Morocco for 10 days' },
+  { name: 'Cancún, Mexico',    img: 'https://images.unsplash.com/photo-1552074284-5e88ef1aef18?w=56&h=56&fit=crop&q=80', msg: 'I want a beach vacation to Cancun Mexico for 7 days flying from Toronto' },
+  { name: 'New York City',     img: 'https://images.unsplash.com/photo-1534430480872-3498386e7856?w=56&h=56&fit=crop&q=80', msg: 'Plan a 5 day NYC trip from Vancouver for 2 adults' },
+  { name: 'Punta Cana',        img: 'https://images.unsplash.com/photo-1584553421349-3557471bed79?w=56&h=56&fit=crop&q=80', msg: 'I want a 7 day all-inclusive beach vacation to Punta Cana Dominican Republic from Toronto' },
+  { name: 'Tokyo, Japan',      img: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=56&h=56&fit=crop&q=80', msg: 'Plan a cultural trip to Tokyo Japan for 10 days from Vancouver' },
+  { name: 'Bali, Indonesia',   img: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=56&h=56&fit=crop&q=80', msg: 'I want a relaxing wellness trip to Bali for 10 days departing Toronto' },
+  { name: 'Barcelona, Spain',  img: 'https://images.unsplash.com/photo-1539037116277-4db20889f2d4?w=56&h=56&fit=crop&q=80', msg: 'Plan a 7 day food and culture trip to Barcelona Spain from Montreal' },
+  { name: 'Dubai, UAE',        img: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=56&h=56&fit=crop&q=80', msg: 'I want a luxury 6 day trip to Dubai UAE flying from Toronto' },
+  { name: 'Miami, Florida',    img: 'https://images.unsplash.com/photo-1533106497176-45ae19e68ba2?w=56&h=56&fit=crop&q=80', msg: 'Plan a 5 day Miami beach trip from Toronto for 2 people' },
 ] as const;
 
 // ─── Welcome screen ───────────────────────────────────────────────────────
@@ -252,6 +253,12 @@ export default function ChatPage() {
   const [itinerary, setItinerary]         = useState<Itinerary | null>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [apiError, setApiError]           = useState<string | null>(null);
+
+  // ── Inline checkout cart ─────────────────────────────────────────────────
+  const [cartFlight,   setCartFlight]   = useState<FlightResult | null>(null);
+  const [cartHotel,    setCartHotel]    = useState<HotelResult  | null>(null);
+  const [showCheckout, setShowCheckout] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatAreaRef    = useRef<HTMLDivElement>(null);
 
@@ -300,6 +307,7 @@ export default function ChatPage() {
   useHotkey('/', useCallback(() => setSidebarOpen(o => !o), []));
   useHotkey('k', useCallback(() => {
     setMessages([]); setItinerary(null); setApiError(null);
+    setCartFlight(null); setCartHotel(null); setShowCheckout(false);
   }, [setMessages]));
 
   // Itinerary extractor
@@ -310,28 +318,50 @@ export default function ChatPage() {
     catch { /* skip */ }
   }, []);
 
-  // Card selection — sends a "I'll take X" selection message rather than
-  // triggering booking immediately. The AI collects all choices (flight +
-  // hotel + optional experiences) before asking for passenger details.
+  // Card selection — stores flight/hotel in cart and sends a selection message.
+  // Once both are chosen, the inline CheckoutCard appears automatically.
   const handleSelectFlight = useCallback((f: FlightResult) => {
+    setCartFlight(f);
     const price = new Intl.NumberFormat('en-US', { style: 'currency', currency: f.currency }).format(f.price);
     const dep   = new Date(f.departure).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    // Offer ID is intentionally NOT included here — the checkout card owns it.
+    // Keeping it out prevents the AI from triggering premature booking tool calls.
     append({
       role: 'user',
-      content: `I'll take the ${f.airline} flight — ${f.origin} → ${f.destination}, departing ${dep}, ${f.duration}, ${f.stops === 0 ? 'non-stop' : `${f.stops} stop`}, ${price}. Offer ID: ${f.id}`,
+      content: `[FLIGHT_SELECTED] ${f.airline} ${f.origin}→${f.destination}, ${dep}, ${f.stops === 0 ? 'non-stop' : `${f.stops} stop`}, ${price}.`,
     });
   }, [append]);
 
   const handleSelectHotel = useCallback((h: HotelResult) => {
+    setCartHotel(h);
+    setShowCheckout(true);
     const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: h.currency ?? 'USD' }).format(n);
     const bookable = h.bookingToken && !h.isSample;
+    // [HOTEL_SELECTED] tag tells the AI to show checkout instructions only.
     append({
       role: 'user',
       content: bookable
-        ? `I'll take ${h.name} — ${h.stars}★, ${fmt(h.pricePerNight)}/night (${fmt(h.totalPrice)} total), check-in ${h.checkIn} → ${h.checkOut}. Rate ID: ${h.bookingToken}`
-        : `I'm interested in ${h.name} — ${h.stars}★, ~${fmt(h.pricePerNight)}/night. Note: this is indicative pricing.`,
+        ? `[HOTEL_SELECTED] ${h.name}, ${h.stars}★, ${fmt(h.pricePerNight)}/night (${fmt(h.totalPrice)} total), ${h.checkIn}→${h.checkOut}.`
+        : `[HOTEL_SELECTED] ${h.name}, ${h.stars}★, ~${fmt(h.pricePerNight)}/night (indicative pricing).`,
     });
   }, [append]);
+
+  // Checkout callbacks
+  const handleCheckoutConfirmed = useCallback((flightRef?: string, hotelRef?: string) => {
+    setShowCheckout(false);
+    setCartFlight(null);
+    setCartHotel(null);
+    const parts: string[] = [];
+    if (flightRef) parts.push(`Flight booked ✅ (ref: ${flightRef})`);
+    if (hotelRef)  parts.push(`Hotel booked ✅ (ref: ${hotelRef})`);
+    if (parts.length > 0) {
+      append({ role: 'user', content: `Booking completed! ${parts.join(' · ')}. Payment submitted.` });
+    }
+  }, [append]);
+
+  const handleCheckoutClose = useCallback(() => {
+    setShowCheckout(false);
+  }, []);
 
   const handleEditDay = useCallback((day: ItineraryDay) => {
     setInput(`/edit-day-${day.day} `);
@@ -442,7 +472,10 @@ export default function ChatPage() {
             <div className="flex items-center gap-0.5">
               {messages.length > 0 && (
                 <button
-                  onClick={() => { setMessages([]); setItinerary(null); setApiError(null); }}
+                  onClick={() => {
+                    setMessages([]); setItinerary(null); setApiError(null);
+                    setCartFlight(null); setCartHotel(null); setShowCheckout(false);
+                  }}
                   className="p-2 rounded-xl hover:bg-black/[.06] dark:hover:bg-white/[.08]
                              text-muted-foreground hover:text-foreground transition-colors"
                   title="New chat (⌘K)"
@@ -493,6 +526,18 @@ export default function ChatPage() {
 
                 {isLoading && messages.at(-1)?.role === 'user' && <TypingIndicator />}
                 {apiError && <ErrorBanner message={apiError} />}
+
+                {/* ── Inline checkout card — appears after hotel is selected ── */}
+                {showCheckout && (
+                  <div className="my-4 px-2 sm:px-0">
+                    <CheckoutCard
+                      flight={cartFlight}
+                      hotel={cartHotel}
+                      onClose={handleCheckoutClose}
+                      onConfirmed={handleCheckoutConfirmed}
+                    />
+                  </div>
+                )}
 
                 <div ref={messagesEndRef} />
               </div>

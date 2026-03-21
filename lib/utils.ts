@@ -30,10 +30,15 @@ export function formatTime(iso: string): string {
   });
 }
 
-/** Airline logo URL from logo.clearbit.com fallback */
-export function airlineLogo(airline: string): string {
-  const slug = airline.toLowerCase().replace(/\s+/g, '');
-  return `https://logo.clearbit.com/${slug}.com`;
+/**
+ * Airline logo URL via avs.io — served by IATA 2-letter carrier code.
+ * Pass the 2-letter IATA code (e.g. "AC", "WS", "UA").
+ * Falls back to empty string if no code given (component renders text badge).
+ */
+export function airlineLogo(iataCode?: string): string {
+  if (!iataCode || iataCode.length < 2) return '';
+  const code = iataCode.slice(0, 2).toUpperCase();
+  return `https://pics.avs.io/64/64/${code}.png`;
 }
 
 /**

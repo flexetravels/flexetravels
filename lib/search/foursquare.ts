@@ -106,7 +106,7 @@ export class FoursquareProvider implements ExperienceProvider {
 
     const res = await fetch(url.toString(), {
       headers: this.headers,
-      signal:  AbortSignal.timeout(12_000),
+      signal:  AbortSignal.timeout(5_000),
     });
 
     if (!res.ok) {

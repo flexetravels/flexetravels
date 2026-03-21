@@ -148,7 +148,8 @@ export async function aggregateFlights(params: FlightSearchParams): Promise<{
   errors: string[];
   latencyMs: number;
 }> {
-  const providers = buildProviders();
+  // liteapi is a hotel-only provider — exclude from flight search
+  const providers = buildProviders().filter(p => p.name !== 'liteapi');
   const start = Date.now();
 
   if (providers.length === 0) {
@@ -260,39 +261,98 @@ export async function aggregateHotels(params: HotelSearchParams): Promise<{
 }
 
 // ─── Experience aggregation ────────────────────────────────────────────────────
-// Provider priority: Foursquare (primary) → OpenTripMap (fallback)
+// Architecture: Foursquare + OpenTripMap race in PARALLEL, hard 8 s wall-clock cap.
+// Results are cached in-process (LRU-style Map, 1 h TTL) so repeat searches
+// on the same destination return instantly and never block the chat stream.
+
+const EXPERIENCE_CACHE = new Map<string, { data: NormalizedExperience[]; sources: string[]; ts: number }>();
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+function expCacheKey(params: ExperienceSearchParams): string {
+  return `${params.destination?.toLowerCase()}::${params.category ?? 'all'}`;
+}
+
 export async function aggregateExperiences(params: ExperienceSearchParams): Promise<{
   experiences: NormalizedExperience[];
   sources: string[];
   errors: string[];
 }> {
+  // ── Cache hit ──────────────────────────────────────────────────────────────
+  const cacheKey = expCacheKey(params);
+  const cached = EXPERIENCE_CACHE.get(cacheKey);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+    return { experiences: cached.data, sources: cached.sources, errors: [] };
+  }
+
   const fsqKey = process.env.FOURSQUARE_API_KEY;
   const otmKey = process.env.OPENTRIPMAP_KEY;
 
-  // Try Foursquare first (richer data, photos, ratings)
+  // Build provider promises (only for configured providers)
+  type ProviderResult = { experiences: NormalizedExperience[]; source: string };
+  const candidates: Promise<ProviderResult>[] = [];
+
   if (fsqKey && !fsqKey.includes('PASTE') && !fsqKey.includes('your_')) {
-    try {
-      const provider = new FoursquareProvider(fsqKey);
-      const experiences = await provider.searchExperiences(params);
-      if (experiences.length > 0) {
-        return { experiences, sources: ['foursquare'], errors: [] };
-      }
-    } catch (err) {
-      // Fall through to OpenTripMap
-      console.warn('[aggregateExperiences] Foursquare failed, trying OpenTripMap:', String(err));
-    }
+    candidates.push(
+      new FoursquareProvider(fsqKey)
+        .searchExperiences(params)
+        .then(experiences => ({ experiences, source: 'foursquare' }))
+    );
   }
 
-  // Fallback to OpenTripMap
   if (otmKey && !otmKey.includes('PASTE') && !otmKey.includes('your_')) {
-    try {
-      const provider = new OpenTripMapProvider(otmKey);
-      const experiences = await provider.searchExperiences(params);
-      return { experiences, sources: ['opentripmap'], errors: [] };
-    } catch (err) {
-      return { experiences: [], sources: [], errors: [`OpenTripMap: ${String(err)}`] };
+    candidates.push(
+      new OpenTripMapProvider(otmKey)
+        .searchExperiences(params)
+        .then(experiences => ({ experiences, source: 'opentripmap' }))
+    );
+  }
+
+  if (candidates.length === 0) {
+    return { experiences: [], sources: [], errors: ['No experience provider configured'] };
+  }
+
+  // ── Hard 8 s wall-clock cap: race all providers + timeout sentinel ──────────
+  const WALL_CLOCK_MS = 8_000;
+  const timeout = new Promise<ProviderResult>(resolve =>
+    setTimeout(() => resolve({ experiences: [], source: 'timeout' }), WALL_CLOCK_MS)
+  );
+
+  // Collect all results that arrive within the cap; return first non-empty
+  const allWithTimeout: Promise<ProviderResult>[] = [...candidates.map(p =>
+    p.catch(err => {
+      console.warn('[aggregateExperiences] provider error:', String(err));
+      return { experiences: [], source: 'error' };
+    })
+  ), timeout];
+
+  // Use Promise.race to get the FIRST provider that returns results
+  // If it returns empty, settle all remaining promises for a chance at results
+  const firstResult = await Promise.race(allWithTimeout);
+
+  let best: ProviderResult = firstResult;
+  if (firstResult.experiences.length === 0 && firstResult.source !== 'timeout' && candidates.length > 1) {
+    // First provider returned empty — wait for remaining ones, bounded by the SAME
+    // timeout sentinel (which is still in flight, counting from function start).
+    const all = await Promise.allSettled(allWithTimeout);
+    for (const r of all) {
+      if (r.status === 'fulfilled' && r.value.experiences.length > 0 && r.value.source !== 'timeout') {
+        best = r.value;
+        break;
+      }
     }
   }
 
-  return { experiences: [], sources: [], errors: ['No experience provider configured (add FOURSQUARE_API_KEY to .env.local)'] };
+  const result = { experiences: best.experiences, sources: best.source !== 'timeout' && best.source !== 'error' ? [best.source] : [], errors: [] };
+
+  // ── Cache the result (even empty — avoids repeat slow requests) ────────────
+  if (best.source !== 'timeout') {
+    EXPERIENCE_CACHE.set(cacheKey, { data: result.experiences, sources: result.sources, ts: Date.now() });
+    // Evict oldest entries if cache grows large
+    if (EXPERIENCE_CACHE.size > 200) {
+      const oldest = [...EXPERIENCE_CACHE.entries()].sort((a, b) => a[1].ts - b[1].ts)[0];
+      EXPERIENCE_CACHE.delete(oldest[0]);
+    }
+  }
+
+  return result;
 }

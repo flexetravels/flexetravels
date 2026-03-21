@@ -11,6 +11,11 @@ import type {
 
 const LITEAPI_BASE = 'https://api.liteapi.travel/v3.0';
 
+// ─── Hotel search cache (in-process, 30-min TTL per city+dates+guests) ─────────
+// Avoids hitting LiteAPI's slow rates endpoint on every message turn.
+const HOTEL_CACHE = new Map<string, { data: NormalizedHotel[]; ts: number }>();
+const HOTEL_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
 // ─── City → Country code mapping ──────────────────────────────────────────────
 // Covers all major destinations from North American travellers
 const CITY_COUNTRY: Record<string, string> = {
@@ -76,11 +81,24 @@ const CITY_COUNTRY: Record<string, string> = {
   // Oceania
   'sydney': 'AU', 'melbourne': 'AU', 'brisbane': 'AU', 'cairns': 'AU', 'perth': 'AU',
   'auckland': 'NZ', 'queenstown': 'NZ', 'christchurch': 'NZ',
+  // South America
+  'lima': 'PE', 'cusco': 'PE', 'cuzco': 'PE', 'machu picchu': 'PE', 'arequipa': 'PE',
+  'buenos aires': 'AR', 'bariloche': 'AR', 'mendoza': 'AR',
+  'rio de janeiro': 'BR', 'sao paulo': 'BR', 'florianopolis': 'BR', 'salvador': 'BR',
+  'bogota': 'CO', 'cartagena': 'CO', 'medellin': 'CO',
+  'santiago': 'CL', 'valparaiso': 'CL',
+  'quito': 'EC', 'galapagos': 'EC',
+  'montevideo': 'UY',
+  'la paz': 'BO',
+  'asuncion': 'PY',
   // Africa & Middle East
   'cairo': 'EG', 'luxor': 'EG', 'sharm el sheikh': 'EG',
   'marrakech': 'MA', 'casablanca': 'MA',
   'cape town': 'ZA', 'johannesburg': 'ZA',
   'nairobi': 'KE', 'mombasa': 'KE',
+  'accra': 'GH', 'lagos': 'NG', 'dakar': 'SN',
+  'tel aviv': 'IL', 'jerusalem': 'IL',
+  'amman': 'JO', 'petra': 'JO',
 };
 
 // IATA code → city + country (for when destination is passed as airport code)
@@ -161,13 +179,25 @@ const IATA_TO_CITY: Record<string, { city: string; countryCode: string }> = {
   'BNE': { city: 'Brisbane',      countryCode: 'AU' },
   'AKL': { city: 'Auckland',      countryCode: 'NZ' },
   'ZQN': { city: 'Queenstown',    countryCode: 'NZ' },
-  'GRU': { city: 'Sao Paulo',     countryCode: 'BR' },
+  'GRU': { city: 'Sao Paulo',      countryCode: 'BR' },
   'GIG': { city: 'Rio de Janeiro', countryCode: 'BR' },
-  'EZE': { city: 'Buenos Aires',  countryCode: 'AR' },
-  'LIM': { city: 'Lima',          countryCode: 'PE' },
-  'BOG': { city: 'Bogota',        countryCode: 'CO' },
-  'UIO': { city: 'Quito',         countryCode: 'EC' },
-  'PUJ': { city: 'Punta Cana',    countryCode: 'DO' },
+  'SSA': { city: 'Salvador',       countryCode: 'BR' },
+  'FLN': { city: 'Florianopolis',  countryCode: 'BR' },
+  'EZE': { city: 'Buenos Aires',   countryCode: 'AR' },
+  'AEP': { city: 'Buenos Aires',   countryCode: 'AR' },
+  'BRC': { city: 'Bariloche',      countryCode: 'AR' },
+  'MDZ': { city: 'Mendoza',        countryCode: 'AR' },
+  'LIM': { city: 'Lima',           countryCode: 'PE' },
+  'CUZ': { city: 'Cusco',          countryCode: 'PE' },  // Gateway to Machu Picchu
+  'BOG': { city: 'Bogota',         countryCode: 'CO' },
+  'CTG': { city: 'Cartagena',      countryCode: 'CO' },
+  'MDE': { city: 'Medellin',       countryCode: 'CO' },
+  'SCL': { city: 'Santiago',       countryCode: 'CL' },
+  'UIO': { city: 'Quito',          countryCode: 'EC' },
+  'GYE': { city: 'Guayaquil',      countryCode: 'EC' },
+  'MVD': { city: 'Montevideo',     countryCode: 'UY' },
+  'ASU': { city: 'Asuncion',       countryCode: 'PY' },
+  'PUJ': { city: 'Punta Cana',     countryCode: 'DO' },
   'SDQ': { city: 'Santo Domingo', countryCode: 'DO' },
   'MBJ': { city: 'Montego Bay',   countryCode: 'JM' },
   'NAS': { city: 'Nassau',        countryCode: 'BS' },
@@ -217,14 +247,19 @@ interface LiteHotelListItem {
 }
 
 interface LiteRate {
-  rateId?: string;
-  name?:   string;
+  rateId?:       string;
+  name?:         string;
+  boardType?:    string;
+  boardName?:    string;
+  maxOccupancy?: number;
   retailRate?: {
     total?: Array<{ amount: number; currency: string }>;
   };
-  boardType?:  string;
-  boardName?:  string;
-  cancellationPolicies?: { refundableTag?: string };
+  cancellationPolicies?: {
+    refundableTag?:     string; // "RFN" = refundable, "NRFN" = non-refundable
+    cancelPolicyInfos?: Array<{ cancelTime?: string; amount?: number; currency?: string; type?: string }>;
+  };
+  paymentTypes?: string[];
 }
 
 interface LiteRoomType {
@@ -267,6 +302,14 @@ export class LiteApiProvider implements SearchProvider {
       Math.round((new Date(params.checkOut).getTime() - new Date(params.checkIn).getTime()) / 86400000)
     );
 
+    // ── Cache check ────────────────────────────────────────────────────────────
+    const cacheKey = `${city}::${countryCode}::${params.checkIn}::${params.checkOut}::${params.adults ?? 2}`;
+    const cached = HOTEL_CACHE.get(cacheKey);
+    if (cached && Date.now() - cached.ts < HOTEL_CACHE_TTL_MS) {
+      console.log('[LiteAPI] hotel cache hit for', cacheKey);
+      return cached.data;
+    }
+
     // ── Step 1: Fetch hotel list for the city ──────────────────────────────────
     const listUrl =
       `${LITEAPI_BASE}/data/hotels?countryCode=${countryCode}` +
@@ -274,7 +317,7 @@ export class LiteApiProvider implements SearchProvider {
 
     const listRes = await fetch(listUrl, {
       headers: this.headers,
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(8_000),   // was 15 s
     });
 
     if (!listRes.ok) {
@@ -299,13 +342,13 @@ export class LiteApiProvider implements SearchProvider {
       headers: this.headers,
       body: JSON.stringify({
         hotelIds,
-        checkinDate:       params.checkIn,
-        checkoutDate:      params.checkOut,
-        occupancies:       [{ adults: params.adults }],
+        checkin:           params.checkIn,
+        checkout:          params.checkOut,
+        occupancies:       [{ adults: params.adults ?? 2, children: [] }],
         currency:          'USD',
         guestNationality:  countryCode === 'CA' ? 'CA' : 'US',
       }),
-      signal: AbortSignal.timeout(35_000),
+      signal: AbortSignal.timeout(20_000),   // was 35 s
     });
 
     if (!ratesRes.ok) {
@@ -320,19 +363,26 @@ export class LiteApiProvider implements SearchProvider {
       const info = hotelInfoMap.get(rateHotel.hotelId);
       if (!info) continue;
 
-      // Pick the cheapest available rate across all room types
-      const allRates: LiteRate[] = (rateHotel.roomTypes ?? []).flatMap(rt => rt.rates ?? []);
-      if (allRates.length === 0) continue;
+      // Pick the cheapest available rate across all room types.
+      // Track the parent room type's offerId alongside the rate's rateId —
+      // LiteAPI v3 /rates/prebook requires the offerId (room-type level), not rateId.
+      let cheapestRate: LiteRate | null = null;
+      let cheapestOfferId: string | undefined;
 
-      const cheapest = allRates.reduce<LiteRate | null>((best, rate) => {
-        const amt = rate.retailRate?.total?.[0]?.amount ?? 0;
-        const bestAmt = best?.retailRate?.total?.[0]?.amount ?? Infinity;
-        return amt > 0 && amt < bestAmt ? rate : best;
-      }, null);
+      for (const rt of rateHotel.roomTypes ?? []) {
+        for (const rate of rt.rates ?? []) {
+          const amt     = rate.retailRate?.total?.[0]?.amount ?? 0;
+          const bestAmt = cheapestRate?.retailRate?.total?.[0]?.amount ?? Infinity;
+          if (amt > 0 && amt < bestAmt) {
+            cheapestRate    = rate;
+            cheapestOfferId = rt.offerId;   // room-type level ID for prebook
+          }
+        }
+      }
 
-      if (!cheapest) continue;
+      if (!cheapestRate) continue;
 
-      const totalPrice = cheapest.retailRate?.total?.[0]?.amount ?? 0;
+      const totalPrice = cheapestRate.retailRate?.total?.[0]?.amount ?? 0;
       if (totalPrice <= 0) continue;
 
       const pricePerNight = totalPrice / nights;
@@ -342,7 +392,14 @@ export class LiteApiProvider implements SearchProvider {
       const stars = info.starRating ?? 3;
       if (params.stars && stars < params.stars) continue;
 
-      const refundable = cheapest.cancellationPolicies?.refundableTag === 'FULLY_REFUNDABLE';
+      // LiteAPI v3.0 tags: "RFN" = refundable, "NRFN" = non-refundable
+      const refundableTag = cheapestRate.cancellationPolicies?.refundableTag ?? '';
+      const refundable = refundableTag === 'RFN' || refundableTag === 'FULLY_REFUNDABLE';
+
+      // bookingToken stores the offerId (preferred for prebook) with rateId as fallback.
+      // Prefixed with 'liteapi_' so book-trip route can identify the provider.
+      const rawToken    = cheapestOfferId ?? cheapestRate.rateId ?? '';
+      const bookingToken = rawToken ? `liteapi_${rawToken}` : '';
 
       normalized.push({
         id:            rateHotel.hotelId,
@@ -353,7 +410,7 @@ export class LiteApiProvider implements SearchProvider {
         stars,
         pricePerNight: Math.round(pricePerNight * 100) / 100,
         totalPrice:    Math.round(totalPrice * 100) / 100,
-        currency:      cheapest.retailRate?.total?.[0]?.currency ?? 'USD',
+        currency:      cheapestRate.retailRate?.total?.[0]?.currency ?? 'USD',
         image:         info.main_photo ?? info.thumbnail ?? '',
         images:        info.main_photo ? [info.main_photo] : [],
         rating:        7.5 + (stars - 3) * 0.4, // Approximate: 5-star ≈ 8.3, 3-star ≈ 7.5
@@ -361,14 +418,23 @@ export class LiteApiProvider implements SearchProvider {
         cancellation:  refundable ? 'Free cancellation' : 'Non-refundable',
         checkIn:       params.checkIn,
         checkOut:      params.checkOut,
-        bookingToken:  cheapest.rateId,  // rateId used for prebook step
+        bookingToken,
         isSample:      false,
       });
     }
 
-    return normalized
+    const results = normalized
       .sort((a, b) => a.pricePerNight - b.pricePerNight)
       .slice(0, 6);
+
+    // Write to cache (even empty, prevents hammering the API on retries)
+    HOTEL_CACHE.set(cacheKey, { data: results, ts: Date.now() });
+    if (HOTEL_CACHE.size > 100) {
+      const oldest = [...HOTEL_CACHE.entries()].sort((a, b) => a[1].ts - b[1].ts)[0];
+      HOTEL_CACHE.delete(oldest[0]);
+    }
+
+    return results;
   }
 }
 
@@ -385,7 +451,7 @@ export interface LiteApiPrebookResult {
 }
 
 export async function liteApiPrebook(
-  rateId: string,
+  offerId: string,   // This is the bookingToken = roomType.offerId (or rateId as fallback)
   guestNationality = 'US',
   apiKey?: string
 ): Promise<LiteApiPrebookResult> {
@@ -394,6 +460,10 @@ export async function liteApiPrebook(
     return { success: false, error: 'LITEAPI_KEY not configured — hotel booking unavailable' };
   }
 
+  // LiteAPI v3 /rates/prebook expects the field `offerID` (capital ID) per their
+  // Go validation tag: `Key: 'PreBookRequest.OfferID'`
+  console.log('[liteApiPrebook] offerID:', offerId, 'guestNationality:', guestNationality);
+
   const res = await fetch(`${LITEAPI_BASE}/rates/prebook`, {
     method: 'POST',
     headers: {
@@ -401,16 +471,20 @@ export async function liteApiPrebook(
       'Content-Type': 'application/json',
       'Accept':       'application/json',
     },
-    body: JSON.stringify({ rateId, guestNationality }),
+    body: JSON.stringify({ offerID: offerId, guestNationality }),
     signal: AbortSignal.timeout(15_000),
   });
 
   if (!res.ok) {
     const txt = await res.text();
+    console.error('[liteApiPrebook] failed', res.status, txt.slice(0, 400));
     return { success: false, error: `Prebook failed ${res.status}: ${txt.slice(0, 200)}` };
   }
 
-  const data = await res.json() as {
+  const raw = await res.json() as Record<string, unknown>;
+  console.log('[liteApiPrebook] success, raw keys:', Object.keys(raw), 'data keys:', raw.data ? Object.keys(raw.data as object) : 'none');
+
+  const data = raw as {
     data?: {
       prebookId?:  string;
       hotelId?:    string;
@@ -420,9 +494,14 @@ export async function liteApiPrebook(
     };
   };
 
+  const prebookId = data.data?.prebookId;
+  if (!prebookId) {
+    console.warn('[liteApiPrebook] no prebookId in response:', JSON.stringify(raw).slice(0, 300));
+  }
+
   return {
     success:             true,
-    prebookId:           data.data?.prebookId,
+    prebookId,
     hotelId:             data.data?.hotelId,
     confirmedTotal:      data.data?.price?.total,
     currency:            data.data?.price?.currency ?? data.data?.currency ?? 'USD',
@@ -457,14 +536,39 @@ export async function liteApiBook(params: {
     return { success: false, error: 'LITEAPI_KEY not configured' };
   }
 
-  // Sandbox test card — in production this will be replaced by a Stripe payment token
+  const isSandbox = key.startsWith('sand_');
+
+  // LiteAPI v3 payment object field names (confirmed from their docs):
+  //   method:     'ACC_CREDIT_CARD'  — NOT 'CREDIT_CARD'
+  //   cardNumber: '4242...'          — NOT 'number'
+  //   expireDate: 'MM/YYYY'          — 4-digit year
+  // Sandbox test card: 4242424242424242, any 3-digit CVV, any future date.
   const payment = {
+    method:     'ACC_CREDIT_CARD',
     holderName: `${params.guestFirstName} ${params.guestLastName}`,
-    number:     '4242424242424242',
-    expireDate: '12/28',
-    cvc:        '100',
-    method:     'CREDIT_CARD',
+    cardNumber: isSandbox ? '4242424242424242' : '',  // replaced by real token at prod
+    expireDate: '12/2028',
+    cvc:        '123',
   };
+
+  // LiteAPI v3 book body: uses `holder` (not `guestInfo`) + a `guests` array
+  const bookBody = {
+    prebookId: params.prebookId,
+    holder: {
+      firstName: params.guestFirstName,
+      lastName:  params.guestLastName,
+      email:     params.guestEmail,
+    },
+    guests: [{
+      occupancyNumber: 1,              // required by LiteAPI v3 — 1-based occupancy index
+      firstName:       params.guestFirstName,
+      lastName:        params.guestLastName,
+      email:           params.guestEmail,
+    }],
+    payment,
+  };
+
+  console.log('[liteApiBook] prebookId:', params.prebookId, 'isSandbox:', isSandbox, 'method:', payment.method);
 
   const res = await fetch(`${LITEAPI_BASE}/rates/book`, {
     method: 'POST',
@@ -473,24 +577,20 @@ export async function liteApiBook(params: {
       'Content-Type': 'application/json',
       'Accept':       'application/json',
     },
-    body: JSON.stringify({
-      prebookId: params.prebookId,
-      guestInfo: {
-        guestFirstName: params.guestFirstName,
-        guestLastName:  params.guestLastName,
-        guestEmail:     params.guestEmail,
-      },
-      payment,
-    }),
+    body: JSON.stringify(bookBody),
     signal: AbortSignal.timeout(30_000),
   });
 
   if (!res.ok) {
     const txt = await res.text();
+    console.error('[liteApiBook] failed', res.status, txt.slice(0, 400));
     return { success: false, error: `Booking failed ${res.status}: ${txt.slice(0, 300)}` };
   }
 
-  const data = await res.json() as {
+  const raw = await res.json() as Record<string, unknown>;
+  console.log('[liteApiBook] success! top-level keys:', Object.keys(raw), '| data keys:', raw.data ? Object.keys(raw.data as object) : 'none');
+
+  const data = raw as {
     data?: {
       bookingId?:  string;
       status?:     string;

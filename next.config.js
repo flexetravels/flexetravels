@@ -6,7 +6,7 @@ const nextConfig = {
       { protocol: 'https', hostname: 'plus.unsplash.com' },
       { protocol: 'https', hostname: 'source.unsplash.com' },
       // Airline logos
-      { protocol: 'https', hostname: 'logo.clearbit.com' },
+      { protocol: 'https', hostname: 'pics.avs.io' },
       { protocol: 'https', hostname: 'assets.duffel.com' },
       { protocol: 'https', hostname: '*.duffel.com' },
       // Hotel images (LiteAPI CDN)

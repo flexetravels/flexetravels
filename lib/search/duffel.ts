@@ -7,6 +7,7 @@ import type {
   SearchProvider, FlightSearchParams, HotelSearchParams,
   NormalizedFlight, NormalizedHotel,
 } from './types';
+import { airlineLogo } from '@/lib/utils';
 
 // ─── Duffel raw API types ──────────────────────────────────────────────────────
 interface DuffelSegment {
@@ -46,11 +47,14 @@ function mapOffer(offer: DuffelOffer, cabinClass: string): NormalizedFlight {
   const first  = segs[0];
   const last   = segs[segs.length - 1];
 
+  // Use the first segment's carrier IATA code for the logo (avs.io CDN — no DNS issues)
+  const firstCarrierIata = first?.marketing_carrier?.iata_code ?? '';
+
   return {
     id:           offer.id,
     provider:     'duffel',
     airline:      offer.owner?.name ?? 'Unknown',
-    airlineLogo:  offer.owner?.logo_symbol_url,
+    airlineLogo:  airlineLogo(firstCarrierIata), // ← avs.io URL, not Duffel's clearbit URL
     origin:       first?.origin?.iata_code ?? '',
     destination:  last?.destination?.iata_code ?? '',
     departure:    first?.departing_at ?? '',
@@ -69,7 +73,7 @@ function mapOffer(offer: DuffelOffer, cabinClass: string): NormalizedFlight {
       departure:    seg.departing_at ?? '',
       arrival:      seg.arriving_at ?? '',
       duration:     fmtDuration(seg.duration ?? ''),
-      carrier:      seg.marketing_carrier?.name ?? '',
+      carrier:      seg.marketing_carrier?.iata_code ?? '', // IATA code (e.g. "AC"), used for logo lookup
       flightNumber: `${seg.marketing_carrier?.iata_code ?? ''}${seg.marketing_carrier_flight_number ?? ''}`,
     })),
   };

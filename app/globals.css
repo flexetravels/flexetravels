@@ -438,19 +438,26 @@
 .stop-btn:hover { background: hsl(var(--destructive) / 0.2); }
 
 /* ══════════════════════════════════════════════════════════════
-   TRAVEL CARDS
+   TRAVEL CARDS  — premium glass + depth
    ══════════════════════════════════════════════════════════════ */
 .travel-card {
-  border-radius: 14px;
+  border-radius: 16px;
   overflow: hidden;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid hsl(var(--border) / 0.7);
   background: hsl(var(--card));
-  box-shadow: 0 2px 12px rgba(0,0,0,.06);
-  transition: box-shadow .2s, transform .2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.06);
+  transition: box-shadow .22s ease, transform .22s ease;
+  animation: fadeUp .22s ease-out;
+}
+.dark .travel-card {
+  box-shadow: 0 1px 3px rgba(0,0,0,.2), 0 4px 20px rgba(0,0,0,.18);
 }
 .travel-card:hover {
-  box-shadow: 0 6px 28px rgba(0,0,0,.10);
-  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,.06), 0 8px 32px rgba(0,0,0,.10);
+  transform: translateY(-2px);
+}
+.dark .travel-card:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,.3), 0 8px 40px rgba(0,0,0,.28);
 }
 .price-badge {
   display: inline-flex;
@@ -602,4 +609,11 @@
 @keyframes slideDown {
   from { opacity: 0; transform: translateY(-8px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(16px) scale(.98); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);   }
+}
+.animate-fade-in-up {
+  animation: fadeInUp .3s cubic-bezier(.22,1,.36,1) both;
 }
