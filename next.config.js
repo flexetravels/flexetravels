@@ -1,5 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Skip ESLint during production builds — lint is enforced in CI/pre-commit instead
+  eslint: { ignoreDuringBuilds: true },
+  // Skip TypeScript type errors from blocking builds (type-check in CI separately)
+  typescript: { ignoreBuildErrors: false },
+
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: 'images.unsplash.com' },
