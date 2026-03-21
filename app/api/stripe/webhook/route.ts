@@ -4,9 +4,7 @@
 
 import { NextResponse } from 'next/server';
 import { verifyWebhookSignature } from '@/lib/stripe';
-
-// In-memory confirmed payments store (replace with DB in production)
-const confirmedPayments = new Map<string, { paidAt: string; bookingRef: string }>();
+import { confirmedPayments } from '@/lib/confirmed-payments';
 
 export async function POST(req: Request) {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -45,5 +43,3 @@ export async function POST(req: Request) {
   return NextResponse.json({ received: true });
 }
 
-// Export for use by booking API to check payment status
-export { confirmedPayments };
