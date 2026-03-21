@@ -90,6 +90,7 @@ function ComposingBlock({
 }
 
 // ─── Skeleton loaders ─────────────────────────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function SkeletonFlightCard() {
   return (
     <div className="travel-card p-4 flex items-center gap-3 animate-pulse">
@@ -108,6 +109,7 @@ function SkeletonFlightCard() {
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function SkeletonHotelCard() {
   return (
     <div className="travel-card overflow-hidden animate-pulse">
@@ -131,6 +133,7 @@ function SkeletonHotelCard() {
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function SkeletonExperienceCard() {
   return (
     <div className="travel-card overflow-hidden animate-pulse">

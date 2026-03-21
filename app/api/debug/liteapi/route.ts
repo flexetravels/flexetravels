@@ -54,7 +54,7 @@ export async function GET(req: Request) {
   let ratesHttpStatus: number | null = null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let rawRatesBody: any = null;
-  let sampleRates: Array<{ hotelId: string; cheapestUSD: number; rateId: string }> = [];
+  const sampleRates: Array<{ hotelId: string; cheapestUSD: number; rateId: string }> = [];
 
   const ratesRequestBody = {
     hotelIds,

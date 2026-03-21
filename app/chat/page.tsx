@@ -396,7 +396,6 @@ export default function ChatPage() {
     autoSentRef.current = true;
     // No timer, no cleanup fn → Strict Mode's cleanup phase has nothing to cancel
     appendRef.current({ role: 'user', content: autoPrompt });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoPrompt]); // autoPrompt is stable (from useState); appendRef handled via ref
 
   const isEmpty = messages.length === 0 && !isLoading && !apiError;
