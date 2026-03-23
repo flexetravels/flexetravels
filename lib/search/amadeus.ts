@@ -88,7 +88,7 @@ const CARRIER_NAMES: Record<string, string> = {
   HA: 'Hawaiian Airlines', SY: 'Sun Country', MX: 'Breeze Airways',
 };
 
-function mapAmadeusFlight(offer: AmadeusOffer, cabinClass: string): NormalizedFlight {
+function mapAmadeusFlight(offer: AmadeusOffer, cabinClass: string, adults: number): NormalizedFlight {
   const itin0 = offer.itineraries?.[0];
   const segs  = itin0?.segments ?? [];
   const first = segs[0];
@@ -111,6 +111,7 @@ function mapAmadeusFlight(offer: AmadeusOffer, cabinClass: string): NormalizedFl
     cabinClass,
     refundable:   offer.pricingOptions?.refundableFare ?? false,
     bookingToken: offer.id,
+    passengers:   adults,
     segments:     segs.map(seg => ({
       origin:       seg.departure?.iataCode ?? '',
       destination:  seg.arrival?.iataCode ?? '',
@@ -182,7 +183,7 @@ export class AmadeusProvider implements SearchProvider {
     }
 
     const data = await res.json() as { data?: AmadeusOffer[] };
-    return (data.data ?? []).map(o => mapAmadeusFlight(o, params.cabinClass));
+    return (data.data ?? []).map(o => mapAmadeusFlight(o, params.cabinClass, params.adults));
   }
 
   async searchHotels(params: HotelSearchParams): Promise<NormalizedHotel[]> {

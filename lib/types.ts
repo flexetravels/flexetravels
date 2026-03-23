@@ -30,6 +30,7 @@ export interface FlightResult {
   provider?:    string;   // 'duffel' | 'amadeus' — source of the result
   bookingToken?: string;  // provider-specific booking token
   logo?:        string;   // alias for airlineLogo (Duffel compat)
+  passengers?:  number;   // number of adult passengers searched for
 }
 
 export interface HotelResult {

@@ -41,7 +41,7 @@ function fmtDuration(iso: string): string {
   return `${h}${min}`.trim() || iso;
 }
 
-function mapOffer(offer: DuffelOffer, cabinClass: string): NormalizedFlight {
+function mapOffer(offer: DuffelOffer, cabinClass: string, adults: number): NormalizedFlight {
   const slice0 = offer.slices?.[0];
   const segs   = slice0?.segments ?? [];
   const first  = segs[0];
@@ -67,6 +67,7 @@ function mapOffer(offer: DuffelOffer, cabinClass: string): NormalizedFlight {
     cabinClass,
     refundable:   offer.conditions?.refund_before_departure?.allowed ?? false,
     bookingToken: offer.id,
+    passengers:   adults,
     segments:     segs.map(seg => ({
       origin:       seg.origin?.iata_code ?? '',
       destination:  seg.destination?.iata_code ?? '',
@@ -127,7 +128,7 @@ export class DuffelProvider implements SearchProvider {
     return (json.data?.offers ?? [])
       .sort((a, b) => parseFloat(a.total_amount) - parseFloat(b.total_amount))
       .slice(0, 6)
-      .map(o => mapOffer(o, params.cabinClass));
+      .map(o => mapOffer(o, params.cabinClass, params.adults));
   }
 
   // Duffel doesn't have a hotel search API — return empty, Amadeus handles hotels

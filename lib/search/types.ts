@@ -37,6 +37,7 @@ export interface NormalizedFlight {
   refundable: boolean;
   baggage?: string;
   bookingToken?: string;     // provider-specific token for booking step
+  passengers?: number;       // number of adult passengers searched for
   segments: Array<{
     origin: string;
     destination: string;

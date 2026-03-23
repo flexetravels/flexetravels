@@ -65,15 +65,27 @@ interface Passenger {
   phone:       string;
 }
 
+interface ChildPassenger {
+  firstName:   string;
+  lastName:    string;
+  dateOfBirth: string;   // YYYY-MM-DD — needed to calculate age for Duffel/LiteAPI
+}
+
 const blankPassenger = (): Passenger => ({
   firstName: '', lastName: '', dateOfBirth: '', email: '', phone: '',
 });
 
+const blankChild = (): ChildPassenger => ({
+  firstName: '', lastName: '', dateOfBirth: '',
+});
+
 interface CheckoutCardProps {
-  flight:      FlightResult | null;
-  hotel:       HotelResult  | null;
-  onClose:     () => void;
-  onConfirmed?: (flightRef?: string, hotelRef?: string) => void;
+  flight:           FlightResult | null;
+  hotel:            HotelResult  | null;
+  onClose:          () => void;
+  onConfirmed?:     (flightRef?: string, hotelRef?: string) => void;
+  initialAdults?:   number;    // pre-fill from search (e.g. "2 passengers")
+  initialChildren?: number;    // pre-fill children count from search
 }
 
 type Phase = 'review' | 'passengers' | 'booking' | 'payment' | 'success' | 'error';
@@ -198,11 +210,51 @@ function Field({
   );
 }
 
+// ─── Child age + fare tier display ────────────────────────────────────────────
+
+function ChildAgeBadge({ dob }: { dob: string }) {
+  if (!dob.match(/^\d{4}-\d{2}-\d{2}$/)) return null;
+
+  const born  = new Date(dob);
+  const today = new Date();
+  // Full years, accounting for birthday not yet passed this year
+  const age = today.getFullYear() - born.getFullYear()
+    - (today < new Date(today.getFullYear(), born.getMonth(), born.getDate()) ? 1 : 0);
+
+  // Sanity check — ignore obviously wrong dates
+  if (age < 0 || age > 17) return null;
+
+  let tier: string;
+  let colour: string;
+  if (age < 2) {
+    tier   = `${age === 0 ? 'Under 1' : `${age} yr`} · Infant on lap — no seat`;
+    colour = 'text-amber-600 bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800 dark:text-amber-400';
+  } else if (age < 12) {
+    tier   = `${age} yrs · Child fare — own seat`;
+    colour = 'text-teal-700 bg-teal-50 border-teal-200 dark:bg-teal-950/30 dark:border-teal-800 dark:text-teal-400';
+  } else {
+    tier   = `${age} yrs · Adult fare applies`;
+    colour = 'text-slate-600 bg-slate-50 border-slate-200 dark:bg-slate-800/40 dark:border-slate-700 dark:text-slate-400';
+  }
+
+  return (
+    <p className={cn('text-[10px] font-semibold px-2.5 py-1 rounded-lg border w-fit mt-0.5', colour)}>
+      {tier}
+    </p>
+  );
+}
+
 // ─── Main component ────────────────────────────────────────────────────────────
 
-export function CheckoutCard({ flight, hotel, onClose, onConfirmed }: CheckoutCardProps) {
-  const [adults,       setAdults]       = useState(1);
-  const [passengers,   setPassengers]   = useState<Passenger[]>([blankPassenger()]);
+export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdults, initialChildren }: CheckoutCardProps) {
+  const [adults,          setAdults]          = useState(initialAdults ?? 1);
+  const [passengers,      setPassengers]      = useState<Passenger[]>(
+    Array.from({ length: initialAdults ?? 1 }, blankPassenger)
+  );
+  const [children,           setChildren]           = useState(initialChildren ?? 0);
+  const [childPassengers,    setChildPassengers]    = useState<ChildPassenger[]>(
+    Array.from({ length: initialChildren ?? 0 }, blankChild)
+  );
   const [phase,        setPhase]        = useState<Phase>('review');
   const [error,        setError]        = useState('');
   const [flightRef,    setFlightRef]    = useState('');
@@ -226,6 +278,15 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed }: CheckoutCa
       return prev.slice(0, adults);
     });
   }, [adults]);
+
+  // Sync child passenger array with children count
+  useEffect(() => {
+    setChildPassengers(prev => {
+      if (children > prev.length)
+        return [...prev, ...Array.from({ length: children - prev.length }, blankChild)];
+      return prev.slice(0, children);
+    });
+  }, [children]);
 
   // Mount Stripe when entering payment phase
   useEffect(() => {
@@ -268,28 +329,49 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed }: CheckoutCa
     if (!flight && !hotel) return 'Please select a flight or hotel first.';
     for (let i = 0; i < passengers.length; i++) {
       const p = passengers[i];
-      if (!p.firstName.trim())  return `Passenger ${i + 1}: first name required`;
-      if (!p.lastName.trim())   return `Passenger ${i + 1}: last name required`;
+      if (!p.firstName.trim())  return `Adult ${i + 1}: first name required`;
+      if (!p.lastName.trim())   return `Adult ${i + 1}: last name required`;
       if (!p.dateOfBirth.match(/^\d{4}-\d{2}-\d{2}$/))
-        return `Passenger ${i + 1}: date of birth required`;
-      if (!p.email.includes('@')) return `Passenger ${i + 1}: valid email required`;
-      if (!p.phone.trim())      return `Passenger ${i + 1}: phone required`;
+        return `Adult ${i + 1}: date of birth required`;
+      if (!p.email.includes('@')) return `Adult ${i + 1}: valid email required`;
+      if (!p.phone.trim())      return `Adult ${i + 1}: phone required`;
+    }
+    for (let i = 0; i < childPassengers.length; i++) {
+      const c = childPassengers[i];
+      if (!c.firstName.trim())  return `Child ${i + 1}: first name required`;
+      if (!c.lastName.trim())   return `Child ${i + 1}: last name required`;
+      if (!c.dateOfBirth.match(/^\d{4}-\d{2}-\d{2}$/))
+        return `Child ${i + 1}: date of birth required`;
     }
     return null;
+  }
+
+  function updateChildPassenger(i: number, field: keyof ChildPassenger, value: string) {
+    setChildPassengers(prev => {
+      const next = [...prev];
+      next[i] = { ...next[i], [field]: value };
+      return next;
+    });
   }
 
   // Dev-only: fill all passengers with test data so the form can be bypassed
   const isDev = process.env.NODE_ENV === 'development';
   function fillTestData() {
-    const base = [
-      { firstName: 'John',  lastName: 'Doe',    dateOfBirth: '1990-01-15', email: 'test@flexetravels.com',  phone: '+14165551234' },
-      { firstName: 'Jane',  lastName: 'Doe',    dateOfBirth: '1992-03-22', email: 'test2@flexetravels.com', phone: '+14165551235' },
-      { firstName: 'Alice', lastName: 'Smith',  dateOfBirth: '1985-07-04', email: 'test3@flexetravels.com', phone: '+14165551236' },
-      { firstName: 'Bob',   lastName: 'Smith',  dateOfBirth: '1983-11-30', email: 'test4@flexetravels.com', phone: '+14165551237' },
-      { firstName: 'Carol', lastName: 'Jones',  dateOfBirth: '1978-05-19', email: 'test5@flexetravels.com', phone: '+14165551238' },
-      { firstName: 'David', lastName: 'Jones',  dateOfBirth: '1976-09-08', email: 'test6@flexetravels.com', phone: '+14165551239' },
+    const adultBase = [
+      { firstName: 'John',  lastName: 'Doe',   dateOfBirth: '1990-01-15', email: 'test@flexetravels.com',  phone: '+14165551234' },
+      { firstName: 'Jane',  lastName: 'Doe',   dateOfBirth: '1992-03-22', email: 'test2@flexetravels.com', phone: '+14165551235' },
+      { firstName: 'Alice', lastName: 'Smith', dateOfBirth: '1985-07-04', email: 'test3@flexetravels.com', phone: '+14165551236' },
+      { firstName: 'Bob',   lastName: 'Smith', dateOfBirth: '1983-11-30', email: 'test4@flexetravels.com', phone: '+14165551237' },
     ];
-    setPassengers(passengers.map((_, i) => base[i] ?? base[0]));
+    const childBase = [
+      { firstName: 'Emma',  lastName: 'Doe',   dateOfBirth: '2016-06-10' },
+      { firstName: 'Liam',  lastName: 'Doe',   dateOfBirth: '2018-11-22' },
+      { firstName: 'Olivia',lastName: 'Smith', dateOfBirth: '2019-03-05' },
+    ];
+    setPassengers(passengers.map((_, i) => adultBase[i] ?? adultBase[0]));
+    if (childPassengers.length > 0) {
+      setChildPassengers(childPassengers.map((_, i) => childBase[i] ?? childBase[0]));
+    }
   }
 
   function updatePassenger(i: number, field: keyof Passenger, value: string) {
@@ -325,6 +407,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed }: CheckoutCa
           hotelRateId:      hotel?.bookingToken,
           hotelName:        hotel?.name,
           passengers:       passengers.slice(0, adults),
+          childPassengers:  childPassengers.slice(0, children),
           originAirport:    flight?.origin ?? '',
           guestNationality: 'CA',
         }),
@@ -503,29 +586,43 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed }: CheckoutCa
           <div className="space-y-5">
             <TripRow flight={flight} hotel={hotel} />
 
-            {/* Passenger count */}
-            <div className="flex items-center justify-between px-3.5 py-3 rounded-2xl border border-border/60 bg-muted/20">
-              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <User className="w-4 h-4 text-teal-600" />
-                Passengers
+            {/* Passenger counts */}
+            <div className="space-y-2">
+              {/* Adults */}
+              <div className="flex items-center justify-between px-3.5 py-3 rounded-2xl border border-border/60 bg-muted/20">
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <User className="w-4 h-4 text-teal-600" />
+                  Adults
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setAdults(a => Math.max(1, a - 1))}
+                    className="w-7 h-7 rounded-full border border-border flex items-center justify-center
+                               hover:bg-muted hover:border-teal-500 transition-all text-foreground"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
+                  <span className="text-base font-black w-4 text-center text-foreground">{adults}</span>
+                  <button
+                    onClick={() => setAdults(a => Math.min(6, a + 1))}
+                    className="w-7 h-7 rounded-full border border-border flex items-center justify-center
+                               hover:bg-muted hover:border-teal-500 transition-all text-foreground"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setAdults(a => Math.max(1, a - 1))}
-                  className="w-7 h-7 rounded-full border border-border flex items-center justify-center
-                             hover:bg-muted hover:border-teal-500 transition-all text-foreground"
-                >
-                  <Minus className="w-3 h-3" />
-                </button>
-                <span className="text-base font-black w-4 text-center text-foreground">{adults}</span>
-                <button
-                  onClick={() => setAdults(a => Math.min(6, a + 1))}
-                  className="w-7 h-7 rounded-full border border-border flex items-center justify-center
-                             hover:bg-muted hover:border-teal-500 transition-all text-foreground"
-                >
-                  <Plus className="w-3 h-3" />
-                </button>
-              </div>
+
+              {/* Children — read-only summary, set from chat */}
+              {children > 0 && (
+                <div className="flex items-center justify-between px-3.5 py-2.5 rounded-2xl border border-border/60 bg-muted/20">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <User className="w-4 h-4 text-teal-600/70" />
+                    Children
+                  </div>
+                  <span className="text-sm font-black text-foreground">{children}</span>
+                </div>
+              )}
             </div>
 
             {/* Service fee line */}
@@ -553,29 +650,33 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed }: CheckoutCa
 
         {/* ── Step 2: Passengers ─────────────────────────────────────────────── */}
         {phase === 'passengers' && (
-          <div className="space-y-5">
-            {/* Dev-only: one-click test data fill */}
-            {isDev && (
-              <button
-                type="button"
-                onClick={fillTestData}
-                className="w-full py-2 rounded-xl border border-dashed border-amber-400/60
-                           bg-amber-50/50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400
-                           text-xs font-bold tracking-wide hover:bg-amber-100/60 dark:hover:bg-amber-900/30
-                           transition-colors"
-              >
-                ⚡ Fill test data
-              </button>
-            )}
+          <div className="flex flex-col gap-0">
+            {/* Scrollable form area — button stays visible below */}
+            <div className="space-y-5 overflow-y-auto max-h-[52vh] pr-1
+                            [scrollbar-width:thin] [scrollbar-color:theme(colors.border)_transparent]">
+              {/* Dev-only: one-click test data fill */}
+              {isDev && (
+                <button
+                  type="button"
+                  onClick={fillTestData}
+                  className="w-full py-2 rounded-xl border border-dashed border-amber-400/60
+                             bg-amber-50/50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400
+                             text-xs font-bold tracking-wide hover:bg-amber-100/60 dark:hover:bg-amber-900/30
+                             transition-colors"
+                >
+                  ⚡ Fill test data
+                </button>
+              )}
 
+            {/* ── Adult passengers ─────────────────────────────────────── */}
             {passengers.map((pax, i) => (
-              <div key={i} className="space-y-3">
+              <div key={`adult-${i}`} className="space-y-3">
                 <div className="flex items-center gap-2">
                   <div className="w-6 h-6 rounded-full bg-teal-500/10 flex items-center justify-center">
                     <span className="text-[11px] font-black text-teal-600">{i + 1}</span>
                   </div>
                   <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
-                    {i === 0 ? 'Lead Passenger' : `Passenger ${i + 1}`}
+                    {i === 0 ? 'Lead Passenger' : `Adult ${i + 1}`}
                   </p>
                 </div>
 
@@ -618,20 +719,67 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed }: CheckoutCa
                   </div>
                 </div>
 
-                {i < passengers.length - 1 && (
+                {(i < passengers.length - 1 || childPassengers.length > 0) && (
                   <div className="border-t border-border/40 pt-1" />
                 )}
               </div>
             ))}
 
+            {/* ── Child passengers ─────────────────────────────────────── */}
+            {childPassengers.map((child, i) => (
+              <div key={`child-${i}`} className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-full bg-amber-500/10 flex items-center justify-center">
+                    <span className="text-[11px] font-black text-amber-600">{i + 1}</span>
+                  </div>
+                  <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
+                    Child {i + 1}
+                  </p>
+                  <span className="text-[10px] text-muted-foreground/60 ml-auto">under 12</span>
+                </div>
+
+                <div className="space-y-3 pl-1">
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field
+                      label="First Name"
+                      value={child.firstName}
+                      onChange={v => updateChildPassenger(i, 'firstName', v)}
+                      placeholder="As on passport"
+                    />
+                    <Field
+                      label="Last Name"
+                      value={child.lastName}
+                      onChange={v => updateChildPassenger(i, 'lastName', v)}
+                      placeholder="As on passport"
+                    />
+                  </div>
+                  <div>
+                    <Field
+                      label="Date of Birth"
+                      value={child.dateOfBirth}
+                      onChange={v => updateChildPassenger(i, 'dateOfBirth', v)}
+                      type="date"
+                    />
+                    <ChildAgeBadge dob={child.dateOfBirth} />
+                  </div>
+                </div>
+
+                {i < childPassengers.length - 1 && (
+                  <div className="border-t border-border/40 pt-1" />
+                )}
+              </div>
+            ))}
+
+            </div>{/* end scrollable form area */}
+
             {error && (
-              <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 dark:bg-red-950/20 border border-red-200/60 dark:border-red-800/40">
+              <div className="flex items-start gap-2 p-3 mt-3 rounded-xl bg-red-50 dark:bg-red-950/20 border border-red-200/60 dark:border-red-800/40">
                 <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
                 <p className="text-xs text-red-700 dark:text-red-300">{error}</p>
               </div>
             )}
 
-            <div className="flex gap-3">
+            <div className="flex gap-3 pt-4 border-t border-border/30 mt-3">
               <button
                 onClick={() => { setPhase('review'); setError(''); }}
                 className="flex items-center gap-1.5 px-4 py-3 rounded-2xl border border-border/80

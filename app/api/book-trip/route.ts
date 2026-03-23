@@ -18,16 +18,24 @@ const PassengerSchema = z.object({
   phone:       z.string().min(6),
 });
 
+const ChildPassengerSchema = z.object({
+  firstName:   z.string().min(1),
+  lastName:    z.string().min(1),
+  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD format required'),
+});
+
 const BodySchema = z.object({
   // Flight — Duffel offer ID (off_xxx) or 'skip' if flight-only isn't needed
-  flightOfferId:  z.string().optional(),
+  flightOfferId:   z.string().optional(),
   // Hotel — LiteAPI rateId from bookingToken
-  hotelRateId:    z.string().optional(),
-  hotelName:      z.string().optional(),
-  // Passenger details (for both flight + hotel lead guest)
-  passengers:     z.array(PassengerSchema).min(1),
+  hotelRateId:     z.string().optional(),
+  hotelName:       z.string().optional(),
+  // Adult passenger details (for both flight + hotel lead guest)
+  passengers:      z.array(PassengerSchema).min(1),
+  // Child passenger details (name + DOB; no email/phone required)
+  childPassengers: z.array(ChildPassengerSchema).default([]),
   // Origin airport (for CAD vs USD currency detection)
-  originAirport:  z.string().optional(),
+  originAirport:   z.string().optional(),
   // Guest nationality for hotel (ISO 2-letter)
   guestNationality: z.string().default('US'),
 });
@@ -45,7 +53,8 @@ function normalizePhone(phone: string): string {
 
 async function bookDuffelFlight(
   offerId: string,
-  passengers: z.infer<typeof PassengerSchema>[]
+  passengers: z.infer<typeof PassengerSchema>[],
+  childPassengers: z.infer<typeof ChildPassengerSchema>[] = [],
 ): Promise<{ success: boolean; bookingRef?: string; totalAmount?: string; currency?: string; error?: string }> {
   const token = process.env.DUFFEL_ACCESS_TOKEN;
   if (!token) return { success: false, error: 'Duffel not configured' };
@@ -88,17 +97,41 @@ async function bookDuffelFlight(
     return { success: false, error: 'Offer returned no passenger slots. Please search again.' };
   }
 
-  // Use as many passengers as the offer needs
-  const passengerMap = offerPassengers.slice(0, passengers.length).map((offerPax, i) => ({
-    id:           offerPax.id,
-    title:        'mr' as const,
-    gender:       'm' as const,
-    given_name:   passengers[i].firstName,
-    family_name:  passengers[i].lastName,
-    born_on:      passengers[i].dateOfBirth,
-    email:        passengers[i].email,
-    phone_number: normalizePhone(passengers[i].phone),
-  }));
+  // Map offer passenger slots to our data.
+  // Duffel slots come typed ('adult' / 'child'); we fill adults first, then children.
+  // If the offer was searched adults-only, child slots won't be present — that's fine,
+  // children's DOBs are still collected for hotel occupancy.
+  let adultIdx = 0;
+  let childIdx = 0;
+  const passengerMap = offerPassengers.map((offerPax) => {
+    const isChild = (offerPax as { type?: string }).type === 'child';
+    if (isChild && childIdx < childPassengers.length) {
+      const c = childPassengers[childIdx++];
+      return {
+        id:           offerPax.id,
+        title:        'mr' as const,
+        gender:       'm'  as const,
+        given_name:   c.firstName,
+        family_name:  c.lastName,
+        born_on:      c.dateOfBirth,
+        // Children don't have email/phone — use lead passenger's as placeholder
+        email:        passengers[0].email,
+        phone_number: normalizePhone(passengers[0].phone),
+      };
+    } else {
+      const p = passengers[Math.min(adultIdx++, passengers.length - 1)];
+      return {
+        id:           offerPax.id,
+        title:        'mr' as const,
+        gender:       'm'  as const,
+        given_name:   p.firstName,
+        family_name:  p.lastName,
+        born_on:      p.dateOfBirth,
+        email:        p.email,
+        phone_number: normalizePhone(p.phone),
+      };
+    }
+  });
 
   // Step 2: create order
   const orderRes = await fetch('https://api.duffel.com/air/orders', {
@@ -157,7 +190,16 @@ export async function POST(req: Request) {
     );
   }
 
-  const { flightOfferId, hotelRateId, hotelName, passengers, originAirport, guestNationality } = parsed.data;
+  const { flightOfferId, hotelRateId, hotelName, passengers, childPassengers, originAirport, guestNationality } = parsed.data;
+
+  // Calculate child ages from DOBs (needed for LiteAPI occupancy)
+  const childAges = childPassengers.map(c => {
+    const born  = new Date(c.dateOfBirth);
+    const today = new Date();
+    const age   = today.getFullYear() - born.getFullYear()
+      - (today < new Date(today.getFullYear(), born.getMonth(), born.getDate()) ? 1 : 0);
+    return Math.max(0, Math.min(17, age)); // clamp to valid range
+  });
   const leadPassenger = passengers[0];
 
   let flightRef: string | undefined;
@@ -168,7 +210,7 @@ export async function POST(req: Request) {
   // ── 1. Book flight ─────────────────────────────────────────────────────────
   if (flightOfferId && !flightOfferId.startsWith('amadeus_')) {
     try {
-      const result = await bookDuffelFlight(flightOfferId, passengers);
+      const result = await bookDuffelFlight(flightOfferId, passengers, childPassengers);
       if (result.success) {
         flightRef = result.bookingRef;
       } else {

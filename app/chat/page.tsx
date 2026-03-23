@@ -255,9 +255,10 @@ export default function ChatPage() {
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [apiError, setApiError]           = useState<string | null>(null);
 
-  // ── Cart state (flight + hotel selected in chat) ─────────────────────────
-  const [cartFlight, setCartFlight] = useState<FlightResult | null>(null);
-  const [cartHotel,  setCartHotel]  = useState<HotelResult  | null>(null);
+  // ── Cart state (flight + hotel + children selected in chat) ─────────────
+  const [cartFlight,    setCartFlight]    = useState<FlightResult | null>(null);
+  const [cartHotel,     setCartHotel]     = useState<HotelResult  | null>(null);
+  const [cartChildren,  setCartChildren]  = useState<{ count: number; ages: number[] } | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatAreaRef    = useRef<HTMLDivElement>(null);
@@ -288,6 +289,7 @@ export default function ChatPage() {
     onFinish: (msg) => {
       setApiError(null);
       extractItinerary(msg.content);
+      extractChildren(msg.content);
     },
   });
 
@@ -307,7 +309,7 @@ export default function ChatPage() {
   useHotkey('/', useCallback(() => setSidebarOpen(o => !o), []));
   useHotkey('k', useCallback(() => {
     setMessages([]); setItinerary(null); setApiError(null);
-    setCartFlight(null); setCartHotel(null);
+    setCartFlight(null); setCartHotel(null); setCartChildren(null);
   }, [setMessages]));
 
   // Itinerary extractor
@@ -316,6 +318,16 @@ export default function ChatPage() {
     if (!m) return;
     try { setItinerary(JSON.parse(m[1]) as Itinerary); setSidebarOpen(true); }
     catch { /* skip */ }
+  }, []);
+
+  // Children info extractor — parses [CHILDREN_INFO] {"count":2,"ages":[5,8]}
+  const extractChildren = useCallback((text: string) => {
+    const m = text.match(/\[CHILDREN_INFO\]\s*(\{[^\n]+\})/);
+    if (!m) return;
+    try {
+      const parsed = JSON.parse(m[1]) as { count: number; ages: number[] };
+      if (parsed.count > 0) setCartChildren(parsed);
+    } catch { /* skip */ }
   }, []);
 
   // Card selection — stores flight/hotel in cart and sends a selection message.
@@ -336,7 +348,7 @@ export default function ChatPage() {
     setCartHotel(h);
     // Persist cart so /booking page can read it after navigation
     try {
-      const cartData = { flight: cartFlight, hotel: h };
+      const cartData = { flight: cartFlight, hotel: h, children: cartChildren };
       sessionStorage.setItem('ft_cart', JSON.stringify(cartData));
     } catch { /* ignore */ }
     const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: h.currency ?? 'USD' }).format(n);
@@ -353,15 +365,16 @@ export default function ChatPage() {
   // Navigate to the full-page booking flow
   const handleProceedToBooking = useCallback(() => {
     try {
-      sessionStorage.setItem('ft_cart', JSON.stringify({ flight: cartFlight, hotel: cartHotel }));
+      sessionStorage.setItem('ft_cart', JSON.stringify({ flight: cartFlight, hotel: cartHotel, children: cartChildren }));
     } catch { /* ignore */ }
     router.push('/booking');
-  }, [cartFlight, cartHotel, router]);
+  }, [cartFlight, cartHotel, cartChildren, router]);
 
   // Clear the cart selection (dismiss CTA)
   const handleClearCart = useCallback(() => {
     setCartFlight(null);
     setCartHotel(null);
+    setCartChildren(null);
     try { sessionStorage.removeItem('ft_cart'); } catch { /* ignore */ }
   }, []);
 

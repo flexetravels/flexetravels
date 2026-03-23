@@ -156,8 +156,9 @@ function ConfirmationView({ searchParams }: { searchParams: ReturnType<typeof us
 
 // ─── Checkout view (full-page CheckoutCard) ────────────────────────────────────
 interface CartData {
-  flight: FlightResult | null;
-  hotel:  HotelResult  | null;
+  flight:    FlightResult | null;
+  hotel:     HotelResult  | null;
+  children?: { count: number; ages: number[] } | null;
 }
 
 function CheckoutView() {
@@ -252,6 +253,8 @@ function CheckoutView() {
           hotel={cart.hotel}
           onClose={handleClose}
           onConfirmed={handleConfirmed}
+          initialAdults={cart.flight?.passengers ?? 1}
+          initialChildren={cart.children?.count ?? 0}
         />
       </div>
     </div>
