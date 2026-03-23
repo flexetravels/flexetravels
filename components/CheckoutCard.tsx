@@ -398,9 +398,28 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
     // If no flight offer ID is available, ask the user to confirm hotel-only booking
     // (catches: no flight selected, AI emitted a placeholder/broken offer ID)
     const flightId = flight?.id;
-    const hasValidFlightId = flightId && !flightId.startsWith('<') && flightId.length >= 6;
+    const PLACEHOLDER_RE = /^(<.*>|N\/A|TBD|pending|unknown|loading|undefined|null|example|test|sample)$/i;
+    const hasValidFlightId = !!(
+      flightId &&
+      !flightId.startsWith('<') &&
+      flightId.length >= 6 &&
+      !PLACEHOLDER_RE.test(flightId.trim())
+    );
     if (!hasValidFlightId && !skipFlightConfirm) {
       setConfirmFlightless(true);
+      return;
+    }
+
+    // Hotel bookingToken guard — must start with 'liteapi_' and have real content after it
+    const hotelToken = hotel?.bookingToken ?? '';
+    const hasValidHotelToken = !!(
+      hotelToken &&
+      hotelToken.startsWith('liteapi_') &&
+      hotelToken.replace('liteapi_', '').length >= 6 &&
+      !PLACEHOLDER_RE.test(hotelToken.replace('liteapi_', '').trim())
+    );
+    if (hotel && !hasValidHotelToken) {
+      setError('This hotel cannot be booked directly — the rate token is missing. Please go back and select a different hotel.');
       return;
     }
 
@@ -415,7 +434,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           flightOfferId:    hasValidFlightId ? flightId : undefined,
-          hotelRateId:      hotel?.bookingToken,
+          hotelRateId:      hasValidHotelToken ? hotelToken : undefined,
           hotelName:        hotel?.name,
           passengers:       passengers.slice(0, adults),
           childPassengers:  childPassengers.slice(0, children),
@@ -635,30 +654,48 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
 
             {/* Passenger counts */}
             <div className="space-y-2">
-              {/* Adults */}
-              <div className="flex items-center justify-between px-3.5 py-3 rounded-2xl border border-border/60 bg-muted/20">
-                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                  <User className="w-4 h-4 text-teal-600" />
-                  Adults
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setAdults(a => Math.max(1, a - 1))}
-                    className="w-7 h-7 rounded-full border border-border flex items-center justify-center
-                               hover:bg-muted hover:border-teal-500 transition-all text-foreground"
-                  >
-                    <Minus className="w-3 h-3" />
-                  </button>
-                  <span className="text-base font-black w-4 text-center text-foreground">{adults}</span>
-                  <button
-                    onClick={() => setAdults(a => Math.min(6, a + 1))}
-                    className="w-7 h-7 rounded-full border border-border flex items-center justify-center
-                               hover:bg-muted hover:border-teal-500 transition-all text-foreground"
-                  >
-                    <Plus className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
+              {/* Adults — capped at the count searched for (offer is priced for that many seats) */}
+              {(() => {
+                const maxAdults = initialAdults ?? 1;
+                const atMax = adults >= maxAdults;
+                return (
+                  <div className="flex items-center justify-between px-3.5 py-3 rounded-2xl border border-border/60 bg-muted/20">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                        <User className="w-4 h-4 text-teal-600" />
+                        Adults
+                      </div>
+                      {atMax && (
+                        <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 leading-tight">
+                          Seats locked to search count. Go back to chat to change.
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 ml-3">
+                      <button
+                        onClick={() => setAdults(a => Math.max(1, a - 1))}
+                        className="w-7 h-7 rounded-full border border-border flex items-center justify-center
+                                   hover:bg-muted hover:border-teal-500 transition-all text-foreground"
+                      >
+                        <Minus className="w-3 h-3" />
+                      </button>
+                      <span className="text-base font-black w-4 text-center text-foreground">{adults}</span>
+                      <button
+                        onClick={() => setAdults(a => Math.min(maxAdults, a + 1))}
+                        disabled={atMax}
+                        className={cn(
+                          'w-7 h-7 rounded-full border flex items-center justify-center transition-all',
+                          atMax
+                            ? 'border-border/40 text-muted-foreground/40 cursor-not-allowed'
+                            : 'border-border hover:bg-muted hover:border-teal-500 text-foreground'
+                        )}
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Children — read-only summary, set from chat */}
               {children > 0 && (

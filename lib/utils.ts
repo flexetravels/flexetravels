@@ -93,10 +93,15 @@ export function parseEmbeddedCards(text: string): EmbeddedCard[] {
         try {
           const data = JSON.parse(jsonStr);
           cards.push({ type, data } as EmbeddedCard);
-        } catch {
-          // malformed JSON — skip
+        } catch (e) {
+          // Malformed JSON from AI — log so we can spot patterns and fix the system prompt
+          console.warn(`[parseEmbeddedCards] Failed to parse [${tag}] JSON:`, String(e),
+            '\n  First 120 chars:', jsonStr.slice(0, 120));
         }
         pos += jsonStr.length;
+      } else if (text.indexOf(`[${tag}]`, pos - marker.length) !== -1) {
+        // extractBalancedJson returned null — either not JSON or stream cut off mid-tag
+        console.warn(`[parseEmbeddedCards] No balanced JSON found after [${tag}] at pos ${pos}`);
       }
     }
   }

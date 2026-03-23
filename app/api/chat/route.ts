@@ -43,7 +43,7 @@ function buildSystem(): string {
 
 TODAY: ${todayISO} (${todayLong}). All travel dates MUST be after today. "next month"=${new Date(yr, mo + 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}. "summer"=Jun–Aug ${mo >= 8 ? yr + 1 : yr}. Upcoming season: ${upcomingSeason}.
 
-STACK: Flights=Duffel(bookable)+Amadeus(ref only) · Hotels=LiteAPI(live rates) · Experiences=Foursquare/OpenTripMap · Fee=$20 flat service fee per booking via Stripe (in-chat, no page leave).
+STACK: Flights=Duffel(bookable,provider="duffel")+Amadeus(reference prices only — NOT bookable,provider="amadeus") · Hotels=LiteAPI(live rates,isSample=false) · Experiences=Foursquare/OpenTripMap · Fee=$20 flat service fee per booking via Stripe (in-chat, no page leave).
 
 IATA: YYZ=Toronto YVR=Vancouver YUL=Montreal YYC=Calgary JFK=NewYork LAX=LA ORD=Chicago MIA=Miami SEA=Seattle SFO=SanFrancisco DEN=Denver BOS=Boston ATL=Atlanta DFW=Dallas.
 
@@ -55,11 +55,15 @@ CHILDREN: If the user mentions travelling with children/kids, ask their ages bef
 [CHILDREN_INFO] {"count":<N>,"ages":[<age1>,<age2>,...]}
 This pre-fills the passenger count on the checkout form. Never ask for children's names, DOB, or passport details — the booking form collects those.
 
-RESULTS FORMAT — output each result as a tag on its own line:
-[FLIGHT_CARD] {"id":"<id>","airline":"<name>","origin":"<IATA>","destination":"<IATA>","departure":"<ISO>","arrival":"<ISO>","duration":"<Xh Ym>","stops":<N>,"stopAirports":[],"price":<n>,"currency":"<ISO>","cabinClass":"economy","refundable":<bool>,"airlineLogo":"<url>","provider":"<duffel|amadeus>","segments":[]}
-[HOTEL_CARD] {"id":"<id>","name":"<name>","location":"<city>","city":"<city>","stars":<N>,"pricePerNight":<n>,"totalPrice":<n>,"currency":"USD","image":"<url>","images":["<url>"],"rating":<0-10>,"amenities":["WiFi"],"checkIn":"<date>","checkOut":"<date>","cancellation":"<policy>","isSample":<bool>,"provider":"<src>","bookingToken":"<token>"}
+RESULTS FORMAT — output each result as a tag on its own line.
+⚠ CRITICAL: copy ALL field values EXACTLY from the tool result — never invent, abbreviate, or use placeholder text like "<id>" or "N/A". The id and bookingToken fields are used to make the actual booking — wrong values = failed booking.
+
+[FLIGHT_CARD] {"id":"<exact offer id from tool result>","airline":"<name>","origin":"<IATA>","destination":"<IATA>","departure":"<ISO>","arrival":"<ISO>","duration":"<Xh Ym>","stops":<N>,"stopAirports":[],"price":<n>,"currency":"<ISO>","cabinClass":"economy","refundable":<bool>,"airlineLogo":"<url>","provider":"<duffel|amadeus>","bookingToken":"<exact bookingToken from tool result>","passengers":<adults count used in search>,"segments":[]}
+[HOTEL_CARD] {"id":"<exact id from tool result>","name":"<name>","location":"<city>","city":"<city>","stars":<N>,"pricePerNight":<n>,"totalPrice":<n>,"currency":"USD","image":"<url>","images":["<url>"],"rating":<0-10>,"amenities":["WiFi"],"checkIn":"<date>","checkOut":"<date>","cancellation":"<policy>","isSample":<bool>,"provider":"<src>","bookingToken":"<exact bookingToken from tool result — required for booking, do NOT omit>"}
 [EXPERIENCE_CARD] {"id":"<id>","name":"<name>","category":"<cat>","description":"<desc>","city":"<city>","rating":<0-5>,"image":"<url>","bookable":false,"provider":"foursquare"}
+
 Show ≥3 flights + ≥3 hotels sorted price asc. Up to 6 experiences.
+Duffel flights (provider="duffel") are fully bookable. Amadeus flights (provider="amadeus") are reference prices only — label them "📊 Reference price" and if user tries to select one, say "That fare is a reference estimate — please choose one of the Duffel flights above for a confirmed booking."
 Hotels with isSample:true = indicative pricing only — say "These are estimated prices; live rates confirmed at booking" but still show them.
 Hotels with isSample:false + bookingToken present = bookable via LiteAPI.
 After results always say: "A flat $20 service fee applies when you book. Which flight and hotel work best for you?"

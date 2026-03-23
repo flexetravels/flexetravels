@@ -200,17 +200,27 @@ export async function POST(req: Request) {
     '| children:', childPassengers.length,
   );
 
-  // Detect truncated/placeholder offer IDs emitted by the AI (e.g. "<id>", "off_", "")
-  const flightIdLooksSuspicious =
-    flightOfferId && (
-      flightOfferId.startsWith('<') ||
-      flightOfferId === 'off_' ||
-      flightOfferId.length < 6
-    );
-  if (flightIdLooksSuspicious) {
-    console.warn('[book-trip] flightOfferId looks like a placeholder — ignoring:', flightOfferId);
-  }
-  const resolvedFlightOfferId = flightIdLooksSuspicious ? undefined : flightOfferId;
+  // ── Detect placeholder/broken offer IDs ─────────────────────────────────────
+  // AI occasionally emits template placeholders or truncated values instead of real IDs.
+  const PLACEHOLDER_RE = /^(<.*>|N\/A|TBD|pending|unknown|loading|undefined|null|example|test|sample)$/i;
+
+  const flightIdBad = flightOfferId && (
+    flightOfferId.startsWith('<') ||
+    flightOfferId === 'off_' ||
+    flightOfferId === 'amadeus_' ||
+    flightOfferId.length < 6 ||
+    PLACEHOLDER_RE.test(flightOfferId.trim())
+  );
+  if (flightIdBad) console.warn('[book-trip] flightOfferId is a placeholder — ignoring:', flightOfferId);
+  const resolvedFlightOfferId = flightIdBad ? undefined : flightOfferId;
+
+  const hotelIdBad = hotelRateId && (
+    hotelRateId === 'liteapi_' ||
+    hotelRateId.length < 10 ||
+    PLACEHOLDER_RE.test(hotelRateId.replace(/^liteapi_/, '').trim())
+  );
+  if (hotelIdBad) console.warn('[book-trip] hotelRateId is a placeholder — ignoring:', hotelRateId);
+  const resolvedHotelRateId = hotelIdBad ? undefined : hotelRateId;
 
   // Calculate child ages from DOBs (needed for LiteAPI occupancy)
   const childAges = childPassengers.map(c => {
@@ -228,26 +238,33 @@ export async function POST(req: Request) {
   let hotelError: string | undefined;
 
   // ── 1. Book flight ─────────────────────────────────────────────────────────
-  if (resolvedFlightOfferId && !resolvedFlightOfferId.startsWith('amadeus_')) {
-    try {
-      const result = await bookDuffelFlight(resolvedFlightOfferId, passengers, childPassengers);
-      if (result.success) {
-        flightRef = result.bookingRef;
-      } else {
-        flightError = result.error;
+  if (resolvedFlightOfferId) {
+    // Amadeus offers are reference prices only — not bookable.
+    // Return a clear error so the user knows to go back and pick a Duffel flight.
+    if (resolvedFlightOfferId.startsWith('amadeus_')) {
+      flightError = 'This flight shows a reference price and cannot be booked online. Please go back to chat and choose a Duffel flight.';
+      console.warn('[book-trip] Amadeus flight attempted — not bookable:', resolvedFlightOfferId);
+    } else {
+      try {
+        const result = await bookDuffelFlight(resolvedFlightOfferId, passengers, childPassengers);
+        if (result.success) {
+          flightRef = result.bookingRef;
+        } else {
+          flightError = result.error;
+        }
+      } catch (e) {
+        flightError = `Flight booking error: ${String(e)}`;
+        console.error('[book-trip] Duffel exception:', e);
       }
-    } catch (e) {
-      flightError = `Flight booking error: ${String(e)}`;
-      console.error('[book-trip] Duffel exception:', e);
     }
   }
 
   // ── 2. Book hotel (LiteAPI: prebook → book) ────────────────────────────────
-  if (hotelRateId) {
+  if (resolvedHotelRateId) {
     try {
-      if (hotelRateId.startsWith('liteapi_')) {
+      if (resolvedHotelRateId.startsWith('liteapi_')) {
         // Strip prefix to get the raw LiteAPI offerId
-        const offerId = hotelRateId.replace('liteapi_', '');
+        const offerId = resolvedHotelRateId.replace('liteapi_', '');
 
         // Step 2a: Prebook — confirms price + returns prebookId
         const prebook = await liteApiPrebook(offerId, guestNationality);
@@ -274,8 +291,8 @@ export async function POST(req: Request) {
           }
         }
       } else {
-        hotelError = `Unrecognised hotel token format: ${hotelRateId.slice(0, 40)}`;
-        console.error('[book-trip] Unknown hotelRateId format:', hotelRateId);
+        hotelError = `Unrecognised hotel token format: ${resolvedHotelRateId.slice(0, 40)}`;
+        console.error('[book-trip] Unknown hotelRateId format:', resolvedHotelRateId);
       }
     } catch (e) {
       hotelError = `Hotel booking error: ${String(e)}`;
@@ -284,7 +301,7 @@ export async function POST(req: Request) {
   }
 
   // If nothing succeeded at all, abort before charging Stripe
-  const attemptedSomething = !!(resolvedFlightOfferId || hotelRateId);
+  const attemptedSomething = !!(resolvedFlightOfferId || resolvedHotelRateId);
   if (attemptedSomething && !flightRef && !hotelRef) {
     return NextResponse.json({
       success: false,

@@ -155,16 +155,21 @@ function ConfirmationView({ searchParams }: { searchParams: ReturnType<typeof us
 }
 
 // ─── Checkout view (full-page CheckoutCard) ────────────────────────────────────
+// Duffel offers expire in ~15 min; warn after 10 min to give time to complete.
+const CART_STALE_MS = 10 * 60 * 1000; // 10 minutes
+
 interface CartData {
   flight:    FlightResult | null;
   hotel:     HotelResult  | null;
   children?: { count: number; ages: number[] } | null;
+  savedAt?:  number; // epoch ms — for stale-rate detection
 }
 
 function CheckoutView() {
   const router = useRouter();
   const [cart, setCart]         = useState<CartData | null>(null);
   const [cartLoaded, setCartLoaded] = useState(false);
+  const [isStale, setIsStale]   = useState(false);
 
   // Read cart from sessionStorage after hydration
   useEffect(() => {
@@ -173,6 +178,9 @@ function CheckoutView() {
       if (raw) {
         const parsed = JSON.parse(raw) as CartData;
         setCart(parsed);
+        if (parsed.savedAt && Date.now() - parsed.savedAt > CART_STALE_MS) {
+          setIsStale(true);
+        }
       }
     } catch { /* ignore */ }
     setCartLoaded(true);
@@ -245,6 +253,18 @@ function CheckoutView() {
           </span>
         </div>
       </header>
+
+      {/* Stale-rates warning */}
+      {isStale && (
+        <div className="max-w-lg mx-auto px-4 pt-4">
+          <div className="flex items-start gap-2.5 px-4 py-3 rounded-2xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200/70 dark:border-amber-800/40 text-amber-800 dark:text-amber-300">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <p className="text-xs leading-relaxed">
+              <span className="font-bold">Rates may have changed</span> — it&apos;s been over 10 minutes since these prices were fetched. The booking will confirm the live price before charging.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Checkout card centered */}
       <div className="max-w-lg mx-auto px-4 py-8">
