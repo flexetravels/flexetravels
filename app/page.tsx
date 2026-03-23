@@ -14,6 +14,7 @@ import {
   Zap, CreditCard, Shield, Users, TrendingUp,
   ChevronRight, Star, Clock,
 } from 'lucide-react';
+import { Nav } from '@/components/Nav';
 import type { DiscoverCard, DiscoverData } from './api/discover/route';
 
 // ─── Badge colour map ─────────────────────────────────────────────────────────
@@ -203,42 +204,6 @@ function SectionHeader({ icon, title, subtitle }: { icon: React.ReactNode; title
   );
 }
 
-// ─── Sticky nav ────────────────────────────────────────────────────────────────
-function Nav() {
-  const [scrolled, setScrolled] = useState(false);
-  useEffect(() => {
-    const h = () => setScrolled(window.scrollY > 24);
-    window.addEventListener('scroll', h, { passive: true });
-    return () => window.removeEventListener('scroll', h);
-  }, []);
-  return (
-    <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300
-                     ${scrolled ? 'bg-[#070b12]/95 backdrop-blur-md border-b border-white/[0.06] shadow-2xl' : ''}`}>
-      <div className="flex items-center justify-between px-5 sm:px-8 py-4 max-w-7xl mx-auto">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-teal-500 to-teal-800
-                          flex items-center justify-center shadow-lg shadow-teal-900/40">
-            <Plane className="w-[18px] h-[18px] text-white" strokeWidth={1.8} />
-          </div>
-          <span className="font-bold text-white text-base tracking-tight">
-            Flexe<span className="text-teal-400">Travels</span>
-          </span>
-          <span className="hidden sm:inline text-[10px] text-white/35 border border-white/10
-                           rounded-full px-2 py-0.5 font-medium tracking-wide">AI Travel</span>
-        </div>
-        <Link href="/chat"
-          className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold
-                     bg-gradient-to-r from-teal-500 to-cyan-500 text-white
-                     shadow-lg shadow-teal-900/30 hover:shadow-teal-900/50
-                     hover:from-teal-400 hover:to-cyan-400
-                     transition-all duration-200 hover:-translate-y-px">
-          <Sparkles className="w-3.5 h-3.5" />Plan a Trip
-        </Link>
-      </div>
-    </nav>
-  );
-}
-
 // ─── Hero ──────────────────────────────────────────────────────────────────────
 function Hero({ onPrompt }: { onPrompt: (p: string) => void }) {
   const [imgIdx, setImgIdx] = useState(0);
@@ -282,8 +247,8 @@ function Hero({ onPrompt }: { onPrompt: (p: string) => void }) {
             Revolutionising how the world books travel
           </div>
 
-          <h1 className="text-[2.75rem] sm:text-5xl md:text-6xl xl:text-[4.25rem] font-extrabold
-                         text-white leading-[1.06] tracking-tight mb-6">
+          <h1 className="text-[2rem] sm:text-5xl md:text-6xl xl:text-[4.25rem] font-extrabold
+                         text-white leading-[1.08] tracking-tight mb-5">
             Book your entire trip.
             <br />
             <span className="bg-gradient-to-r from-teal-400 via-cyan-300 to-teal-500
@@ -292,29 +257,29 @@ function Hero({ onPrompt }: { onPrompt: (p: string) => void }) {
             </span>
           </h1>
 
-          <p className="text-white/55 text-lg sm:text-xl max-w-[500px] leading-relaxed mb-10">
+          <p className="text-white/55 text-base sm:text-xl max-w-[500px] leading-relaxed mb-8">
             Tell our AI what you&apos;re dreaming of. It searches real flights and hotels in seconds —
             then books and pays for everything right here.
             No tabs. No redirects. No OTA markups.
           </p>
 
-          <div className="flex flex-wrap items-center gap-4 mb-10">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 mb-8">
             <Link href="/chat"
-              className="flex items-center gap-2.5 px-8 py-4 rounded-2xl text-base font-bold
+              className="flex items-center justify-center gap-2.5 px-7 py-4 rounded-2xl text-base font-bold
                          bg-gradient-to-r from-teal-500 to-cyan-500 text-white
                          shadow-[0_8px_36px_rgba(13,148,136,0.45)]
                          hover:shadow-[0_16px_56px_rgba(13,148,136,0.6)]
                          hover:from-teal-400 hover:to-cyan-400
-                         transition-all duration-300 hover:-translate-y-0.5">
-              <Sparkles className="w-5 h-5" />
+                         transition-all duration-300 hover:-translate-y-0.5 touch-manipulation">
+              <Sparkles className="w-5 h-5 flex-shrink-0" />
               Start planning free
-              <ArrowRight className="w-4 h-4" />
+              <ArrowRight className="w-4 h-4 flex-shrink-0" />
             </Link>
             <button
               onClick={() => onPrompt('Inspire me — what are the most exciting trips to book right now? I\'m open on destination, flexible on dates, budget around $3,000 for 2 adults.')}
-              className="flex items-center gap-2 px-6 py-4 rounded-2xl text-sm font-semibold
+              className="flex items-center justify-center gap-2 px-6 py-4 rounded-2xl text-sm font-semibold
                          border border-white/15 text-white/65 hover:text-white hover:border-white/30
-                         bg-white/[0.04] hover:bg-white/[0.07] transition-all duration-200">
+                         bg-white/[0.04] hover:bg-white/[0.07] transition-all duration-200 touch-manipulation">
               Inspire me <ChevronRight className="w-4 h-4" />
             </button>
           </div>
@@ -784,23 +749,46 @@ export default function LandingPage() {
       </section>
 
       {/* Footer */}
-      <footer className="relative z-10 border-t border-white/[0.05] py-10 px-5 sm:px-8">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-teal-500 to-teal-800
-                            flex items-center justify-center">
-              <Plane className="w-3.5 h-3.5 text-white" strokeWidth={1.8} />
+      <footer className="relative z-10 border-t border-white/[0.05] py-12 px-5 sm:px-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-8 mb-10">
+            {/* Brand */}
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-teal-500 to-teal-800
+                              flex items-center justify-center">
+                <Plane className="w-4 h-4 text-white" strokeWidth={1.8} />
+              </div>
+              <span className="font-bold text-white/75 text-base">
+                Flexe<span className="text-teal-400">Travels</span>
+              </span>
             </div>
-            <span className="font-bold text-white/75 text-sm">
-              Flexe<span className="text-teal-400">Travels</span>
-            </span>
+
+            {/* Nav links */}
+            <div className="flex flex-wrap gap-x-8 gap-y-3">
+              {[
+                { href: '/how-it-works', label: 'How It Works' },
+                { href: '/about',        label: 'About' },
+                { href: '/partners',     label: 'For Partners' },
+                { href: '/chat',         label: 'Start Planning' },
+              ].map(l => (
+                <Link key={l.href} href={l.href}
+                  className="text-white/35 hover:text-white/75 text-sm transition-colors">
+                  {l.label}
+                </Link>
+              ))}
+            </div>
           </div>
-          <p className="text-white/18 text-[10px] max-w-lg text-center leading-relaxed">
-            FlexeTravels is a technology platform, not a licensed travel agent (no IATA/CPBC).
-            Flights processed via Duffel (IATA-accredited). Flat $20 service fee per booking.
-            Always verify prices before payment.
-          </p>
-          <p className="text-white/18 text-[10px]">© {new Date().getFullYear()} FlexeTravels</p>
+
+          <div className="border-t border-white/[0.05] pt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <p className="text-white/18 text-[10px] max-w-2xl leading-relaxed text-center sm:text-left">
+              FlexeTravels is a technology platform, not a licensed travel agent (no IATA/CPBC).
+              Flights processed via Duffel (IATA-accredited). Flat $20 service fee per booking.
+              Always verify prices before payment.
+            </p>
+            <p className="text-white/18 text-[10px] flex-shrink-0">
+              © {new Date().getFullYear()} FlexeTravels
+            </p>
+          </div>
         </div>
       </footer>
     </div>

@@ -105,7 +105,8 @@
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; }
   body {
-    @apply bg-background text-foreground overflow-hidden;
+    @apply bg-background text-foreground;
+    overflow-x: hidden; /* prevent horizontal scroll; vertical scroll per-page */
     font-family: var(--font-inter), system-ui, sans-serif;
   }
   ::-webkit-scrollbar         { width: 5px; height: 5px; }

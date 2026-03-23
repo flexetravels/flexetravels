@@ -247,10 +247,10 @@ function FlightResultsPanel({
             <button
               onClick={() => scroll(-1)}
               aria-label="Previous flight"
-              className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-2 z-10
-                         w-9 h-9 rounded-full bg-card border border-border shadow-md
+              className="absolute left-1 top-1/2 -translate-y-1/2 z-10
+                         w-8 h-8 rounded-full bg-card/90 border border-border shadow-lg
                          flex items-center justify-center transition-opacity
-                         hover:bg-muted touch-manipulation
+                         hover:bg-muted touch-manipulation backdrop-blur-sm
                          opacity-100 sm:opacity-0 sm:group-hover/carousel:opacity-100"
             >
               <ChevronLeft className="w-4 h-4 text-foreground" />
@@ -262,11 +262,12 @@ function FlightResultsPanel({
             className="flex gap-3 overflow-x-auto scroll-smooth snap-x snap-mandatory pb-2
                        touch-pan-x
                        [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+            style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
           >
             {sorted.map(f => (
               // w-[85vw] on mobile so user sees the edge of the next card (peek pattern)
               // sm:w-[300px] restores desktop size
-              <div key={f.id} className="flex-none w-[85vw] sm:w-[300px] snap-start animate-fade-in-up">
+              <div key={f.id} className="flex-none w-[min(85vw,300px)] sm:w-[300px] snap-start animate-fade-in-up">
                 <FlightCard
                   flight={f}
                   selected={selected === f.id}
@@ -284,10 +285,10 @@ function FlightResultsPanel({
             <button
               onClick={() => scroll(1)}
               aria-label="Next flight"
-              className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-2 z-10
-                         w-9 h-9 rounded-full bg-card border border-border shadow-md
+              className="absolute right-1 top-1/2 -translate-y-1/2 z-10
+                         w-8 h-8 rounded-full bg-card/90 border border-border shadow-lg
                          flex items-center justify-center transition-opacity
-                         hover:bg-muted touch-manipulation
+                         hover:bg-muted touch-manipulation backdrop-blur-sm
                          opacity-100 sm:opacity-0 sm:group-hover/carousel:opacity-100"
             >
               <ChevronRight className="w-4 h-4 text-foreground" />
@@ -391,10 +392,10 @@ function HotelResultsPanel({
             <button
               onClick={() => scroll(-1)}
               aria-label="Previous hotel"
-              className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-2 z-10
-                         w-9 h-9 rounded-full bg-card border border-border shadow-md
+              className="absolute left-1 top-1/2 -translate-y-1/2 z-10
+                         w-8 h-8 rounded-full bg-card/90 border border-border shadow-lg
                          flex items-center justify-center transition-opacity
-                         hover:bg-muted touch-manipulation
+                         hover:bg-muted touch-manipulation backdrop-blur-sm
                          opacity-100 sm:opacity-0 sm:group-hover/carousel:opacity-100"
             >
               <ChevronLeft className="w-4 h-4 text-foreground" />
@@ -406,9 +407,10 @@ function HotelResultsPanel({
             className="flex gap-3 overflow-x-auto scroll-smooth snap-x snap-mandatory pb-2
                        touch-pan-x
                        [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+            style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
           >
             {sorted.map(h => (
-              <div key={h.id} className="flex-none w-[85vw] sm:w-[260px] snap-start animate-fade-in-up">
+              <div key={h.id} className="flex-none w-[min(85vw,260px)] sm:w-[260px] snap-start animate-fade-in-up">
                 <HotelCard
                   hotel={h}
                   selected={selected === h.id}
@@ -426,10 +428,10 @@ function HotelResultsPanel({
             <button
               onClick={() => scroll(1)}
               aria-label="Next hotel"
-              className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-2 z-10
-                         w-9 h-9 rounded-full bg-card border border-border shadow-md
+              className="absolute right-1 top-1/2 -translate-y-1/2 z-10
+                         w-8 h-8 rounded-full bg-card/90 border border-border shadow-lg
                          flex items-center justify-center transition-opacity
-                         hover:bg-muted touch-manipulation
+                         hover:bg-muted touch-manipulation backdrop-blur-sm
                          opacity-100 sm:opacity-0 sm:group-hover/carousel:opacity-100"
             >
               <ChevronRight className="w-4 h-4 text-foreground" />
