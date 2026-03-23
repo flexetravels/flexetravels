@@ -262,6 +262,8 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
   const [clientSecret, setClientSecret] = useState('');
   const [currency,     setCurrency]     = useState<'cad' | 'usd'>('cad');
   const [payComplete,  setPayComplete]  = useState(false);
+  // Confirmation state when no flight is in cart (hotel-only booking)
+  const [confirmFlightless, setConfirmFlightless] = useState(false);
 
   const stripeRef     = useRef<StripeInstance | null>(null);
   const elementsRef   = useRef<StripeElements | null>(null);
@@ -383,13 +385,22 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
   }
 
   // ── Book ────────────────────────────────────────────────────────────────────
-  const handleBook = useCallback(async () => {
+  const handleBook = useCallback(async (skipFlightConfirm = false) => {
     // Block immediately if the selected hotel is indicative/sample-only
     if (hotel?.isSample) {
       setError(
         `"${hotel.name}" shows indicative pricing only and cannot be booked directly. ` +
         `Please go back and search for available rates at a specific destination.`
       );
+      return;
+    }
+
+    // If no flight offer ID is available, ask the user to confirm hotel-only booking
+    // (catches: no flight selected, AI emitted a placeholder/broken offer ID)
+    const flightId = flight?.id;
+    const hasValidFlightId = flightId && !flightId.startsWith('<') && flightId.length >= 6;
+    if (!hasValidFlightId && !skipFlightConfirm) {
+      setConfirmFlightless(true);
       return;
     }
 
@@ -403,7 +414,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          flightOfferId:    flight?.id,
+          flightOfferId:    hasValidFlightId ? flightId : undefined,
           hotelRateId:      hotel?.bookingToken,
           hotelName:        hotel?.name,
           passengers:       passengers.slice(0, adults),
@@ -566,7 +577,43 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
 
   // ── Main card shell ──────────────────────────────────────────────────────────
   return (
-    <div className="travel-card overflow-hidden animate-fade-in-up">
+    <div className="travel-card overflow-hidden animate-fade-in-up relative">
+
+      {/* ── No-flight confirmation overlay ───────────────────────────────────── */}
+      {confirmFlightless && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/90 backdrop-blur-sm rounded-[inherit] p-5">
+          <div className="max-w-sm w-full bg-card border border-border/60 rounded-3xl p-5 shadow-xl space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-2xl bg-amber-100 dark:bg-amber-950/40 flex items-center justify-center flex-shrink-0">
+                <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div>
+                <p className="font-bold text-sm text-foreground">No flight selected</p>
+                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                  It looks like no flight was found in your cart. You can continue to book the hotel only, or go back to chat and select a flight first.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2.5 pt-1">
+              <button
+                onClick={() => { setConfirmFlightless(false); }}
+                className="flex-1 py-2.5 rounded-2xl border border-border/80 text-sm font-semibold
+                           text-muted-foreground hover:bg-muted transition-colors"
+              >
+                ← Back to chat
+              </button>
+              <button
+                onClick={() => { setConfirmFlightless(false); void handleBook(true); }}
+                className="flex-1 py-2.5 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white
+                           font-bold text-sm transition-colors"
+              >
+                Hotel only →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="px-5 pt-5 pb-0 flex items-center justify-between">
         <h2 className="font-black text-base text-foreground tracking-tight">Complete Booking</h2>
@@ -788,7 +835,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                 <ArrowLeft className="w-4 h-4" /> Back
               </button>
               <button
-                onClick={handleBook}
+                onClick={() => void handleBook()}
                 className="flex-1 py-3.5 rounded-2xl bg-teal-600 hover:bg-teal-700 active:scale-[0.98]
                            text-white font-bold text-sm flex items-center justify-center gap-2
                            shadow-md shadow-teal-500/20 hover:shadow-lg hover:shadow-teal-500/30 transition-all duration-150"

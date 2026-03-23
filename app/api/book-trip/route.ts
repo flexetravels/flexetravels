@@ -192,6 +192,26 @@ export async function POST(req: Request) {
 
   const { flightOfferId, hotelRateId, hotelName, passengers, childPassengers, originAirport, guestNationality } = parsed.data;
 
+  // ── Intake log — helps debug missing offer IDs ──────────────────────────────
+  console.log('[book-trip] intake —',
+    'flightOfferId:', flightOfferId ?? '(none)',
+    '| hotelRateId:', hotelRateId ? hotelRateId.slice(0, 30) + '…' : '(none)',
+    '| adults:', passengers.length,
+    '| children:', childPassengers.length,
+  );
+
+  // Detect truncated/placeholder offer IDs emitted by the AI (e.g. "<id>", "off_", "")
+  const flightIdLooksSuspicious =
+    flightOfferId && (
+      flightOfferId.startsWith('<') ||
+      flightOfferId === 'off_' ||
+      flightOfferId.length < 6
+    );
+  if (flightIdLooksSuspicious) {
+    console.warn('[book-trip] flightOfferId looks like a placeholder — ignoring:', flightOfferId);
+  }
+  const resolvedFlightOfferId = flightIdLooksSuspicious ? undefined : flightOfferId;
+
   // Calculate child ages from DOBs (needed for LiteAPI occupancy)
   const childAges = childPassengers.map(c => {
     const born  = new Date(c.dateOfBirth);
@@ -208,9 +228,9 @@ export async function POST(req: Request) {
   let hotelError: string | undefined;
 
   // ── 1. Book flight ─────────────────────────────────────────────────────────
-  if (flightOfferId && !flightOfferId.startsWith('amadeus_')) {
+  if (resolvedFlightOfferId && !resolvedFlightOfferId.startsWith('amadeus_')) {
     try {
-      const result = await bookDuffelFlight(flightOfferId, passengers, childPassengers);
+      const result = await bookDuffelFlight(resolvedFlightOfferId, passengers, childPassengers);
       if (result.success) {
         flightRef = result.bookingRef;
       } else {
@@ -264,7 +284,7 @@ export async function POST(req: Request) {
   }
 
   // If nothing succeeded at all, abort before charging Stripe
-  const attemptedSomething = !!(flightOfferId || hotelRateId);
+  const attemptedSomething = !!(resolvedFlightOfferId || hotelRateId);
   if (attemptedSomething && !flightRef && !hotelRef) {
     return NextResponse.json({
       success: false,
