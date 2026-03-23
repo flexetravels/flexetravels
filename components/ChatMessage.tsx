@@ -242,27 +242,31 @@ function FlightResultsPanel({
         </p>
       ) : (
         <div className="relative group/carousel">
-          {/* Prev arrow */}
+          {/* Prev arrow — always visible on touch, hover-only on desktop */}
           {sorted.length > 1 && (
             <button
               onClick={() => scroll(-1)}
+              aria-label="Previous flight"
               className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-2 z-10
-                         w-7 h-7 rounded-full bg-card border border-border shadow-md
-                         flex items-center justify-center
-                         opacity-0 group-hover/carousel:opacity-100 transition-opacity
-                         hover:bg-muted"
+                         w-9 h-9 rounded-full bg-card border border-border shadow-md
+                         flex items-center justify-center transition-opacity
+                         hover:bg-muted touch-manipulation
+                         opacity-100 sm:opacity-0 sm:group-hover/carousel:opacity-100"
             >
-              <ChevronLeft className="w-3.5 h-3.5 text-foreground" />
+              <ChevronLeft className="w-4 h-4 text-foreground" />
             </button>
           )}
 
           <div
             ref={scrollRef}
             className="flex gap-3 overflow-x-auto scroll-smooth snap-x snap-mandatory pb-2
+                       touch-pan-x
                        [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
           >
             {sorted.map(f => (
-              <div key={f.id} className="flex-none w-[300px] snap-start animate-fade-in-up">
+              // w-[85vw] on mobile so user sees the edge of the next card (peek pattern)
+              // sm:w-[300px] restores desktop size
+              <div key={f.id} className="flex-none w-[85vw] sm:w-[300px] snap-start animate-fade-in-up">
                 <FlightCard
                   flight={f}
                   selected={selected === f.id}
@@ -279,13 +283,14 @@ function FlightResultsPanel({
           {sorted.length > 1 && (
             <button
               onClick={() => scroll(1)}
+              aria-label="Next flight"
               className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-2 z-10
-                         w-7 h-7 rounded-full bg-card border border-border shadow-md
-                         flex items-center justify-center
-                         opacity-0 group-hover/carousel:opacity-100 transition-opacity
-                         hover:bg-muted"
+                         w-9 h-9 rounded-full bg-card border border-border shadow-md
+                         flex items-center justify-center transition-opacity
+                         hover:bg-muted touch-manipulation
+                         opacity-100 sm:opacity-0 sm:group-hover/carousel:opacity-100"
             >
-              <ChevronRight className="w-3.5 h-3.5 text-foreground" />
+              <ChevronRight className="w-4 h-4 text-foreground" />
             </button>
           )}
         </div>
@@ -381,27 +386,29 @@ function HotelResultsPanel({
         </p>
       ) : (
         <div className="relative group/carousel">
-          {/* Prev arrow */}
+          {/* Prev arrow — always visible on touch, hover-only on desktop */}
           {sorted.length > 1 && (
             <button
               onClick={() => scroll(-1)}
+              aria-label="Previous hotel"
               className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-2 z-10
-                         w-7 h-7 rounded-full bg-card border border-border shadow-md
-                         flex items-center justify-center
-                         opacity-0 group-hover/carousel:opacity-100 transition-opacity
-                         hover:bg-muted"
+                         w-9 h-9 rounded-full bg-card border border-border shadow-md
+                         flex items-center justify-center transition-opacity
+                         hover:bg-muted touch-manipulation
+                         opacity-100 sm:opacity-0 sm:group-hover/carousel:opacity-100"
             >
-              <ChevronLeft className="w-3.5 h-3.5 text-foreground" />
+              <ChevronLeft className="w-4 h-4 text-foreground" />
             </button>
           )}
 
           <div
             ref={scrollRef}
             className="flex gap-3 overflow-x-auto scroll-smooth snap-x snap-mandatory pb-2
+                       touch-pan-x
                        [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
           >
             {sorted.map(h => (
-              <div key={h.id} className="flex-none w-[260px] snap-start animate-fade-in-up">
+              <div key={h.id} className="flex-none w-[85vw] sm:w-[260px] snap-start animate-fade-in-up">
                 <HotelCard
                   hotel={h}
                   selected={selected === h.id}
@@ -418,13 +425,14 @@ function HotelResultsPanel({
           {sorted.length > 1 && (
             <button
               onClick={() => scroll(1)}
+              aria-label="Next hotel"
               className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-2 z-10
-                         w-7 h-7 rounded-full bg-card border border-border shadow-md
-                         flex items-center justify-center
-                         opacity-0 group-hover/carousel:opacity-100 transition-opacity
-                         hover:bg-muted"
+                         w-9 h-9 rounded-full bg-card border border-border shadow-md
+                         flex items-center justify-center transition-opacity
+                         hover:bg-muted touch-manipulation
+                         opacity-100 sm:opacity-0 sm:group-hover/carousel:opacity-100"
             >
-              <ChevronRight className="w-3.5 h-3.5 text-foreground" />
+              <ChevronRight className="w-4 h-4 text-foreground" />
             </button>
           )}
         </div>
@@ -483,11 +491,11 @@ function ExperienceResultsPanel({ experiences }: { experiences: ExperienceResult
         </div>
       </div>
 
-      {/* Cards in a responsive 2-column grid */}
+      {/* Cards in a responsive grid — 1 col on very small phones, 2 col otherwise */}
       {filtered.length === 0 ? (
         <p className="text-xs text-muted-foreground text-center py-4">No experiences match this filter.</p>
       ) : (
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-2">
           {filtered.map(exp => (
             <div key={exp.id} className="animate-fade-in-up">
               <ExperienceCard experience={exp} />

@@ -28,6 +28,10 @@ export const viewport: Viewport = {
   ],
   width: 'device-width',
   initialScale: 1,
+  // Prevent browser from zooming on input focus (iOS Safari)
+  // maximumScale:1 deliberately omitted — we want to allow pinch-zoom for accessibility
+  // viewportFit:'cover' enables content to extend into iPhone notch/island safe areas
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({

@@ -232,14 +232,28 @@
   flex: 1;
 }
 
+@media (max-width: 480px) {
+  .messages-inner {
+    padding: 16px 12px;
+    gap: 14px;
+  }
+}
+
 /* ── Input dock ───────────────────────────────────────────────── */
 .input-dock {
   flex-shrink: 0;
-  padding: 12px 20px 18px;
+  /* Add safe-area padding for iPhone notch/home indicator */
+  padding: 12px 20px calc(18px + env(safe-area-inset-bottom, 0px));
   background: var(--glass);
   border-top: 1px solid var(--glass-border);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
+}
+
+@media (max-width: 480px) {
+  .input-dock {
+    padding: 10px 12px calc(14px + env(safe-area-inset-bottom, 0px));
+  }
 }
 .input-inner {
   max-width: 740px;
@@ -265,6 +279,8 @@
   display: inline-flex;
   align-items: center;
   gap: 9px;
+  /* min-height 44px ensures iOS tap target compliance */
+  min-height: 44px;
   padding: 8px 16px 8px 7px;
   border-radius: 999px;
   border: 1px solid hsl(var(--border));
@@ -280,6 +296,7 @@
   white-space: nowrap;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 .dest-chip:hover {
   border-color: var(--brand);
@@ -309,6 +326,10 @@
   box-shadow: 0 2px 16px var(--brand-glow);
   animation: popIn .22s cubic-bezier(.175,.885,.32,1.275);
   word-break: break-word;
+}
+@media (max-width: 480px) {
+  .bubble-user { max-width: 90%; font-size: .875rem; }
+  .bubble-bot  { max-width: 95%; font-size: .875rem; }
 }
 
 .msg-row-bot {
@@ -389,28 +410,34 @@
 }
 .chat-textarea {
   flex: 1;
+  min-width: 0;
   resize: none;
   background: transparent;
   border: none;
   outline: none;
-  font-size: .9375rem;
+  /* 1rem (16px) prevents iOS Safari auto-zoom on focus */
+  font-size: 1rem;
   line-height: 1.55;
   color: hsl(var(--foreground));
-  min-height: 38px;
+  min-height: 44px;
   max-height: 160px;
   padding: 4px 0;
   font-family: inherit;
+  touch-action: manipulation;
 }
 .chat-textarea::placeholder { color: hsl(var(--muted-foreground)); }
 
 .send-btn {
   flex-shrink: 0;
-  width: 38px; height: 38px;
+  /* 44px minimum tap target for iOS/Android */
+  width: 44px; height: 44px;
   border-radius: 12px;
   display: flex; align-items: center; justify-content: center;
   border: none;
   cursor: pointer;
   transition: all .15s ease;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 .send-btn.active {
   background: var(--brand);
@@ -426,7 +453,7 @@
 }
 .stop-btn {
   flex-shrink: 0;
-  width: 38px; height: 38px;
+  width: 44px; height: 44px;
   border-radius: 12px;
   display: flex; align-items: center; justify-content: center;
   background: hsl(var(--destructive) / 0.1);
@@ -434,6 +461,8 @@
   color: hsl(var(--destructive));
   cursor: pointer;
   transition: all .15s;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 .stop-btn:hover { background: hsl(var(--destructive) / 0.2); }
 
@@ -448,6 +477,12 @@
   box-shadow: 0 1px 3px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.06);
   transition: box-shadow .22s ease, transform .22s ease;
   animation: fadeUp .22s ease-out;
+  /* Prevent card lift on touch — hover should only fire on pointer devices */
+  -webkit-tap-highlight-color: transparent;
+}
+@media (hover: none) {
+  .travel-card:hover { transform: none; box-shadow: 0 1px 3px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.06); }
+  .dark .travel-card:hover { box-shadow: 0 1px 3px rgba(0,0,0,.2), 0 4px 20px rgba(0,0,0,.18); }
 }
 .dark .travel-card {
   box-shadow: 0 1px 3px rgba(0,0,0,.2), 0 4px 20px rgba(0,0,0,.18);

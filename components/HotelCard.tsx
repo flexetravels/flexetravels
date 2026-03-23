@@ -72,7 +72,8 @@ function HeroGallery({
   const src = unique[idx] ?? '';
 
   return (
-    <div className="relative h-52 w-full overflow-hidden bg-muted group rounded-t-[13px]">
+    /* h-40 on mobile → h-44 on sm → h-48 on md (208px) — saves vertical space on phones */
+    <div className="relative h-40 sm:h-44 md:h-48 w-full overflow-hidden bg-muted group rounded-t-[13px]">
       {src && (
         <Image
           key={src}
@@ -80,7 +81,7 @@ function HeroGallery({
           alt={`${hotelName} — ${idx + 1}`}
           fill
           className="object-cover transition-all duration-700 group-hover:scale-[1.02]"
-          sizes="(max-width: 600px) 100vw, 480px"
+          sizes="(max-width: 480px) 90vw, (max-width: 600px) 100vw, 480px"
           onError={e => { (e.target as HTMLImageElement).style.opacity = '0'; }}
         />
       )}
@@ -103,26 +104,30 @@ function HeroGallery({
         <ScoreBadge score={score} />
       </div>
 
-      {/* Nav arrows */}
+      {/* Nav arrows — 44px tap targets, always visible on touch */}
       {total > 1 && (
         <>
-          <button onClick={prev} aria-label="Previous"
-            className="absolute left-2 top-1/2 -translate-y-1/2 z-10 w-7 h-7 rounded-full
-                       bg-black/50 text-white flex items-center justify-center
-                       opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70">
+          <button onClick={prev} aria-label="Previous photo"
+            className="absolute left-1.5 top-1/2 -translate-y-1/2 z-10
+                       w-9 h-9 rounded-full bg-black/50 text-white
+                       flex items-center justify-center touch-manipulation
+                       transition-opacity hover:bg-black/70
+                       opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100">
             <ChevronLeft className="w-4 h-4" />
           </button>
-          <button onClick={next} aria-label="Next"
-            className="absolute right-2 top-1/2 -translate-y-1/2 z-10 w-7 h-7 rounded-full
-                       bg-black/50 text-white flex items-center justify-center
-                       opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70">
+          <button onClick={next} aria-label="Next photo"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 z-10
+                       w-9 h-9 rounded-full bg-black/50 text-white
+                       flex items-center justify-center touch-manipulation
+                       transition-opacity hover:bg-black/70
+                       opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100">
             <ChevronRight className="w-4 h-4" />
           </button>
-          {/* Dot strip */}
-          <div className="absolute bottom-2 right-12 z-10 flex gap-1">
+          {/* Dot strip — larger tap area */}
+          <div className="absolute bottom-2 right-12 z-10 flex gap-1.5 items-center">
             {unique.slice(0, 5).map((_, i) => (
               <button key={i} onClick={e => { e.stopPropagation(); setIdx(i); }}
-                className={cn('w-1 h-1 rounded-full transition-all',
+                className={cn('w-1.5 h-1.5 rounded-full transition-all touch-manipulation',
                   i === idx ? 'bg-white w-3' : 'bg-white/50 hover:bg-white/80'
                 )} aria-label={`Photo ${i + 1}`} />
             ))}

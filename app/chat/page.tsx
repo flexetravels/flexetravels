@@ -84,18 +84,18 @@ function WelcomeScreen({ onSend }: { onSend: (msg: string) => void }) {
         </div>
       </div>
 
-      <h1 className="text-[2rem] sm:text-[2.4rem] font-bold tracking-tight
+      <h1 className="text-2xl sm:text-[2rem] md:text-[2.4rem] font-bold tracking-tight
                      text-foreground mb-3 leading-tight">
         Where to next?
       </h1>
-      <p className="text-muted-foreground text-[.9375rem] max-w-[420px]
-                    leading-relaxed mb-10">
+      <p className="text-muted-foreground text-[.875rem] sm:text-[.9375rem] max-w-[420px]
+                    leading-relaxed mb-8 sm:mb-10 px-2">
         Tell me your dream destination — I&apos;ll find real flights &amp; hotels
         and build your perfect itinerary.
       </p>
 
-      {/* Destination chips */}
-      <div className="flex flex-wrap justify-center gap-2.5 max-w-[520px] mb-10">
+      {/* Destination chips — 2 per row on very small screens */}
+      <div className="flex flex-wrap justify-center gap-2 sm:gap-2.5 max-w-[520px] mb-8 sm:mb-10 px-2">
         {DESTINATIONS.map((d) => (
           <button
             key={d.name}
@@ -548,14 +548,15 @@ export default function ChatPage() {
             )}
           </div>
 
-          {/* Scroll-to-bottom */}
+          {/* Scroll-to-bottom — bottom-32 gives clearance above the input dock on mobile */}
           {showScrollBtn && (
-            <div className="absolute bottom-28 right-5 z-20">
+            <div className="absolute bottom-32 sm:bottom-28 right-4 sm:right-5 z-20">
               <button
                 onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full
+                className="flex items-center gap-1.5 px-3 py-2 rounded-full min-h-[44px]
                            bg-card/90 border border-border shadow-lg backdrop-blur-sm
-                           text-xs text-muted-foreground hover:text-foreground transition-all"
+                           text-xs text-muted-foreground hover:text-foreground transition-all
+                           touch-manipulation"
               >
                 <ChevronDown className="w-3.5 h-3.5" />
                 Scroll down

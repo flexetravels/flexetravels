@@ -125,13 +125,13 @@ export function FlightCard({ flight, onSelect, selected, compact }: FlightCardPr
       </div>
 
       {/* ── Hero: departure / animated path / arrival ─────────────────────── */}
-      <div className="px-4 py-4 flex items-center gap-2">
+      <div className="px-3 sm:px-4 py-3 sm:py-4 flex items-center gap-2">
         {/* Departure */}
         <div className="flex-shrink-0 text-left">
-          <p className="text-2xl font-black text-foreground tracking-tight leading-none">
+          <p className="text-xl sm:text-2xl font-black text-foreground tracking-tight leading-none">
             {formatTime(flight.departure)}
           </p>
-          <p className="text-[13px] font-bold text-foreground/70 mt-0.5 uppercase tracking-wider">
+          <p className="text-[12px] sm:text-[13px] font-bold text-foreground/70 mt-0.5 uppercase tracking-wider">
             {flight.origin}
           </p>
           <p className="text-[10px] text-muted-foreground/60 mt-0.5">
@@ -172,10 +172,10 @@ export function FlightCard({ flight, onSelect, selected, compact }: FlightCardPr
 
         {/* Arrival */}
         <div className="flex-shrink-0 text-right">
-          <p className="text-2xl font-black text-foreground tracking-tight leading-none">
+          <p className="text-xl sm:text-2xl font-black text-foreground tracking-tight leading-none">
             {formatTime(flight.arrival)}
           </p>
-          <p className="text-[13px] font-bold text-foreground/70 mt-0.5 uppercase tracking-wider">
+          <p className="text-[12px] sm:text-[13px] font-bold text-foreground/70 mt-0.5 uppercase tracking-wider">
             {flight.destination}
           </p>
           <p className="text-[10px] text-muted-foreground/60 mt-0.5">
@@ -200,7 +200,8 @@ export function FlightCard({ flight, onSelect, selected, compact }: FlightCardPr
           <button
             onClick={() => onSelect?.(flight)}
             className={cn(
-              'px-4 py-2.5 rounded-xl text-[13px] font-bold transition-all duration-150 flex items-center gap-1.5',
+              'px-4 py-3 rounded-xl text-[13px] font-bold transition-all duration-150 flex items-center gap-1.5',
+              'min-h-[44px] touch-manipulation -webkit-tap-highlight-color-transparent',
               selected
                 ? 'bg-teal-600 dark:bg-teal-500 text-white shadow-lg shadow-teal-500/25'
                 : 'bg-teal-600 hover:bg-teal-700 text-white shadow-md shadow-teal-500/20 hover:shadow-lg hover:shadow-teal-500/30 active:scale-95'
@@ -226,9 +227,9 @@ export function FlightCard({ flight, onSelect, selected, compact }: FlightCardPr
           </button>
 
           {expanded && (
-            <div className="px-4 py-3 space-y-3 bg-muted/15 border-t border-border/40">
+            <div className="px-3 sm:px-4 py-2.5 sm:py-3 space-y-2.5 sm:space-y-3 bg-muted/15 border-t border-border/40">
               {flight.segments.map((seg, i) => (
-                <div key={i} className="flex items-center gap-3 text-xs">
+                <div key={i} className="flex items-center gap-2 sm:gap-3 text-xs">
                   <div className="w-1 self-stretch rounded-full bg-teal-500/40 flex-shrink-0" />
                   <div className="flex-1">
                     <p className="font-semibold text-foreground">

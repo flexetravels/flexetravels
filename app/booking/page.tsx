@@ -47,7 +47,7 @@ function ConfirmationView({ searchParams }: { searchParams: ReturnType<typeof us
         <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl overflow-hidden">
 
           {/* Header gradient */}
-          <div className="bg-gradient-to-r from-teal-500 to-teal-700 p-8 text-center">
+          <div className="bg-gradient-to-r from-teal-500 to-teal-700 p-5 sm:p-8 text-center">
             <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4">
               <CheckCircle className="w-10 h-10 text-white" />
             </div>
@@ -56,7 +56,7 @@ function ConfirmationView({ searchParams }: { searchParams: ReturnType<typeof us
           </div>
 
           {/* Details */}
-          <div className="p-6 space-y-4">
+          <div className="p-4 sm:p-6 space-y-4">
 
             {/* Reference number */}
             <div className="bg-teal-50 dark:bg-teal-900/20 rounded-2xl p-4 text-center border border-teal-200 dark:border-teal-800">
@@ -267,7 +267,7 @@ function CheckoutView() {
       )}
 
       {/* Checkout card centered */}
-      <div className="max-w-lg mx-auto px-4 py-8">
+      <div className="max-w-lg mx-auto px-3 sm:px-4 py-4 sm:py-8">
         <CheckoutCard
           flight={cart.flight}
           hotel={cart.hotel}
