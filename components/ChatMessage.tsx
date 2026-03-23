@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
   Plane, Building2, CheckCircle2, Copy, Check, Bot,
-  ChevronDown, ChevronLeft, ChevronRight, Compass,
+  ChevronDown, ChevronLeft, ChevronRight, Compass, ThumbsUp, ThumbsDown,
 } from 'lucide-react';
 import { cn, parseEmbeddedCards, stripCardTags } from '@/lib/utils';
 import { FlightCard } from './FlightCard';
@@ -784,7 +784,61 @@ export function ChatMessage({
         {paymentCards.map((pd, i) => (
           <StripePaymentForm key={i} data={pd} />
         ))}
+
+        {/* Feedback row — thumbs up/down */}
+        {!streaming && renderText && (
+          <MessageFeedback />
+        )}
       </div>
+    </div>
+  );
+}
+
+// ─── Message feedback (thumbs up / down) ────────────────────────────────────
+function MessageFeedback() {
+  const [vote, setVote] = useState<'up' | 'down' | null>(null);
+
+  const handleVote = (v: 'up' | 'down') => {
+    if (vote === v) { setVote(null); return; }
+    setVote(v);
+    // Stub: log to console — wire up to /api/feedback when ready
+    console.info('[feedback]', v);
+  };
+
+  return (
+    <div className="flex items-center gap-1 mt-0.5 opacity-0 group-hover:opacity-100
+                    focus-within:opacity-100 transition-opacity duration-150">
+      <button
+        type="button"
+        onClick={() => handleVote('up')}
+        title="Good response"
+        className={cn(
+          'p-1.5 rounded-lg transition-colors touch-manipulation',
+          vote === 'up'
+            ? 'bg-teal-100 text-teal-600 dark:bg-teal-900/40 dark:text-teal-400'
+            : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+        )}
+      >
+        <ThumbsUp className="w-3.5 h-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={() => handleVote('down')}
+        title="Poor response"
+        className={cn(
+          'p-1.5 rounded-lg transition-colors touch-manipulation',
+          vote === 'down'
+            ? 'bg-rose-100 text-rose-600 dark:bg-rose-900/40 dark:text-rose-400'
+            : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+        )}
+      >
+        <ThumbsDown className="w-3.5 h-3.5" />
+      </button>
+      {vote && (
+        <span className="text-[11px] text-muted-foreground ml-0.5 transition-opacity">
+          {vote === 'up' ? 'Thanks!' : 'Got it, I\'ll do better.'}
+        </span>
+      )}
     </div>
   );
 }

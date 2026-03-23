@@ -10,6 +10,7 @@ import Image from 'next/image';
 import {
   Send, PanelLeftOpen, Sun, Moon, RotateCcw,
   Plane, Sparkles, ChevronDown, MapPin, AlertCircle, WifiOff, ArrowRight, X,
+  Waves, Mountain, Landmark, Heart, Building2, Leaf, Utensils, Binoculars,
 } from 'lucide-react';
 import { ChatMessage, TypingIndicator } from '@/components/ChatMessage';
 import { ItinerarySidebar } from '@/components/ItinerarySidebar';
@@ -53,6 +54,58 @@ function ThemeToggle() {
   );
 }
 
+// ─── Vibe / trip-style chips ──────────────────────────────────────────────────
+const VIBES = [
+  {
+    label: 'Beach & Sun',
+    icon: <Waves className="w-3.5 h-3.5" />,
+    color: 'bg-sky-50 dark:bg-sky-900/30 border-sky-200 dark:border-sky-700 text-sky-700 dark:text-sky-300',
+    msg: 'I\'m looking for a beach and relaxation trip — warm weather, ocean, good vibes. Where should I go and when? I\'m flexible on destination.',
+  },
+  {
+    label: 'Adventure',
+    icon: <Mountain className="w-3.5 h-3.5" />,
+    color: 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300',
+    msg: 'I want an adventure trip — hiking, outdoor activities, something that gets the heart pumping. What do you recommend?',
+  },
+  {
+    label: 'Culture & Arts',
+    icon: <Landmark className="w-3.5 h-3.5" />,
+    color: 'bg-violet-50 dark:bg-violet-900/30 border-violet-200 dark:border-violet-700 text-violet-700 dark:text-violet-300',
+    msg: 'I\'m dreaming of a cultural trip — museums, history, architecture, local experiences. Where would you send me?',
+  },
+  {
+    label: 'Romance',
+    icon: <Heart className="w-3.5 h-3.5" />,
+    color: 'bg-rose-50 dark:bg-rose-900/30 border-rose-200 dark:border-rose-700 text-rose-700 dark:text-rose-300',
+    msg: 'I\'m planning a romantic trip for 2 — honeymoon vibes, beautiful hotels, unforgettable experiences. Help me plan something special.',
+  },
+  {
+    label: 'City Break',
+    icon: <Building2 className="w-3.5 h-3.5" />,
+    color: 'bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-700 text-amber-700 dark:text-amber-300',
+    msg: 'I want a city break — great food scene, nightlife, walkable neighbourhoods, things to explore. What\'s buzzing right now?',
+  },
+  {
+    label: 'Wellness',
+    icon: <Leaf className="w-3.5 h-3.5" />,
+    color: 'bg-teal-50 dark:bg-teal-900/30 border-teal-200 dark:border-teal-700 text-teal-700 dark:text-teal-300',
+    msg: 'I need a wellness and relaxation trip — spas, yoga, nature, slow travel. I want to come back recharged.',
+  },
+  {
+    label: 'Food & Wine',
+    icon: <Utensils className="w-3.5 h-3.5" />,
+    color: 'bg-orange-50 dark:bg-orange-900/30 border-orange-200 dark:border-orange-700 text-orange-700 dark:text-orange-300',
+    msg: 'I\'m a foodie at heart — I want a trip built around incredible food, local markets, wine regions, and culinary experiences.',
+  },
+  {
+    label: 'Wildlife',
+    icon: <Binoculars className="w-3.5 h-3.5" />,
+    color: 'bg-lime-50 dark:bg-lime-900/30 border-lime-200 dark:border-lime-700 text-lime-700 dark:text-lime-300',
+    msg: 'I want a wildlife and nature trip — safaris, national parks, marine life, something truly wild and beautiful.',
+  },
+] as const;
+
 // ─── Destination chips — only cities with confirmed LiteAPI hotel inventory ───
 const DESTINATIONS = [
   { name: 'Cancún, Mexico',    img: 'https://images.unsplash.com/photo-1552074284-5e88ef1aef18?w=56&h=56&fit=crop&q=80', msg: 'I want a beach vacation to Cancun Mexico for 7 days flying from Toronto' },
@@ -70,7 +123,7 @@ function WelcomeScreen({ onSend }: { onSend: (msg: string) => void }) {
   return (
     <div className="welcome-wrap">
       {/* Logo orb */}
-      <div className="relative mb-8">
+      <div className="relative mb-6">
         <div className="w-[72px] h-[72px] rounded-2xl
                         bg-gradient-to-br from-teal-500 via-teal-600 to-teal-900
                         flex items-center justify-center
@@ -85,17 +138,41 @@ function WelcomeScreen({ onSend }: { onSend: (msg: string) => void }) {
       </div>
 
       <h1 className="text-2xl sm:text-[2rem] md:text-[2.4rem] font-bold tracking-tight
-                     text-foreground mb-3 leading-tight">
-        Where to next?
+                     text-foreground mb-2 leading-tight">
+        What kind of trip are you dreaming of?
       </h1>
-      <p className="text-muted-foreground text-[.875rem] sm:text-[.9375rem] max-w-[420px]
-                    leading-relaxed mb-8 sm:mb-10 px-2">
-        Tell me your dream destination — I&apos;ll find real flights &amp; hotels
-        and build your perfect itinerary.
+      <p className="text-muted-foreground text-[.875rem] sm:text-[.9375rem] max-w-[440px]
+                    leading-relaxed mb-6 px-2">
+        Pick a vibe and I&apos;ll find real flights, hotels &amp; build your perfect itinerary —
+        or just describe what you have in mind.
       </p>
 
+      {/* ── Vibe chips ── */}
+      <div className="flex flex-wrap justify-center gap-2 max-w-[540px] mb-6 px-2">
+        {VIBES.map((v) => (
+          <button
+            key={v.label}
+            type="button"
+            onClick={() => onSend(v.msg)}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-full border text-xs
+                        font-semibold min-h-[36px] touch-manipulation transition-all
+                        hover:scale-[1.04] active:scale-[.97] ${v.color}`}
+          >
+            {v.icon}
+            {v.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Divider */}
+      <div className="flex items-center gap-3 max-w-[480px] w-full mb-5 px-2">
+        <div className="flex-1 h-px bg-border/50" />
+        <span className="text-[11px] text-muted-foreground/60 whitespace-nowrap">or pick a destination</span>
+        <div className="flex-1 h-px bg-border/50" />
+      </div>
+
       {/* Destination chips — 2 per row on very small screens */}
-      <div className="flex flex-wrap justify-center gap-2 sm:gap-2.5 max-w-[520px] mb-8 sm:mb-10 px-2">
+      <div className="flex flex-wrap justify-center gap-2 sm:gap-2.5 max-w-[520px] mb-7 px-2">
         {DESTINATIONS.map((d) => (
           <button
             key={d.name}
