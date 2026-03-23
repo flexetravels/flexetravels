@@ -4,15 +4,15 @@ import { useChat } from 'ai/react';
 import {
   useCallback, useEffect, useLayoutEffect, useRef, useState,
 } from 'react';
+import { useRouter } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import Image from 'next/image';
 import {
   Send, PanelLeftOpen, Sun, Moon, RotateCcw,
-  Plane, Sparkles, ChevronDown, MapPin, AlertCircle, WifiOff,
+  Plane, Sparkles, ChevronDown, MapPin, AlertCircle, WifiOff, ArrowRight, X,
 } from 'lucide-react';
 import { ChatMessage, TypingIndicator } from '@/components/ChatMessage';
 import { ItinerarySidebar } from '@/components/ItinerarySidebar';
-import { CheckoutCard } from '@/components/CheckoutCard';
 import { cn, generateSessionId, detectCommand } from '@/lib/utils';
 import type { Itinerary, ItineraryDay, FlightResult, HotelResult } from '@/lib/types';
 
@@ -248,16 +248,16 @@ function InputBar({ input, isLoading, onChange, onSubmit, onStop }: InputBarProp
 
 // ─── Main Page ────────────────────────────────────────────────────────────
 export default function ChatPage() {
+  const router = useRouter();
   const [sidebarOpen, setSidebarOpen]     = useState(false);
   const [ghostEnabled, setGhostEnabled]   = useState(false);
   const [itinerary, setItinerary]         = useState<Itinerary | null>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [apiError, setApiError]           = useState<string | null>(null);
 
-  // ── Inline checkout cart ─────────────────────────────────────────────────
-  const [cartFlight,   setCartFlight]   = useState<FlightResult | null>(null);
-  const [cartHotel,    setCartHotel]    = useState<HotelResult  | null>(null);
-  const [showCheckout, setShowCheckout] = useState(false);
+  // ── Cart state (flight + hotel selected in chat) ─────────────────────────
+  const [cartFlight, setCartFlight] = useState<FlightResult | null>(null);
+  const [cartHotel,  setCartHotel]  = useState<HotelResult  | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatAreaRef    = useRef<HTMLDivElement>(null);
@@ -307,7 +307,7 @@ export default function ChatPage() {
   useHotkey('/', useCallback(() => setSidebarOpen(o => !o), []));
   useHotkey('k', useCallback(() => {
     setMessages([]); setItinerary(null); setApiError(null);
-    setCartFlight(null); setCartHotel(null); setShowCheckout(false);
+    setCartFlight(null); setCartHotel(null);
   }, [setMessages]));
 
   // Itinerary extractor
@@ -319,7 +319,7 @@ export default function ChatPage() {
   }, []);
 
   // Card selection — stores flight/hotel in cart and sends a selection message.
-  // Once both are chosen, the inline CheckoutCard appears automatically.
+  // Once both are chosen, a "Proceed to Booking" CTA appears above the input bar.
   const handleSelectFlight = useCallback((f: FlightResult) => {
     setCartFlight(f);
     const price = new Intl.NumberFormat('en-US', { style: 'currency', currency: f.currency }).format(f.price);
@@ -334,33 +334,35 @@ export default function ChatPage() {
 
   const handleSelectHotel = useCallback((h: HotelResult) => {
     setCartHotel(h);
-    setShowCheckout(true);
+    // Persist cart so /booking page can read it after navigation
+    try {
+      const cartData = { flight: cartFlight, hotel: h };
+      sessionStorage.setItem('ft_cart', JSON.stringify(cartData));
+    } catch { /* ignore */ }
     const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: h.currency ?? 'USD' }).format(n);
     const bookable = h.bookingToken && !h.isSample;
-    // [HOTEL_SELECTED] tag tells the AI to show checkout instructions only.
+    // [HOTEL_SELECTED] tag tells the AI the hotel was chosen.
     append({
       role: 'user',
       content: bookable
         ? `[HOTEL_SELECTED] ${h.name}, ${h.stars}★, ${fmt(h.pricePerNight)}/night (${fmt(h.totalPrice)} total), ${h.checkIn}→${h.checkOut}.`
         : `[HOTEL_SELECTED] ${h.name}, ${h.stars}★, ~${fmt(h.pricePerNight)}/night (indicative pricing).`,
     });
-  }, [append]);
+  }, [append, cartFlight]);
 
-  // Checkout callbacks
-  const handleCheckoutConfirmed = useCallback((flightRef?: string, hotelRef?: string) => {
-    setShowCheckout(false);
+  // Navigate to the full-page booking flow
+  const handleProceedToBooking = useCallback(() => {
+    try {
+      sessionStorage.setItem('ft_cart', JSON.stringify({ flight: cartFlight, hotel: cartHotel }));
+    } catch { /* ignore */ }
+    router.push('/booking');
+  }, [cartFlight, cartHotel, router]);
+
+  // Clear the cart selection (dismiss CTA)
+  const handleClearCart = useCallback(() => {
     setCartFlight(null);
     setCartHotel(null);
-    const parts: string[] = [];
-    if (flightRef) parts.push(`Flight booked ✅ (ref: ${flightRef})`);
-    if (hotelRef)  parts.push(`Hotel booked ✅ (ref: ${hotelRef})`);
-    if (parts.length > 0) {
-      append({ role: 'user', content: `Booking completed! ${parts.join(' · ')}. Payment submitted.` });
-    }
-  }, [append]);
-
-  const handleCheckoutClose = useCallback(() => {
-    setShowCheckout(false);
+    try { sessionStorage.removeItem('ft_cart'); } catch { /* ignore */ }
   }, []);
 
   const handleEditDay = useCallback((day: ItineraryDay) => {
@@ -473,7 +475,7 @@ export default function ChatPage() {
                 <button
                   onClick={() => {
                     setMessages([]); setItinerary(null); setApiError(null);
-                    setCartFlight(null); setCartHotel(null); setShowCheckout(false);
+                    setCartFlight(null); setCartHotel(null);
                   }}
                   className="p-2 rounded-xl hover:bg-black/[.06] dark:hover:bg-white/[.08]
                              text-muted-foreground hover:text-foreground transition-colors"
@@ -526,18 +528,6 @@ export default function ChatPage() {
                 {isLoading && messages.at(-1)?.role === 'user' && <TypingIndicator />}
                 {apiError && <ErrorBanner message={apiError} />}
 
-                {/* ── Inline checkout card — appears after hotel is selected ── */}
-                {showCheckout && (
-                  <div className="my-4 px-2 sm:px-0">
-                    <CheckoutCard
-                      flight={cartFlight}
-                      hotel={cartHotel}
-                      onClose={handleCheckoutClose}
-                      onConfirmed={handleCheckoutConfirmed}
-                    />
-                  </div>
-                )}
-
                 <div ref={messagesEndRef} />
               </div>
             )}
@@ -555,6 +545,43 @@ export default function ChatPage() {
                 <ChevronDown className="w-3.5 h-3.5" />
                 Scroll down
               </button>
+            </div>
+          )}
+
+          {/* ── Cart CTA — appears when a hotel (and optionally flight) is selected ── */}
+          {cartHotel && (
+            <div className="px-3 sm:px-4 pt-2 pb-1 border-t border-border/30
+                            bg-background/95 backdrop-blur-sm">
+              <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-2xl
+                              bg-teal-600 text-white shadow-lg shadow-teal-900/20">
+                <div className="min-w-0">
+                  <p className="text-sm font-bold leading-tight">
+                    {cartFlight ? '✈ Flight + 🏨 Hotel selected' : '🏨 Hotel selected'}
+                  </p>
+                  <p className="text-xs text-teal-100 mt-0.5 truncate">
+                    {[cartFlight?.airline, cartHotel.name].filter(Boolean).join(' · ')}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={handleProceedToBooking}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl
+                               bg-white text-teal-700 text-sm font-bold
+                               hover:bg-teal-50 transition-colors"
+                  >
+                    Book now
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={handleClearCart}
+                    className="w-6 h-6 rounded-full bg-teal-500/40 hover:bg-teal-500/60
+                               flex items-center justify-center transition-colors"
+                    title="Dismiss"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 

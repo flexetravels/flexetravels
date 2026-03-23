@@ -1,19 +1,22 @@
 'use client';
 
-import { useSearchParams } from 'next/navigation';
-import { Suspense } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { CheckCircle, Plane, Calendar, Users, CreditCard, ArrowLeft, AlertCircle } from 'lucide-react';
+import {
+  CheckCircle, Plane, Calendar, Users, CreditCard,
+  ArrowLeft, AlertCircle, Loader2,
+} from 'lucide-react';
+import { CheckoutCard } from '@/components/CheckoutCard';
+import type { FlightResult, HotelResult } from '@/lib/types';
 
-// ─── Booking Confirmation Content ─────────────────────────────────────────────
-function BookingContent() {
-  const params = useSearchParams();
-
-  const reference  = params.get('ref');
-  const total      = params.get('total');
-  const currency   = params.get('currency') ?? 'USD';
-  const type       = params.get('type') ?? 'flight';
-  const email      = params.get('email');
+// ─── Confirmation view (shown after booking is complete) ──────────────────────
+function ConfirmationView({ searchParams }: { searchParams: ReturnType<typeof useSearchParams> }) {
+  const reference  = searchParams.get('ref');
+  const total      = searchParams.get('total');
+  const currency   = searchParams.get('currency') ?? 'USD';
+  const type       = searchParams.get('type') ?? 'flight';
+  const email      = searchParams.get('email');
 
   if (!reference) {
     return (
@@ -149,6 +152,122 @@ function BookingContent() {
       </div>
     </div>
   );
+}
+
+// ─── Checkout view (full-page CheckoutCard) ────────────────────────────────────
+interface CartData {
+  flight: FlightResult | null;
+  hotel:  HotelResult  | null;
+}
+
+function CheckoutView() {
+  const router = useRouter();
+  const [cart, setCart]         = useState<CartData | null>(null);
+  const [cartLoaded, setCartLoaded] = useState(false);
+
+  // Read cart from sessionStorage after hydration
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('ft_cart');
+      if (raw) {
+        const parsed = JSON.parse(raw) as CartData;
+        setCart(parsed);
+      }
+    } catch { /* ignore */ }
+    setCartLoaded(true);
+  }, []);
+
+  // Loading state
+  if (!cartLoaded) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-6 h-6 text-teal-500 animate-spin" />
+      </div>
+    );
+  }
+
+  // No cart — nudge back to chat
+  if (!cart?.flight && !cart?.hotel) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="max-w-md w-full text-center">
+          <AlertCircle className="w-14 h-14 text-amber-500 mx-auto mb-4" />
+          <h1 className="text-xl font-bold text-foreground mb-2">Nothing in your cart</h1>
+          <p className="text-muted-foreground mb-6 text-sm">
+            Select a flight and hotel in the chat first, then come back here to complete your booking.
+          </p>
+          <Link
+            href="/chat"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl
+                       bg-teal-600 text-white text-sm font-bold hover:bg-teal-700 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to chat
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const handleConfirmed = (flightRef?: string, hotelRef?: string) => {
+    // Clear the cart from sessionStorage
+    try { sessionStorage.removeItem('ft_cart'); } catch { /* ignore */ }
+    // Navigate to confirmation view
+    const ref = flightRef || hotelRef || '';
+    router.push(`/booking?ref=${encodeURIComponent(ref)}`);
+  };
+
+  const handleClose = () => {
+    router.push('/chat');
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-teal-50 via-white to-slate-50
+                    dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+
+      {/* Header */}
+      <header className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border/50">
+        <div className="max-w-2xl mx-auto px-4 h-14 flex items-center gap-3">
+          <Link
+            href="/chat"
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to chat
+          </Link>
+          <span className="text-border/60 mx-1">·</span>
+          <span className="text-sm font-bold text-foreground">
+            Flexe<span className="text-teal-600">Travels</span>
+          </span>
+          <span className="text-xs text-muted-foreground border border-border/60 rounded-full px-2 py-0.5">
+            Checkout
+          </span>
+        </div>
+      </header>
+
+      {/* Checkout card centered */}
+      <div className="max-w-lg mx-auto px-4 py-8">
+        <CheckoutCard
+          flight={cart.flight}
+          hotel={cart.hotel}
+          onClose={handleClose}
+          onConfirmed={handleConfirmed}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─── Main page — routes between checkout and confirmation ─────────────────────
+function BookingContent() {
+  const params = useSearchParams();
+  const hasRef = !!params.get('ref');
+
+  if (hasRef) {
+    return <ConfirmationView searchParams={params} />;
+  }
+
+  return <CheckoutView />;
 }
 
 // ─── Page wrapper (Suspense required for useSearchParams in Next.js App Router) ─

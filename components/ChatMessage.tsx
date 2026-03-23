@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
   Plane, Building2, CheckCircle2, Copy, Check, Bot,
-  ChevronDown, Compass,
+  ChevronDown, ChevronLeft, ChevronRight, Compass,
 } from 'lucide-react';
 import { cn, parseEmbeddedCards, stripCardTags } from '@/lib/utils';
 import { FlightCard } from './FlightCard';
@@ -161,6 +161,7 @@ function FlightResultsPanel({
   const [selected,   setSelected]   = useState<string | null>(null);
   const [sort,       setSort]       = useState<FlightSort>('price');
   const [stopFilter, setStopFilter] = useState<StopFilter>('all');
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const filtered = flights.filter(f => {
     if (stopFilter === 'all') return true;
@@ -186,6 +187,10 @@ function FlightResultsPanel({
   };
   const sortLabels: Record<FlightSort, string> = {
     price: 'Price', duration: 'Duration', stops: 'Stops',
+  };
+
+  const scroll = (dir: -1 | 1) => {
+    scrollRef.current?.scrollBy({ left: dir * 300, behavior: 'smooth' });
   };
 
   return (
@@ -230,24 +235,60 @@ function FlightResultsPanel({
         </div>
       </div>
 
-      {/* Cards */}
+      {/* Horizontal carousel */}
       {sorted.length === 0 ? (
         <p className="text-xs text-muted-foreground text-center py-4">
           No flights match this filter.
         </p>
       ) : (
-        sorted.map(f => (
-          <div key={f.id} className="animate-fade-in-up">
-            <FlightCard
-              flight={f}
-              selected={selected === f.id}
-              onSelect={(fl) => {
-                setSelected(fl.id);
-                onSelect?.(fl);
-              }}
-            />
+        <div className="relative group/carousel">
+          {/* Prev arrow */}
+          {sorted.length > 1 && (
+            <button
+              onClick={() => scroll(-1)}
+              className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-2 z-10
+                         w-7 h-7 rounded-full bg-card border border-border shadow-md
+                         flex items-center justify-center
+                         opacity-0 group-hover/carousel:opacity-100 transition-opacity
+                         hover:bg-muted"
+            >
+              <ChevronLeft className="w-3.5 h-3.5 text-foreground" />
+            </button>
+          )}
+
+          <div
+            ref={scrollRef}
+            className="flex gap-3 overflow-x-auto scroll-smooth snap-x snap-mandatory pb-2
+                       [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {sorted.map(f => (
+              <div key={f.id} className="flex-none w-[300px] snap-start animate-fade-in-up">
+                <FlightCard
+                  flight={f}
+                  selected={selected === f.id}
+                  onSelect={(fl) => {
+                    setSelected(fl.id);
+                    onSelect?.(fl);
+                  }}
+                />
+              </div>
+            ))}
           </div>
-        ))
+
+          {/* Next arrow */}
+          {sorted.length > 1 && (
+            <button
+              onClick={() => scroll(1)}
+              className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-2 z-10
+                         w-7 h-7 rounded-full bg-card border border-border shadow-md
+                         flex items-center justify-center
+                         opacity-0 group-hover/carousel:opacity-100 transition-opacity
+                         hover:bg-muted"
+            >
+              <ChevronRight className="w-3.5 h-3.5 text-foreground" />
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -267,6 +308,7 @@ function HotelResultsPanel({
   const [selected,    setSelected]    = useState<string | null>(null);
   const [sort,        setSort]        = useState<HotelSort>('price');
   const [starFilter,  setStarFilter]  = useState<StarFilter>('all');
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const filtered = hotels.filter(h => {
     if (starFilter === 'all') return true;
@@ -284,6 +326,10 @@ function HotelResultsPanel({
   };
   const sortLabels: Record<HotelSort, string> = {
     price: 'Price', rating: 'Rating', stars: 'Stars',
+  };
+
+  const scroll = (dir: -1 | 1) => {
+    scrollRef.current?.scrollBy({ left: dir * 280, behavior: 'smooth' });
   };
 
   return (
@@ -328,24 +374,60 @@ function HotelResultsPanel({
         </div>
       </div>
 
-      {/* Cards */}
+      {/* Horizontal carousel */}
       {sorted.length === 0 ? (
         <p className="text-xs text-muted-foreground text-center py-4">
           No hotels match this filter.
         </p>
       ) : (
-        sorted.map(h => (
-          <div key={h.id} className="animate-fade-in-up">
-            <HotelCard
-              hotel={h}
-              selected={selected === h.id}
-              onSelect={(ht) => {
-                setSelected(ht.id);
-                onSelect?.(ht);
-              }}
-            />
+        <div className="relative group/carousel">
+          {/* Prev arrow */}
+          {sorted.length > 1 && (
+            <button
+              onClick={() => scroll(-1)}
+              className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-2 z-10
+                         w-7 h-7 rounded-full bg-card border border-border shadow-md
+                         flex items-center justify-center
+                         opacity-0 group-hover/carousel:opacity-100 transition-opacity
+                         hover:bg-muted"
+            >
+              <ChevronLeft className="w-3.5 h-3.5 text-foreground" />
+            </button>
+          )}
+
+          <div
+            ref={scrollRef}
+            className="flex gap-3 overflow-x-auto scroll-smooth snap-x snap-mandatory pb-2
+                       [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {sorted.map(h => (
+              <div key={h.id} className="flex-none w-[260px] snap-start animate-fade-in-up">
+                <HotelCard
+                  hotel={h}
+                  selected={selected === h.id}
+                  onSelect={(ht) => {
+                    setSelected(ht.id);
+                    onSelect?.(ht);
+                  }}
+                />
+              </div>
+            ))}
           </div>
-        ))
+
+          {/* Next arrow */}
+          {sorted.length > 1 && (
+            <button
+              onClick={() => scroll(1)}
+              className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-2 z-10
+                         w-7 h-7 rounded-full bg-card border border-border shadow-md
+                         flex items-center justify-center
+                         opacity-0 group-hover/carousel:opacity-100 transition-opacity
+                         hover:bg-muted"
+            >
+              <ChevronRight className="w-3.5 h-3.5 text-foreground" />
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
