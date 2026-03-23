@@ -385,6 +385,8 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
   }
 
   // ── Book ────────────────────────────────────────────────────────────────────
+  // NOTE: childPassengers + children MUST be in the dep array so validate()
+  // inside the callback sees the latest typed values (not the stale initial state).
   const handleBook = useCallback(async (skipFlightConfirm = false) => {
     // Block immediately if the selected hotel is indicative/sample-only
     if (hotel?.isSample) {
@@ -488,8 +490,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
       setError(`Network error: ${String(e)}`);
       setPhase('error');
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [passengers, adults, flight, hotel, onConfirmed]);
+  }, [passengers, adults, children, childPassengers, flight, hotel, onConfirmed]);
 
   // ── Pay ─────────────────────────────────────────────────────────────────────
   const handlePay = useCallback(async () => {

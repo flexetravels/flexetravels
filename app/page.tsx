@@ -381,9 +381,9 @@ function StatsRibbon() {
       <div className="max-w-7xl mx-auto px-5 sm:px-8 py-7">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 sm:gap-8">
           {[
-            { val: '200+',  lbl: 'Airlines via Duffel',    icon: <Plane className="w-5 h-5" /> },
-            { val: '1M+',   lbl: 'Hotels via LiteAPI',     icon: <MapPin className="w-5 h-5" /> },
-            { val: '3 AIs', lbl: 'Working in parallel',    icon: <Sparkles className="w-5 h-5" /> },
+            { val: '200+',  lbl: 'Airlines worldwide',      icon: <Plane className="w-5 h-5" /> },
+            { val: '1M+',   lbl: 'Hotels worldwide',        icon: <MapPin className="w-5 h-5" /> },
+            { val: '3 AIs', lbl: 'Working in parallel',     icon: <Sparkles className="w-5 h-5" /> },
             { val: '$20',   lbl: 'Flat fee, every booking', icon: <CreditCard className="w-5 h-5" /> },
           ].map(s => (
             <div key={s.lbl} className="flex items-center gap-3">
@@ -425,11 +425,11 @@ function HowItWorks() {
             { n: '01', grad: 'from-teal-500 to-cyan-500', icon: <Sparkles className="w-6 h-6 text-white" />,
               title: 'Describe your vibe', desc: 'Tell the AI what kind of trip you\'re dreaming of — no forms, just conversation.' },
             { n: '02', grad: 'from-violet-500 to-purple-500', icon: <Zap className="w-6 h-6 text-white" />,
-              title: 'AI searches everything', desc: '3 AIs fan out in parallel — real Duffel flights, live hotel rates, local experiences. Results in seconds.' },
+              title: 'AI searches everything', desc: '3 AIs fan out in parallel — real confirmed flights, live hotel rates, local experiences. Results in seconds.' },
             { n: '03', grad: 'from-amber-500 to-orange-500', icon: <Star className="w-6 h-6 text-white" />,
               title: 'Pick your favourites', desc: 'Browse rich flight and hotel cards. The AI remembers your preferences throughout.' },
             { n: '04', grad: 'from-rose-500 to-pink-500', icon: <CheckCircle2 className="w-6 h-6 text-white" />,
-              title: 'Book & pay in-app', desc: 'Enter passenger details, pay via Stripe. Confirmed booking references sent immediately.' },
+              title: 'Book & pay in-app', desc: 'Enter passenger details and pay securely. Confirmed booking references returned immediately.' },
           ].map((s, i) => (
             <div key={s.n} className="relative bg-white/[0.035] border border-white/[0.07] rounded-2xl p-6
                                        hover:bg-white/[0.055] hover:border-white/[0.13] transition-all duration-300">
@@ -472,8 +472,8 @@ function WhyDifferent() {
             <p className="text-white/50 text-lg leading-relaxed">
               Kayak searches. Google compares. Layla links. FlexeTravels{' '}
               <strong className="text-white font-bold">books</strong>. We process confirmed
-              flight and hotel reservations — not referral links — using Duffel (IATA-accredited),
-              LiteAPI, and Stripe.
+              flight and hotel reservations — not referral links — directly and securely,
+              right here in one conversation.
             </p>
             <Link href="/chat"
               className="inline-flex items-center gap-2 mt-6 text-teal-400 font-semibold text-sm
@@ -491,7 +491,7 @@ function WhyDifferent() {
               desc: 'Most AI travel tools give you links and send you to Booking.com. We process the booking — flight confirmation, hotel voucher — right here in the chat.' },
             { col: 'text-violet-400 bg-violet-400/10 border-violet-400/20', icon: <Zap className="w-6 h-6" />,
               title: 'Three AIs, one answer',
-              desc: 'Claude orchestrates, Grok surfaces price intelligence, Gemini writes your destination guide. You get three models for the price of one conversation.' },
+              desc: 'Our multi-model AI fan-out searches everything at once — flight pricing, destination guides, experience recommendations. Three specialists, one conversation.' },
             { col: 'text-amber-400 bg-amber-400/10 border-amber-400/20', icon: <CreditCard className="w-6 h-6" />,
               title: 'One flat fee. Always.',
               desc: 'We charge a flat $20 service fee per booking. No commissions inflating hotel prices, no per-passenger fees. What you see is what you pay.' },
@@ -601,26 +601,22 @@ function VerifiedDestinations({ onPrompt }: { onPrompt: (p: string) => void }) {
   );
 }
 
-// ─── Trust / partner strip ─────────────────────────────────────────────────────
+// ─── Trust strip (security + booking guarantees) ───────────────────────────────
 function TrustStrip() {
   return (
-    <div className="relative z-10 border-t border-white/[0.05] py-12 px-5 sm:px-8">
-      <div className="max-w-7xl mx-auto text-center">
-        <p className="text-white/20 text-[10px] font-bold uppercase tracking-[0.25em] mb-8">
-          Powered by world-class infrastructure
-        </p>
-        <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-5">
+    <div className="relative z-10 border-t border-white/[0.05] py-10 px-5 sm:px-8">
+      <div className="max-w-4xl mx-auto">
+        <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-4">
           {[
-            { name: 'Duffel',   sub: 'IATA-accredited flight booking' },
-            { name: 'LiteAPI',  sub: 'Global hotel inventory' },
-            { name: 'Stripe',   sub: 'Payment processing' },
-            { name: 'Claude AI', sub: 'Trip orchestration' },
-            { name: 'Grok AI',  sub: 'Price intelligence' },
-            { name: 'Gemini AI', sub: 'Destination guides' },
-          ].map(p => (
-            <div key={p.name}>
-              <p className="text-white/65 font-bold text-base">{p.name}</p>
-              <p className="text-white/22 text-[10px] mt-0.5">{p.sub}</p>
+            { icon: <Shield className="w-4 h-4" />,       text: 'Secure checkout'         },
+            { icon: <CheckCircle2 className="w-4 h-4" />, text: 'Confirmed bookings only'  },
+            { icon: <CreditCard className="w-4 h-4" />,   text: '$20 flat fee, no extras'  },
+            { icon: <Zap className="w-4 h-4" />,          text: 'Results in seconds'       },
+            { icon: <Users className="w-4 h-4" />,        text: 'No account required'      },
+          ].map(t => (
+            <div key={t.text} className="flex items-center gap-2 text-white/30 text-xs font-medium">
+              <span className="text-teal-500/70">{t.icon}</span>
+              {t.text}
             </div>
           ))}
         </div>
