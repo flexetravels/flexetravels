@@ -478,6 +478,19 @@ export async function liteApiPrebook(
   if (!res.ok) {
     const txt = await res.text();
     console.error('[liteApiPrebook] failed', res.status, txt.slice(0, 400));
+
+    // LiteAPI error 4002 = offerId expired / invalid — the rate token has a
+    // short TTL. Surface a clear "go search again" message so the UI can
+    // show an actionable prompt rather than a generic error.
+    let errorCode = 0;
+    try { errorCode = (JSON.parse(txt) as { error?: { code?: number } })?.error?.code ?? 0; } catch { /* ignore */ }
+    if (errorCode === 4002 || errorCode === 4000) {
+      return {
+        success: false,
+        error: 'HOTEL_RATE_EXPIRED: Hotel rates have expired — prices refresh every few minutes. Please go back to chat and search for hotels again.',
+      };
+    }
+
     return { success: false, error: `Prebook failed ${res.status}: ${txt.slice(0, 200)}` };
   }
 

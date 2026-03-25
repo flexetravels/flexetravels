@@ -155,8 +155,9 @@ function ConfirmationView({ searchParams }: { searchParams: ReturnType<typeof us
 }
 
 // ─── Checkout view (full-page CheckoutCard) ────────────────────────────────────
-// Duffel offers expire in ~15 min; warn after 10 min to give time to complete.
-const CART_STALE_MS = 10 * 60 * 1000; // 10 minutes
+// Duffel offers expire in ~15 min; LiteAPI hotel tokens expire in ~5 min (sandbox).
+// Warn at 4 minutes so users act before the hotel token becomes invalid.
+const CART_STALE_MS = 4 * 60 * 1000; // 4 minutes
 
 interface CartData {
   flight:     FlightResult | null;

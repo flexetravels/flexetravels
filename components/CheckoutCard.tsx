@@ -578,21 +578,34 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
 
   // ── Error ────────────────────────────────────────────────────────────────────
   if (phase === 'error') {
+    const isRateExpired = error.startsWith('HOTEL_RATE_EXPIRED:');
+    const displayError  = isRateExpired ? error.replace('HOTEL_RATE_EXPIRED: ', '') : error;
     return (
       <div className="travel-card p-6 space-y-4 animate-fade-in-up">
-        <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center mx-auto">
-          <AlertCircle className="w-6 h-6 text-red-500" />
+        <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto ${isRateExpired ? 'bg-amber-500/10' : 'bg-red-500/10'}`}>
+          <AlertCircle className={`w-6 h-6 ${isRateExpired ? 'text-amber-500' : 'text-red-500'}`} />
         </div>
         <div className="text-center">
-          <p className="font-bold text-base text-foreground">Something went wrong</p>
-          <p className="text-sm text-muted-foreground/80 mt-1">{error}</p>
+          <p className="font-bold text-base text-foreground">
+            {isRateExpired ? 'Hotel rates have expired' : 'Something went wrong'}
+          </p>
+          <p className="text-sm text-muted-foreground/80 mt-1">{displayError}</p>
         </div>
-        <button
-          onClick={() => { setPhase('passengers'); setError(''); }}
-          className="w-full py-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-sm transition-colors"
-        >
-          Try Again
-        </button>
+        {isRateExpired ? (
+          <a
+            href="/chat"
+            className="block w-full py-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-sm text-center transition-colors"
+          >
+            ← Back to chat to search again
+          </a>
+        ) : (
+          <button
+            onClick={() => { setPhase('passengers'); setError(''); }}
+            className="w-full py-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-sm transition-colors"
+          >
+            Try Again
+          </button>
+        )}
       </div>
     );
   }
