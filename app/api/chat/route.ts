@@ -69,7 +69,7 @@ CHILDREN: If the user mentions kids, ask their ages conversationally ("How old a
 RESULTS FORMAT — output each result as a tag on its own line.
 ⚠ CRITICAL: copy ALL field values EXACTLY from the tool result — never invent, abbreviate, or use placeholder text like "<id>" or "N/A". The id and bookingToken fields are used to make the actual booking — wrong values = failed booking.
 
-[FLIGHT_CARD] {"id":"<exact offer id from tool result>","airline":"<name>","origin":"<IATA>","destination":"<IATA>","departure":"<ISO>","arrival":"<ISO>","duration":"<Xh Ym>","stops":<N>,"stopAirports":[],"price":<n>,"currency":"<ISO>","cabinClass":"economy","refundable":<bool>,"airlineLogo":"<url>","provider":"<duffel|amadeus>","bookingToken":"<exact bookingToken from tool result>","passengers":<adults count used in search>,"segments":[]}
+[FLIGHT_CARD] {"id":"<exact offer id from tool result>","airline":"<name>","origin":"<IATA>","destination":"<IATA>","departure":"<ISO>","arrival":"<ISO>","duration":"<Xh Ym>","stops":<N>,"stopAirports":[],"price":<n>,"currency":"<ISO>","cabinClass":"economy","refundable":<bool>,"airlineLogo":"<url>","provider":"<duffel|amadeus>","bookingToken":"<exact bookingToken from tool result>","passengers":<adults count used in search>,"segments":[],"flexibilityScore":<flexibilityScore from tool result or omit if absent>,"flexibilityLabel":"<flexibilityLabel from tool result: Flexible|Moderate|Locked, omit if absent>","flexibilitySummary":"<flexibilitySummary from tool result, omit if absent>","rankScore":<rankScore from tool result or omit if absent>}
 [HOTEL_CARD] {"id":"<exact id from tool result>","name":"<name>","location":"<city>","city":"<city>","stars":<N>,"pricePerNight":<n>,"totalPrice":<n>,"currency":"USD","image":"<url>","images":["<url>"],"rating":<0-10>,"amenities":["WiFi"],"checkIn":"<date>","checkOut":"<date>","cancellation":"<policy>","isSample":<bool>,"provider":"<src>","bookingToken":"<exact bookingToken from tool result — required for booking, do NOT omit>"}
 [EXPERIENCE_CARD] {"id":"<id>","name":"<name>","category":"<cat>","description":"<desc>","city":"<city>","rating":<0-5>,"image":"<url>","bookable":false,"provider":"foursquare"}
 
@@ -285,8 +285,22 @@ export async function POST(req: Request) {
           if (!token) return { flights: [], error: 'Duffel not configured' };
           try {
             const duffel  = new DuffelProvider(token);
-            const flights = await duffel.searchFlights(params);
-            return { flights: flights.slice(0, 5), count: flights.length, source: 'duffel', note: 'All results are bookable via Duffel' };
+            const raw     = await duffel.searchFlights(params);
+            // Promote private _flex* fields → public so AI copies them into FLIGHT_CARD tags
+            type Enriched = typeof raw[0] & { _flexObj?: { score: number; label: string; summary: string }; _flexScore?: number };
+            const flights = raw.slice(0, 5).map((f) => {
+              const e = f as Enriched;
+              const { _flexObj, _flexScore, ...rest } = e;
+              return {
+                ...rest,
+                ...((_flexObj) ? {
+                  flexibilityScore:   _flexObj.score,
+                  flexibilityLabel:   _flexObj.label,
+                  flexibilitySummary: _flexObj.summary,
+                } : {}),
+              };
+            });
+            return { flights, count: raw.length, source: 'duffel', note: 'All results are bookable via Duffel' };
           } catch (err) {
             return { flights: [], error: String(err) };
           }
