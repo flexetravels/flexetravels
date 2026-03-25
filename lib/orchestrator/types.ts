@@ -64,15 +64,17 @@ export interface ScoredFlight {
 // ─── Booking request / result ─────────────────────────────────────────────────
 
 export interface BookingRequest {
-  sessionId:       string;
-  tripId?:         string;     // DB trip ID if already created
-  flightOfferId?:  string;     // Duffel offer ID
-  hotelRateId?:    string;     // LiteAPI token
-  hotelName?:      string;
-  passengers:      PassengerDetail[];
-  childPassengers: ChildPassengerDetail[];
-  originAirport?:  string;
-  guestNationality?: string;
+  sessionId:           string;
+  tripId?:             string;     // DB trip ID if already created
+  flightOfferId?:      string;     // Duffel offer ID
+  hotelRateId?:        string;     // LiteAPI token
+  hotelName?:          string;
+  passengers:          PassengerDetail[];
+  childPassengers:     ChildPassengerDetail[];
+  originAirport?:      string;
+  guestNationality?:   string;
+  /** Price shown to user at search time (USD cents). Used for stale-rate detection. */
+  requestedPriceCents?: number;
 }
 
 export interface PassengerDetail {
@@ -90,20 +92,23 @@ export interface ChildPassengerDetail {
 }
 
 export interface BookingResult {
-  success:         boolean;
-  tripId?:         string;
+  success:          boolean;
+  tripId?:          string;
   flightBookingId?: string;    // DB booking row ID
   hotelBookingId?:  string;
-  flightRef?:      string;     // PNR / Duffel booking reference
-  hotelRef?:       string;     // LiteAPI booking ID
-  hotelName?:      string;
-  flightError?:    string;
-  hotelError?:     string;
-  clientSecret?:   string;     // Stripe PaymentIntent client secret
+  flightRef?:       string;    // PNR / Duffel booking reference
+  hotelRef?:        string;    // LiteAPI booking ID
+  hotelName?:       string;
+  flightError?:     string;
+  hotelError?:      string;
+  clientSecret?:    string;    // Stripe PaymentIntent client secret
   paymentIntentId?: string;
-  currency:        string;
-  serviceFeeCents: number;
-  flexibilityScore?: FlexibilityScore;   // of the booked flight
+  currency:         string;
+  serviceFeeCents:  number;
+  flexibilityScore?: FlexibilityScore;  // of the booked flight
+  /** Set when the live Duffel price differs from what was shown at search time */
+  priceChanged?:    boolean;
+  newPriceCents?:   number;
 }
 
 // ─── Cancellation ─────────────────────────────────────────────────────────────
@@ -111,20 +116,23 @@ export interface BookingResult {
 export type CancellationStrategy = 'api' | 'automation' | 'user_guided';
 
 export interface CancellationRequest {
-  bookingId:   string;         // DB booking row ID
-  providerRef: string;         // Duffel order ID / LiteAPI booking ID
-  provider:    'duffel' | 'liteapi';
-  reason?:     string;
+  bookingId:          string;         // DB booking row ID
+  providerRef:        string;         // Duffel order ID / LiteAPI booking ID
+  provider:           'duffel' | 'liteapi';
+  reason?:            string;
+  airline?:           string;         // airline slug for automation (e.g. 'air_canada')
+  passengerLastName?: string;         // needed by Playwright automation
 }
 
 export interface CancellationResult {
-  success:       boolean;
-  strategy:      CancellationStrategy;
-  refundCents?:  number;
-  currency?:     string;
-  creditId?:     string;      // DB credit row if partial refund created
-  error?:        string;
-  instructions?: string[];    // For user_guided fallback
+  success:          boolean;
+  strategy:         CancellationStrategy;
+  refundCents?:     number;
+  currency?:        string;
+  creditId?:        string;           // DB credit row if partial refund created
+  error?:           string;
+  instructions?:    string[];         // For user_guided fallback
+  automationJobId?: string;           // Queue job ID when strategy = 'automation'
 }
 
 // ─── Disruption ───────────────────────────────────────────────────────────────

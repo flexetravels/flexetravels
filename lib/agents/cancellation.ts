@@ -1,16 +1,17 @@
 // ─── Cancellation Agent ────────────────────────────────────────────────────────
-// Three-tier cancellation strategy:
+// Four-tier cancellation strategy:
 //
 //   Tier 1 — API cancellation (Duffel /air/orders/{id}/actions/cancel)
 //             Instant, automated. Works when the fare allows cancellation.
 //
-//   Tier 2 — Automation (placeholder for browser/webhook path)
-//             Used when the API returns a non-cancellable status but a
-//             manual cancellation URL is available.
+//   Tier 2 — Playwright automation (known airline scripts + self-healing)
+//             Runs async via job queue — never in the API request cycle.
 //
-//   Tier 3 — User-guided instructions
-//             Last resort: emit step-by-step instructions for the customer
-//             to cancel directly with the airline or hotel.
+//   Tier 3 — AI-generated Playwright script
+//             For airlines without built-in scripts. Generated once, stored.
+//
+//   Tier 4 — User-guided instructions
+//             Last resort — zero automation, step-by-step customer instructions.
 //
 // The agent always returns a CancellationResult — never throws to the caller.
 
@@ -20,6 +21,7 @@ import type {
   CancellationStrategy,
   AgentResult,
 } from '@/lib/orchestrator/types';
+import { enqueue } from '@/lib/queue';
 
 // ─── Duffel cancellation ──────────────────────────────────────────────────────
 
@@ -204,18 +206,45 @@ export const cancellationAgent = {
       console.error('[cancellation-agent] API cancellation threw:', e);
     }
 
-    // ── Tier 2: Automation placeholder ───────────────────────────────────────
-    // In future: launch a headless browser to the airline's self-service portal.
-    // For now, check if we have an automation URL configured.
-    const automationUrl = process.env.CANCELLATION_AUTOMATION_URL;
-    if (automationUrl) {
-      strategy = 'automation';
-      console.log('[cancellation-agent] Automation path — would trigger:', automationUrl);
-      // TODO: trigger browser automation job via webhook
-      // For now fall through to user-guided
+    // ── Tier 2: Playwright Automation (async via queue) ───────────────────────
+    // Extract airline name from providerRef or booking metadata if possible.
+    // Queue the job — it runs in the background, user sees "processing" state.
+    strategy = 'automation';
+    const airlineName = req.airline ?? 'unknown';
+
+    // Only trigger automation for known airlines (avoids wasteful jobs)
+    const SUPPORTED_AIRLINES = ['air_canada', 'westjet', 'air_transat', 'flair', 'porter', 'swoop'];
+    const normalisedAirline   = airlineName.toLowerCase().replace(/[\s-]+/g, '_');
+
+    if (SUPPORTED_AIRLINES.includes(normalisedAirline) || process.env.AUTOMATION_AI_ALLOWED === 'true') {
+      const jobId = enqueue({
+        type:        'cancel_booking',
+        bookingId:   req.bookingId,
+        airline:     normalisedAirline,
+        providerRef: req.providerRef,
+        params: {
+          bookingRef: req.providerRef,
+          lastName:   req.passengerLastName ?? '',
+        },
+      });
+
+      console.log(`[cancellation-agent] Automation job queued: ${jobId} for ${airlineName}`);
+
+      // Return "processing" — the queue will update the booking status async.
+      // The customer sees a "processing" state; webhook/polling delivers the result.
+      return {
+        ok:   true,
+        data: {
+          success:   false,
+          strategy,
+          error:     'Cancellation is being processed automatically — you will receive confirmation shortly.',
+          automationJobId: jobId,
+        },
+        durationMs: Date.now() - t0,
+      };
     }
 
-    // ── Tier 3: User-guided instructions ─────────────────────────────────────
+    // ── Tier 3/4: User-guided instructions ────────────────────────────────────
     strategy = 'user_guided';
     const instructions = userGuidedInstructions(req.provider, req.providerRef);
     console.log('[cancellation-agent] Falling back to user-guided instructions');

@@ -34,10 +34,16 @@ function normalisePhone(phone: string): string {
 
 // ─── Duffel flight booking ────────────────────────────────────────────────────
 
+// Price tolerance: if the live price differs from the requested price by more
+// than this amount (in the offer currency), we surface a PRICE_CHANGED error.
+// This prevents customers being charged a stale rate without re-confirming.
+const PRICE_CHANGE_TOLERANCE_CENTS = 100; // $1.00
+
 async function bookDuffelFlight(
   offerId: string,
   passengers: BookingRequest['passengers'],
   childPassengers: BookingRequest['childPassengers'],
+  requestedPriceCents?: number,
 ): Promise<{
   success: boolean;
   bookingRef?: string;
@@ -45,6 +51,8 @@ async function bookDuffelFlight(
   currency?: string;
   conditions?: DuffelConditions;
   error?: string;
+  priceChanged?: boolean;
+  newPriceCents?: number;
 }> {
   const token = process.env.DUFFEL_ACCESS_TOKEN;
   if (!token) return { success: false, error: 'DUFFEL_ACCESS_TOKEN not configured' };
@@ -84,6 +92,28 @@ async function bookDuffelFlight(
 
   if (offerPassengers.length === 0) {
     return { success: false, error: 'Offer returned no passenger slots. Please search again.' };
+  }
+
+  // ── Stale rate detection ──────────────────────────────────────────────────
+  // Compare the live offer price against what was shown to the user.
+  // If the price changed beyond tolerance, reject and ask them to re-confirm.
+  if (requestedPriceCents !== undefined && requestedPriceCents > 0) {
+    const livePriceCents = Math.round(parseFloat(totalAmount) * 100);
+    const delta          = Math.abs(livePriceCents - requestedPriceCents);
+    if (delta > PRICE_CHANGE_TOLERANCE_CENTS) {
+      const liveFormatted = (livePriceCents / 100).toFixed(2);
+      console.warn(
+        `[booking-agent] Price changed: requested=${requestedPriceCents}¢ live=${livePriceCents}¢ delta=${delta}¢`
+      );
+      return {
+        success:       false,
+        priceChanged:  true,
+        newPriceCents: livePriceCents,
+        error:
+          `The flight price has changed to $${liveFormatted} ${totalCurrency}. ` +
+          `Please confirm the new price to proceed with booking.`,
+      };
+    }
   }
 
   // Map Duffel passenger slots to our passenger data
@@ -182,6 +212,7 @@ export const bookingAgent = {
             req.flightOfferId,
             req.passengers,
             req.childPassengers,
+            req.requestedPriceCents,
           );
           logger.flightBooking({
             api:        'duffel',
@@ -200,6 +231,20 @@ export const bookingAgent = {
               const fareCents = Math.round(parseFloat(result.totalAmount ?? '0') * 100);
               flexibilityScore = scoreFlexibility(result.conditions, fareCents);
             }
+          } else if (result.priceChanged) {
+            // Surface price change to caller — skip hotel booking too
+            return {
+              ok:   false,
+              error: result.error,
+              data: {
+                success:       false,
+                priceChanged:  true,
+                newPriceCents: result.newPriceCents,
+                currency:      'USD',
+                serviceFeeCents: 0,
+              } as BookingResult,
+              durationMs: Date.now() - t0,
+            };
           } else {
             flightError = result.error;
           }

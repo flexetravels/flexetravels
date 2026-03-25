@@ -147,6 +147,76 @@ export const db = {
       await rest('PATCH', 'credits', { filter: { id: `eq.${id}` }, body: { status: 'redeemed', redeemed_at: new Date().toISOString() } });
     },
   },
+
+  // ── Automation Scripts ─────────────────────────────────────────────────────
+  automationScripts: {
+    async get(airline: string, actionType: string): Promise<AutomationScriptRow | null> {
+      const rows = await rest<AutomationScriptRow[]>('GET', 'automation_scripts', {
+        filter: {
+          airline:     `eq.${airline}`,
+          action_type: `eq.${actionType}`,
+          active:      'eq.true',
+        },
+        select: '*',
+      });
+      // Return highest version
+      return rows?.sort((a, b) => b.version - a.version)?.[0] ?? null;
+    },
+    async upsert(data: Partial<AutomationScriptRow>): Promise<AutomationScriptRow | null> {
+      // Try update first, then insert
+      const existing = data.airline && data.action_type
+        ? await rest<AutomationScriptRow[]>('GET', 'automation_scripts', {
+            filter: { airline: `eq.${data.airline}`, action_type: `eq.${data.action_type}` },
+          })
+        : null;
+
+      if (existing && existing.length > 0) {
+        const rows = await rest<AutomationScriptRow[]>('PATCH', 'automation_scripts', {
+          filter: { id: `eq.${existing[0].id}` },
+          body:   { ...data, updated_at: new Date().toISOString() },
+          returning: true,
+        });
+        return rows?.[0] ?? null;
+      }
+
+      const rows = await rest<AutomationScriptRow[]>('POST', 'automation_scripts', {
+        body:      data,
+        returning: true,
+      });
+      return rows?.[0] ?? null;
+    },
+    async updateConfidence(id: string, confidence: number): Promise<void> {
+      await rest('PATCH', 'automation_scripts', {
+        filter: { id: `eq.${id}` },
+        body:   { confidence, updated_at: new Date().toISOString() },
+      });
+    },
+  },
+
+  // ── Execution Logs ─────────────────────────────────────────────────────────
+  executionLogs: {
+    async create(data: Partial<ExecutionLogRow>): Promise<ExecutionLogRow | null> {
+      const rows = await rest<ExecutionLogRow[]>('POST', 'execution_logs', {
+        body:      data,
+        returning: true,
+      });
+      return rows?.[0] ?? null;
+    },
+    async getByScript(scriptId: string, limit = 20): Promise<ExecutionLogRow[]> {
+      return await rest<ExecutionLogRow[]>('GET', 'execution_logs', {
+        filter: {
+          script_id: `eq.${scriptId}`,
+          order:     'created_at.desc',
+          limit:     String(limit),
+        },
+      }) ?? [];
+    },
+    async getByBooking(bookingId: string): Promise<ExecutionLogRow[]> {
+      return await rest<ExecutionLogRow[]>('GET', 'execution_logs', {
+        filter: { booking_id: `eq.${bookingId}`, order: 'created_at.desc' },
+      }) ?? [];
+    },
+  },
 };
 
 // ─── Row types ────────────────────────────────────────────────────────────────
@@ -211,4 +281,32 @@ export interface CreditRow {
   expires_at:  string | null;
   redeemed_at: string | null;
   created_at:  string;
+}
+
+export interface AutomationScriptRow {
+  id:            string;
+  airline:       string;
+  action_type:   string;
+  version:       number;
+  steps:         Record<string, unknown>[];
+  selectors:     Record<string, string>;
+  confidence:    number;
+  last_verified: string | null;
+  active:        boolean;
+  created_at:    string;
+  updated_at:    string;
+}
+
+export interface ExecutionLogRow {
+  id:              string;
+  script_id:       string | null;
+  booking_id:      string | null;
+  airline:         string;
+  action_type:     string;
+  success:         boolean;
+  duration_ms:     number | null;
+  error:           string | null;
+  steps_completed: number | null;
+  total_steps:     number | null;
+  created_at:      string;
 }
