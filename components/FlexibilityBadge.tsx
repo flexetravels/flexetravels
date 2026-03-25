@@ -2,17 +2,32 @@
 
 /**
  * FlexibilityBadge — compact pill showing a flight's cancellation/change policy.
- * Renders Flexible (green), Moderate (amber), or Locked (red) with a tooltip.
+ * Uses plain-English labels so customers immediately understand the policy.
+ * Hover tooltip shows the full conditions from Duffel (e.g. "Refundable with £30 fee").
  */
 
 import { useState } from 'react';
 import { FLEXIBILITY_TAILWIND, FLEXIBILITY_ICONS } from '@/lib/scoring/flexibility';
 import type { FlexibilityLabel } from '@/lib/scoring/flexibility';
 
+// Customer-facing display text — avoids internal scoring jargon
+const DISPLAY_LABEL: Record<FlexibilityLabel, string> = {
+  Flexible: 'Free cancellation',
+  Moderate: 'Changeable (fee)',
+  Locked:   'Non-refundable',
+};
+
+// Short description shown in the tooltip header
+const TOOLTIP_HEADER: Record<FlexibilityLabel, string> = {
+  Flexible: 'Free cancellation available',
+  Moderate: 'Changes allowed with a fee',
+  Locked:   'Non-refundable — no changes',
+};
+
 interface FlexibilityBadgeProps {
   label:    FlexibilityLabel;
-  summary?: string;   // tooltip text
-  score?:   number;   // 0–1 (shown as percentage on hover)
+  summary?: string;   // full conditions text from Duffel (e.g. "Refundable with £30 fee")
+  score?:   number;   // 0–1 internal score — only shown in tooltip, not on badge face
   size?:    'sm' | 'md';
 }
 
@@ -33,6 +48,7 @@ export function FlexibilityBadge({
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
     >
+      {/* Badge pill — plain English, no percentage on face */}
       <span
         className={[
           'inline-flex items-center gap-1 rounded-full font-semibold cursor-default',
@@ -42,24 +58,26 @@ export function FlexibilityBadge({
         ].join(' ')}
       >
         <span className="text-[9px]">{FLEXIBILITY_ICONS[label]}</span>
-        {label}
-        {score !== undefined && (
-          <span className="opacity-60">
-            {Math.round(score * 100)}%
-          </span>
-        )}
+        {DISPLAY_LABEL[label]}
       </span>
 
-      {/* Tooltip */}
-      {showTooltip && summary && (
+      {/* Tooltip — shown on hover with full details */}
+      {showTooltip && (
         <div
           className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-50
                      bg-popover text-popover-foreground text-[11px] rounded-lg
-                     shadow-xl border border-border/50 px-2.5 py-1.5
-                     whitespace-nowrap max-w-[240px] pointer-events-none"
+                     shadow-xl border border-border/50 px-2.5 py-2
+                     whitespace-nowrap max-w-[260px] pointer-events-none"
         >
-          <div className="font-semibold mb-0.5">{label} Policy</div>
-          <div className="text-muted-foreground leading-snug">{summary}</div>
+          <div className="font-semibold mb-0.5">{TOOLTIP_HEADER[label]}</div>
+          {summary && (
+            <div className="text-muted-foreground leading-snug">{summary}</div>
+          )}
+          {score !== undefined && (
+            <div className="text-muted-foreground/60 mt-1 text-[10px]">
+              Flexibility score: {Math.round(score * 100)}%
+            </div>
+          )}
           {/* Arrow */}
           <div className="absolute top-full left-1/2 -translate-x-1/2
                           border-4 border-transparent border-t-border/50" />
