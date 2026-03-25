@@ -440,6 +440,11 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
           flightOfferId:    hasValidFlightId ? flightId : undefined,
           hotelRateId:      hasValidHotelToken ? hotelToken : undefined,
           hotelName:        hotel?.name,
+          // Pass hotel metadata so the server re-fetches a live offerId at booking
+          // time, bypassing the cached token which can expire within minutes.
+          hotelId:          hotel?.id,
+          hotelCheckIn:     hotel?.checkIn,
+          hotelCheckOut:    hotel?.checkOut,
           passengers:       passengers.slice(0, adults),
           childPassengers:  childPassengers.slice(0, children),
           originAirport:    flight?.origin ?? '',

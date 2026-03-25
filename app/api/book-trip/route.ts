@@ -27,10 +27,13 @@ const BodySchema = z.object({
   flightOfferId:    z.string().optional(),
   hotelRateId:      z.string().optional(),
   hotelName:        z.string().optional(),
+  hotelId:          z.string().optional(),   // LiteAPI property ID for fresh-rate fetch
+  hotelCheckIn:     z.string().optional(),   // YYYY-MM-DD
+  hotelCheckOut:    z.string().optional(),   // YYYY-MM-DD
   passengers:       z.array(PassengerSchema).min(1),
   childPassengers:  z.array(ChildPassengerSchema).default([]),
   originAirport:    z.string().optional(),
-  guestNationality: z.string().default('US'),
+  guestNationality: z.string().default('CA'),
 });
 
 // ─── Placeholder detection ────────────────────────────────────────────────────
@@ -69,6 +72,7 @@ export async function POST(req: Request) {
 
   const {
     sessionId, flightOfferId, hotelRateId, hotelName,
+    hotelId, hotelCheckIn, hotelCheckOut,
     passengers, childPassengers, originAirport, guestNationality,
   } = parsed.data;
 
@@ -96,6 +100,9 @@ export async function POST(req: Request) {
     flightOfferId:    resolvedFlight,
     hotelRateId:      resolvedHotel,
     hotelName,
+    hotelId,
+    hotelCheckIn,
+    hotelCheckOut,
     passengers,
     childPassengers,
     originAirport,

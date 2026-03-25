@@ -67,8 +67,14 @@ export interface BookingRequest {
   sessionId:           string;
   tripId?:             string;     // DB trip ID if already created
   flightOfferId?:      string;     // Duffel offer ID
-  hotelRateId?:        string;     // LiteAPI token
+  hotelRateId?:        string;     // LiteAPI bookingToken (may be stale — use hotelId+dates to refresh)
   hotelName?:          string;
+  /** LiteAPI hotel property ID — used to re-fetch a live offerId right before prebook */
+  hotelId?:            string;
+  /** Hotel check-in date YYYY-MM-DD — needed to re-fetch rate */
+  hotelCheckIn?:       string;
+  /** Hotel check-out date YYYY-MM-DD — needed to re-fetch rate */
+  hotelCheckOut?:      string;
   passengers:          PassengerDetail[];
   childPassengers:     ChildPassengerDetail[];
   originAirport?:      string;

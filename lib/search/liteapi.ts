@@ -438,6 +438,76 @@ export class LiteApiProvider implements SearchProvider {
   }
 }
 
+// ─── Fresh rate fetch at booking time ─────────────────────────────────────────
+// The search cache stores offerId tokens that can expire within minutes.
+// Call this right before prebook to always pass a live token to LiteAPI.
+export async function liteApiGetFreshOfferId(
+  hotelId:         string,
+  checkIn:         string,
+  checkOut:        string,
+  adults:          number,
+  guestNationality = 'CA',
+  apiKey?:         string,
+): Promise<string | null> {
+  const key = apiKey ?? process.env.LITEAPI_KEY;
+  if (!key || key.includes('PASTE')) return null;
+
+  const headers: HeadersInit = {
+    'X-API-Key':    key,
+    'Content-Type': 'application/json',
+    'Accept':       'application/json',
+  };
+
+  try {
+    const res = await fetch(`${LITEAPI_BASE}/hotels/rates`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        hotelIds:        [hotelId],
+        checkin:         checkIn,
+        checkout:        checkOut,
+        occupancies:     [{ adults: Math.max(1, adults), children: [] }],
+        currency:        'USD',
+        guestNationality,
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!res.ok) {
+      const txt = await res.text();
+      console.error('[liteApiGetFreshOfferId] rates fetch failed', res.status, txt.slice(0, 200));
+      return null;
+    }
+
+    const data = await res.json() as { data?: LiteRateHotel[] };
+    const hotel = data.data?.[0];
+    if (!hotel) { console.warn('[liteApiGetFreshOfferId] no rate returned for', hotelId); return null; }
+
+    // Pick cheapest room type — same logic as the search
+    let bestOfferId: string | undefined;
+    let bestRateId:  string | undefined;
+    let bestPrice   = Infinity;
+
+    for (const rt of hotel.roomTypes ?? []) {
+      for (const rate of rt.rates ?? []) {
+        const amt = rate.retailRate?.total?.[0]?.amount ?? 0;
+        if (amt > 0 && amt < bestPrice) {
+          bestPrice   = amt;
+          bestOfferId = rt.offerId;
+          bestRateId  = rate.rateId;
+        }
+      }
+    }
+
+    const freshId = bestOfferId ?? bestRateId ?? null;
+    console.log('[liteApiGetFreshOfferId] fresh offerId for', hotelId, '→', freshId);
+    return freshId;
+  } catch (e) {
+    console.error('[liteApiGetFreshOfferId] exception:', e);
+    return null;
+  }
+}
+
 // ─── Pre-booking helper (used by bookHotel tool in chat route) ─────────────────
 export interface LiteApiPrebookResult {
   success:           boolean;

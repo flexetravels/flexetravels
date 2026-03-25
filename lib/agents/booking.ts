@@ -10,7 +10,7 @@
 import type { BookingRequest, BookingResult, AgentResult } from '@/lib/orchestrator/types';
 import { scoreFlexibility } from '@/lib/scoring/flexibility';
 import type { DuffelConditions } from '@/lib/scoring/flexibility';
-import { liteApiPrebook, liteApiBook } from '@/lib/search/liteapi';
+import { liteApiPrebook, liteApiBook, liteApiGetFreshOfferId } from '@/lib/search/liteapi';
 import { createPaymentIntent } from '@/lib/stripe';
 import { logger } from '@/lib/logger';
 
@@ -262,9 +262,28 @@ export const bookingAgent = {
     // ── 2. Book hotel ─────────────────────────────────────────────────────────
     if (req.hotelRateId) {
       try {
-        const rawId = req.hotelRateId.startsWith('liteapi_')
+        // The offerId in the cart can be stale (search cache is 30 min).
+        // If the caller supplied hotelId + dates, re-fetch a live offerId
+        // right now to guarantee the prebook token is fresh.
+        let rawId = req.hotelRateId.startsWith('liteapi_')
           ? req.hotelRateId.slice('liteapi_'.length)
           : req.hotelRateId;
+
+        if (req.hotelId && req.hotelCheckIn && req.hotelCheckOut) {
+          const freshId = await liteApiGetFreshOfferId(
+            req.hotelId,
+            req.hotelCheckIn,
+            req.hotelCheckOut,
+            req.passengers.length,
+            req.guestNationality ?? 'CA',
+          );
+          if (freshId) {
+            console.log('[booking-agent] replaced stale offerId with fresh one:', rawId, '→', freshId);
+            rawId = freshId;
+          } else {
+            console.warn('[booking-agent] fresh rate fetch failed, falling back to cached offerId');
+          }
+        }
 
         const t1 = Date.now();
         const prebook = await liteApiPrebook(rawId, req.guestNationality ?? 'US');
