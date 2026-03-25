@@ -15,6 +15,7 @@ import { liteApiPrebook, liteApiBook } from '@/lib/search/liteapi';
 import { grokPriceInsight } from '@/lib/ai/grok';
 import { geminiDestinationGuide, geminiAlternatives } from '@/lib/ai/gemini';
 import { compressMessageHistory } from '@/lib/utils';
+import { logger } from '@/lib/logger';
 
 export const maxDuration = 120;
 
@@ -248,6 +249,15 @@ export async function POST(req: Request) {
         }),
         execute: async (params) => {
           const r = await aggregateFlights(params);
+          logger.search({
+            event: 'flight_search', api: 'duffel',
+            sessionId: sessionId,
+            params: params as Record<string, unknown>,
+            resultCount: r.flights.length,
+            sources: r.sources,
+            durationMs: r.latencyMs,
+            errors: r.errors.length > 0 ? r.errors : undefined,
+          });
           return {
             flights:   r.flights,
             count:     r.flights.length,
@@ -318,6 +328,15 @@ export async function POST(req: Request) {
               // Image enrichment failure is non-fatal
             }
           }
+
+          logger.search({
+            event: 'hotel_search', api: 'liteapi',
+            sessionId: sessionId,
+            params: params as Record<string, unknown>,
+            resultCount: r.hotels.length,
+            sources: r.sources,
+            errors: r.errors.length > 0 ? r.errors : undefined,
+          });
 
           return {
             hotels:   r.hotels,
@@ -487,24 +506,36 @@ export async function POST(req: Request) {
                   error: 'This flight offer expired during checkout. Please search for flights again — test mode offers are valid for ~15 minutes.' };
               }
               if (code === 'insufficient_balance' || msg.toLowerCase().includes('balance')) {
-                return { success: false, duffelCode: code,
-                  error: 'Your Duffel test account has insufficient balance. Go to app.duffel.com → Settings → Test balance → click "Top up", then try again.' };
+                const errMsg = 'Your Duffel test account has insufficient balance. Go to app.duffel.com → Settings → Test balance → click "Top up", then try again.';
+                logger.flightBooking({ api: 'duffel', sessionId, offerId, success: false, httpStatus: res.status, errorCode: code, error: errMsg });
+                return { success: false, duffelCode: code, error: errMsg };
               }
               if (code === 'validation_error' || res.status === 422) {
-                return { success: false, duffelCode: code,
-                  error: `Booking validation error [${code}]: ${title ? title + ' — ' : ''}${msg}` };
+                const errMsg = `Booking validation error [${code}]: ${title ? title + ' — ' : ''}${msg}`;
+                logger.flightBooking({ api: 'duffel', sessionId, offerId, success: false, httpStatus: res.status, errorCode: code, error: errMsg });
+                return { success: false, duffelCode: code, error: errMsg };
               }
+              const errMsg = `Booking failed [${res.status}${code ? ' ' + code : ''}]: ${msg}`;
+              logger.flightBooking({ api: 'duffel', sessionId, offerId, success: false, httpStatus: res.status, errorCode: code, error: errMsg });
               return {
                 success:    false,
                 duffelCode: code,
                 httpStatus: res.status,
-                error:      `Booking failed [${res.status}${code ? ' ' + code : ''}]: ${msg}`,
+                error:      errMsg,
               };
             }
 
             const data = await res.json() as {
               data?: { id: string; booking_reference: string; total_amount: string; total_currency: string }
             };
+            logger.flightBooking({
+              api: 'duffel', sessionId, offerId,
+              success: true,
+              bookingRef: data.data?.booking_reference,
+              orderId:    data.data?.id,
+              amount:     parseFloat(data.data?.total_amount ?? '0'),
+              currency:   data.data?.total_currency ?? 'USD',
+            });
             return {
               success:          true,
               orderId:          data.data?.id,
@@ -514,6 +545,7 @@ export async function POST(req: Request) {
               serviceFee:       { amount: 20, currency: 'USD', note: 'FlexeTravels service fee — charged separately' },
             };
           } catch (err) {
+            logger.flightBooking({ api: 'duffel', sessionId, offerId, success: false, error: String(err) });
             return { error: `Booking error: ${String(err)}`, success: false };
           }
         },
@@ -531,7 +563,18 @@ export async function POST(req: Request) {
           if (!rateId || rateId === 'undefined') {
             return { success: false, error: 'No rateId available — this hotel may be from sample data and cannot be booked directly.' };
           }
+          const t0Prebook = Date.now();
           const result = await liteApiPrebook(rateId, guestNationality);
+          logger.hotelPrebook({
+            api: 'liteapi', sessionId,
+            offerId: rateId,
+            success: result.success,
+            prebookId: result.prebookId,
+            confirmedTotal: result.confirmedTotal,
+            currency: result.currency,
+            error: result.error,
+            durationMs: Date.now() - t0Prebook,
+          });
           return result;
         },
       }),
@@ -547,7 +590,19 @@ export async function POST(req: Request) {
           guestEmail:     z.string().email().describe('Main guest email address'),
         }),
         execute: async ({ prebookId, guestFirstName, guestLastName, guestEmail }) => {
+          const t0Book = Date.now();
           const result = await liteApiBook({ prebookId, guestFirstName, guestLastName, guestEmail });
+          logger.hotelBooking({
+            api: 'liteapi', sessionId,
+            prebookId,
+            success:   result.success,
+            bookingId: result.bookingId,
+            hotelName: result.hotelName,
+            amount:    result.totalAmount,
+            currency:  result.currency,
+            error:     result.error,
+            durationMs: Date.now() - t0Book,
+          });
           return result;
         },
       }),

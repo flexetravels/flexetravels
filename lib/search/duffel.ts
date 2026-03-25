@@ -8,6 +8,11 @@ import type {
   NormalizedFlight, NormalizedHotel,
 } from './types';
 import { airlineLogo } from '@/lib/utils';
+import {
+  scoreFlexibility,
+  type DuffelConditions,
+  type FlexibilityScore,
+} from '@/lib/scoring/flexibility';
 
 // ─── Duffel raw API types ──────────────────────────────────────────────────────
 interface DuffelSegment {
@@ -29,7 +34,14 @@ interface DuffelOffer {
   total_currency: string;
   owner:          { name: string; logo_symbol_url?: string };
   slices:         DuffelSlice[];
-  conditions?:    { refund_before_departure?: { allowed: boolean } };
+  conditions?:    DuffelConditions;
+}
+
+// ─── Enriched NormalizedFlight ────────────────────────────────────────────────
+// Private fields (prefixed _) carry scored flexibility data to the ranking agent.
+export interface EnrichedFlight extends NormalizedFlight {
+  _flexScore: number;           // 0–1 from FlexibilityScore
+  _flexObj:   FlexibilityScore; // Full scored object
 }
 
 /** Convert Duffel ISO 8601 duration (PT14H20M) → "14h 20m" */
@@ -41,7 +53,7 @@ function fmtDuration(iso: string): string {
   return `${h}${min}`.trim() || iso;
 }
 
-function mapOffer(offer: DuffelOffer, cabinClass: string, adults: number): NormalizedFlight {
+function mapOffer(offer: DuffelOffer, cabinClass: string, adults: number): EnrichedFlight {
   const slice0 = offer.slices?.[0];
   const segs   = slice0?.segments ?? [];
   const first  = segs[0];
@@ -49,6 +61,10 @@ function mapOffer(offer: DuffelOffer, cabinClass: string, adults: number): Norma
 
   // Use the first segment's carrier IATA code for the logo (avs.io CDN — no DNS issues)
   const firstCarrierIata = first?.marketing_carrier?.iata_code ?? '';
+
+  // Score flexibility from Duffel conditions object
+  const fareCents = Math.round(parseFloat(offer.total_amount ?? '0') * 100);
+  const flexObj   = scoreFlexibility(offer.conditions ?? null, fareCents);
 
   return {
     id:           offer.id,
@@ -65,7 +81,7 @@ function mapOffer(offer: DuffelOffer, cabinClass: string, adults: number): Norma
     price:        parseFloat(offer.total_amount ?? '0'),
     currency:     offer.total_currency ?? 'USD',
     cabinClass,
-    refundable:   offer.conditions?.refund_before_departure?.allowed ?? false,
+    refundable:   flexObj.refundable,
     bookingToken: offer.id,
     passengers:   adults,
     segments:     segs.map(seg => ({
@@ -77,6 +93,9 @@ function mapOffer(offer: DuffelOffer, cabinClass: string, adults: number): Norma
       carrier:      seg.marketing_carrier?.iata_code ?? '', // IATA code (e.g. "AC"), used for logo lookup
       flightNumber: `${seg.marketing_carrier?.iata_code ?? ''}${seg.marketing_carrier_flight_number ?? ''}`,
     })),
+    // ── Enriched flexibility data (consumed by ranking agent) ────────────────
+    _flexScore: flexObj.score,
+    _flexObj:   flexObj,
   };
 }
 
@@ -127,7 +146,7 @@ export class DuffelProvider implements SearchProvider {
     const json = await res.json() as { data?: { offers?: DuffelOffer[] } };
     return (json.data?.offers ?? [])
       .sort((a, b) => parseFloat(a.total_amount) - parseFloat(b.total_amount))
-      .slice(0, 6)
+      .slice(0, 10)  // Fetch more so ranking agent has options to sort
       .map(o => mapOffer(o, params.cabinClass, params.adults));
   }
 

@@ -5,6 +5,7 @@
 
 import { z } from 'zod';
 import { NextResponse } from 'next/server';
+import { logger } from '@/lib/logger';
 
 // ─── Validation schema ─────────────────────────────────────────────────────────
 const bookingSchema = z.object({
@@ -113,7 +114,9 @@ export async function POST(req: Request) {
     if (!orderRes.ok) {
       const errText = await orderRes.text();
       const errJson = (() => { try { return JSON.parse(errText); } catch { return null; } })();
+      const errCode = errJson?.errors?.[0]?.code as string | undefined;
       const message = errJson?.errors?.[0]?.message ?? errText.slice(0, 300);
+      logger.flightBooking({ api: 'duffel', offerId, success: false, httpStatus: orderRes.status, errorCode: errCode, error: `Booking failed: ${message}` });
       return NextResponse.json(
         { error: `Booking failed: ${message}` },
         { status: 502 }
@@ -131,6 +134,15 @@ export async function POST(req: Request) {
       }
     };
 
+    logger.flightBooking({
+      api:        'duffel',
+      offerId,
+      success:    true,
+      bookingRef: order.data?.booking_reference,
+      orderId:    order.data?.id,
+      amount:     parseFloat(order.data?.total_amount ?? '0'),
+      currency:   order.data?.total_currency ?? 'USD',
+    });
     return NextResponse.json({
       success:          true,
       orderId:          order.data?.id,

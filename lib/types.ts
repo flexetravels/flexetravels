@@ -31,6 +31,12 @@ export interface FlightResult {
   bookingToken?: string;  // provider-specific booking token
   logo?:        string;   // alias for airlineLogo (Duffel compat)
   passengers?:  number;   // number of adult passengers searched for
+  // ── Flexibility scoring (populated when provider = duffel) ─────────────────
+  flexibilityScore?: number;          // 0.00 – 1.00
+  flexibilityLabel?: 'Flexible' | 'Moderate' | 'Locked';
+  flexibilitySummary?: string;        // Human-readable tooltip text
+  changeable?:  boolean;              // can be changed before departure
+  rankScore?:   number;               // 0–100 combined value score
 }
 
 export interface HotelResult {

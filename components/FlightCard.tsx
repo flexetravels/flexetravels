@@ -10,6 +10,8 @@ import { useState } from 'react';
 import { ChevronDown, ChevronUp, Check } from 'lucide-react';
 import { cn, formatPrice, formatTime, formatDate, airlineLogo } from '@/lib/utils';
 import type { FlightResult } from '@/lib/types';
+import { FlexibilityBadge } from '@/components/FlexibilityBadge';
+import type { FlexibilityLabel } from '@/lib/scoring/flexibility';
 
 interface FlightCardProps {
   flight: FlightResult;
@@ -115,12 +117,20 @@ export function FlightCard({ flight, onSelect, selected, compact }: FlightCardPr
           )}>
             {stopLabel}
           </span>
-          {flight.refundable && (
+          {/* Flexibility badge — shows detailed policy if scored, falls back to basic refundable */}
+          {flight.flexibilityLabel ? (
+            <FlexibilityBadge
+              label={flight.flexibilityLabel as FlexibilityLabel}
+              summary={flight.flexibilitySummary}
+              score={flight.flexibilityScore}
+              size="sm"
+            />
+          ) : flight.refundable ? (
             <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400
                              bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0.5 rounded-full">
               Refundable
             </span>
-          )}
+          ) : null}
         </div>
       </div>
 
