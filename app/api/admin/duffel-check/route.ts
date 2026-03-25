@@ -181,6 +181,33 @@ export async function GET(req: Request) {
     }
   }
 
+  // ── 5. Supabase DB availability check ────────────────────────────────────
+  const sbUrl  = process.env.SUPABASE_URL ?? '';
+  const sbKey  = process.env.SUPABASE_SERVICE_KEY ?? '';
+  const dbAvail = !!(sbUrl && sbKey);
+  let dbPing: Record<string, unknown> = { available: dbAvail };
+  if (dbAvail) {
+    const t3 = Date.now();
+    try {
+      const pingRes = await fetch(`${sbUrl}/rest/v1/trips?select=id&limit=1`, {
+        headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}` },
+        signal: AbortSignal.timeout(5_000),
+      });
+      dbPing = {
+        available: true,
+        connected: pingRes.ok,
+        httpStatus: pingRes.status,
+        latencyMs: Date.now() - t3,
+        rowCount: pingRes.ok ? (await pingRes.json() as unknown[]).length : null,
+      };
+    } catch (e) {
+      dbPing = { available: true, connected: false, error: String(e) };
+    }
+  } else {
+    dbPing.reason = 'SUPABASE_URL or SUPABASE_SERVICE_KEY not set in environment';
+  }
+  results.database = dbPing;
+
   return NextResponse.json({
     ...results,
     diagnosis: diagnoses,
