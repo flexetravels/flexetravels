@@ -270,23 +270,42 @@ export const bookingAgent = {
           : req.hotelRateId;
 
         if (req.hotelId && req.hotelCheckIn && req.hotelCheckOut) {
-          const freshId = await liteApiGetFreshOfferId(
+          const nationality = req.guestNationality ?? 'CA';
+          let freshId = await liteApiGetFreshOfferId(
             req.hotelId,
             req.hotelCheckIn,
             req.hotelCheckOut,
             req.passengers.length,
-            req.guestNationality ?? 'CA',
+            nationality,
           );
+          // If nationality 'CA' yielded no rates, retry with 'US' — covers US hotel searches
+          // where the original search used 'US' nationality but the request carries 'CA'.
+          if (!freshId && nationality === 'CA') {
+            console.log('[booking-agent] CA nationality returned no rates, retrying with US...');
+            freshId = await liteApiGetFreshOfferId(
+              req.hotelId,
+              req.hotelCheckIn,
+              req.hotelCheckOut,
+              req.passengers.length,
+              'US',
+            );
+          }
           if (freshId) {
-            console.log('[booking-agent] replaced stale offerId with fresh one:', rawId, '→', freshId);
+            console.log('[booking-agent] fresh offerId obtained for', req.hotelId, ':', freshId);
             rawId = freshId;
           } else {
-            console.warn('[booking-agent] fresh rate fetch failed, falling back to cached offerId');
+            console.warn(
+              '[booking-agent] fresh rate fetch returned null for hotelId:', req.hotelId,
+              '— using cached offerId:', rawId.slice(0, 20) + '…'
+            );
           }
+        } else {
+          console.log('[booking-agent] no hotelId/dates supplied — using cached offerId:', rawId.slice(0, 20) + '…');
         }
 
+        console.log('[booking-agent] prebook → offerID:', rawId.slice(0, 30) + (rawId.length > 30 ? '…' : ''));
         const t1 = Date.now();
-        const prebook = await liteApiPrebook(rawId, req.guestNationality ?? 'US');
+        const prebook = await liteApiPrebook(rawId, req.guestNationality ?? 'CA');
         logger.hotelPrebook({
           api:            'liteapi',
           offerId:        rawId,

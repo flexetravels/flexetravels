@@ -342,13 +342,15 @@ export class LiteApiProvider implements SearchProvider {
       headers: this.headers,
       body: JSON.stringify({
         hotelIds,
-        checkin:           params.checkIn,
-        checkout:          params.checkOut,
-        occupancies:       [{ adults: params.adults ?? 2, children: [] }],
-        currency:          'USD',
-        guestNationality:  countryCode === 'CA' ? 'CA' : 'US',
+        checkin:          params.checkIn,
+        checkout:         params.checkOut,
+        occupancies:      [{ adults: params.adults ?? 2, children: [] }],
+        currency:         'USD',
+        guestNationality: countryCode === 'CA' ? 'CA' : 'US',
+        roomMapping:      true,   // ensures offerId is included in each roomType object
+        timeout:          5,      // server-side timeout seconds per LiteAPI spec
       }),
-      signal: AbortSignal.timeout(20_000),   // was 35 s
+      signal: AbortSignal.timeout(20_000),
     });
 
     if (!ratesRes.ok) {
@@ -469,8 +471,10 @@ export async function liteApiGetFreshOfferId(
         occupancies:     [{ adults: Math.max(1, adults), children: [] }],
         currency:        'USD',
         guestNationality,
+        roomMapping:     true,   // ensures offerId field is present on each roomType
+        timeout:         5,
       }),
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(20_000),
     });
 
     if (!res.ok) {
@@ -521,8 +525,8 @@ export interface LiteApiPrebookResult {
 }
 
 export async function liteApiPrebook(
-  offerId: string,   // This is the bookingToken = roomType.offerId (or rateId as fallback)
-  guestNationality = 'US',
+  offerId: string,   // This is the bookingToken = roomType.offerId from /hotels/rates response
+  _guestNationality?: string,  // kept for signature compat; NOT sent to LiteAPI (not in API spec)
   apiKey?: string
 ): Promise<LiteApiPrebookResult> {
   const key = apiKey ?? process.env.LITEAPI_KEY;
@@ -530,19 +534,20 @@ export async function liteApiPrebook(
     return { success: false, error: 'LITEAPI_KEY not configured — hotel booking unavailable' };
   }
 
-  // LiteAPI v3 /rates/prebook expects the field `offerID` (capital ID) per their
-  // Go validation tag: `Key: 'PreBookRequest.OfferID'`
-  console.log('[liteApiPrebook] offerID:', offerId, 'guestNationality:', guestNationality);
+  // LiteAPI v3 /rates/prebook API spec (confirmed from official Postman collection):
+  //   body: { "offerId": "<token>" }   — lowercase 'd', no guestNationality
+  // Previous code incorrectly sent "offerID" (capital D) which caused 4002 "required field missing"
+  console.log('[liteApiPrebook] offerId:', offerId.slice(0, 40) + (offerId.length > 40 ? '…' : ''));
 
-  const res = await fetch(`${LITEAPI_BASE}/rates/prebook`, {
+  const res = await fetch(`${LITEAPI_BASE}/rates/prebook?timeout=30`, {
     method: 'POST',
     headers: {
       'X-API-Key':    key,
       'Content-Type': 'application/json',
       'Accept':       'application/json',
     },
-    body: JSON.stringify({ offerID: offerId, guestNationality }),
-    signal: AbortSignal.timeout(15_000),
+    body: JSON.stringify({ offerId, usePaymentSdk: false }),
+    signal: AbortSignal.timeout(35_000),
   });
 
   if (!res.ok) {
