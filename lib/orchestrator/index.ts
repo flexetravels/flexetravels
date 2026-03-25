@@ -166,7 +166,10 @@ async function _persistBooking(
   req: BookingRequest,
   result: BookingResult,
 ): Promise<void> {
-  if (!DB_AVAILABLE) return;
+  if (!DB_AVAILABLE) {
+    console.warn('[orchestrator] _persistBooking skipped — DB not configured');
+    return;
+  }
   try {
     // Ensure trip row exists
     let tripId = req.tripId ?? result.tripId;
@@ -179,28 +182,41 @@ async function _persistBooking(
         depart_date: new Date().toISOString().slice(0, 10),
       });
       tripId = trip?.id;
+      if (!tripId) {
+        console.error('[orchestrator] _persistBooking: trips.create returned null — cannot write booking row');
+        return;
+      }
+      console.log('[orchestrator] trip row created:', tripId);
     }
-    if (!tripId) return;
 
     // Write flight booking row
     if (result.flightRef && result.flightBookingId === undefined) {
-      await db.bookings.create({
+      const label = result.flexibilityScore?.label ?? null;
+      // Validate label against DB constraint before inserting
+      const validLabels = ['Flexible', 'Moderate', 'Locked', null] as const;
+      const safeLabel = validLabels.includes(label as typeof validLabels[number]) ? label : null;
+      const bk = await db.bookings.create({
         trip_id:           tripId,
         type:              'flight',
         provider:          'duffel',
         status:            'confirmed',
         provider_ref:      result.flightRef,
         booking_ref:       result.flightRef,
-        amount_cents:      0,  // filled by booking agent
-        currency:          result.currency,
+        amount_cents:      0,
+        currency:          result.currency ?? 'USD',
         flexibility_score: result.flexibilityScore?.score ?? null,
-        flexibility_label: result.flexibilityScore?.label ?? null,
+        flexibility_label: safeLabel,
       });
+      if (bk) {
+        console.log('[orchestrator] flight booking row created:', bk.id, '| ref:', result.flightRef);
+      } else {
+        console.error('[orchestrator] _persistBooking: bookings.create returned null for flight', result.flightRef);
+      }
     }
 
     // Write hotel booking row
     if (result.hotelRef && result.hotelBookingId === undefined) {
-      await db.bookings.create({
+      const bk = await db.bookings.create({
         trip_id:      tripId,
         type:         'hotel',
         provider:     'liteapi',
@@ -208,8 +224,13 @@ async function _persistBooking(
         provider_ref: result.hotelRef,
         booking_ref:  result.hotelRef,
         amount_cents: 0,
-        currency:     result.currency,
+        currency:     result.currency ?? 'USD',
       });
+      if (bk) {
+        console.log('[orchestrator] hotel booking row created:', bk.id, '| ref:', result.hotelRef);
+      } else {
+        console.error('[orchestrator] _persistBooking: bookings.create returned null for hotel', result.hotelRef);
+      }
     }
   } catch (e) {
     console.error('[orchestrator] _persistBooking failed (non-fatal):', e);

@@ -159,10 +159,11 @@ function ConfirmationView({ searchParams }: { searchParams: ReturnType<typeof us
 const CART_STALE_MS = 10 * 60 * 1000; // 10 minutes
 
 interface CartData {
-  flight:    FlightResult | null;
-  hotel:     HotelResult  | null;
-  children?: { count: number; ages: number[] } | null;
-  savedAt?:  number; // epoch ms — for stale-rate detection
+  flight:     FlightResult | null;
+  hotel:      HotelResult  | null;
+  children?:  { count: number; ages: number[] } | null;
+  savedAt?:   number;    // epoch ms — for stale-rate detection
+  sessionId?: string;    // chat session ID — for DB persistence
 }
 
 function CheckoutView() {
@@ -275,6 +276,7 @@ function CheckoutView() {
           onConfirmed={handleConfirmed}
           initialAdults={cart.flight?.passengers ?? 1}
           initialChildren={cart.children?.count ?? 0}
+          sessionId={cart.sessionId}
         />
       </div>
     </div>

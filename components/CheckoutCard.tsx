@@ -86,6 +86,7 @@ interface CheckoutCardProps {
   onConfirmed?:     (flightRef?: string, hotelRef?: string) => void;
   initialAdults?:   number;    // pre-fill from search (e.g. "2 passengers")
   initialChildren?: number;    // pre-fill children count from search
+  sessionId?:       string;    // chat session ID — passed to API for DB persistence
 }
 
 type Phase = 'review' | 'passengers' | 'booking' | 'payment' | 'success' | 'error';
@@ -246,7 +247,7 @@ function ChildAgeBadge({ dob }: { dob: string }) {
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
-export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdults, initialChildren }: CheckoutCardProps) {
+export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdults, initialChildren, sessionId }: CheckoutCardProps) {
   const [adults,          setAdults]          = useState(initialAdults ?? 1);
   const [passengers,      setPassengers]      = useState<Passenger[]>(
     Array.from({ length: initialAdults ?? 1 }, blankPassenger)
@@ -435,6 +436,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          sessionId:        sessionId,
           flightOfferId:    hasValidFlightId ? flightId : undefined,
           hotelRateId:      hasValidHotelToken ? hotelToken : undefined,
           hotelName:        hotel?.name,

@@ -4,10 +4,19 @@
 // Every method degrades gracefully (returns null / empty) when not configured.
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
-const SERVICE_KEY  = process.env.SUPABASE_SERVICE_KEY ?? '';
+// Accept either naming convention (Supabase dashboard uses SERVICE_ROLE_KEY)
+const SERVICE_KEY  =
+  process.env.SUPABASE_SERVICE_KEY ??
+  process.env.SUPABASE_SERVICE_ROLE_KEY ??
+  '';
 const ANON_KEY     = process.env.SUPABASE_ANON_KEY ?? SERVICE_KEY;
 
 export const DB_AVAILABLE = !!(SUPABASE_URL && SERVICE_KEY);
+
+// Log DB status at startup so Railway logs make it obvious
+if (typeof process !== 'undefined') {
+  console.log('[DB] DB_AVAILABLE:', DB_AVAILABLE, '| URL:', SUPABASE_URL ? SUPABASE_URL.slice(0, 40) + '…' : '(not set)');
+}
 
 // ─── Low-level helpers ────────────────────────────────────────────────────────
 
