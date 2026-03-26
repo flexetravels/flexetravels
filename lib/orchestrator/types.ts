@@ -103,11 +103,11 @@ export interface BookingResult {
   flightBookingId?: string;    // DB booking row ID
   hotelBookingId?:  string;
   flightRef?:       string;    // PNR / Duffel booking reference
-  hotelRef?:        string;    // LiteAPI booking ID
+  hotelRef?:        string;    // LiteAPI booking ID (set after payment SDK completes)
   hotelName?:       string;
   flightError?:     string;
   hotelError?:      string;
-  clientSecret?:    string;    // Stripe PaymentIntent client secret
+  clientSecret?:    string;    // Stripe PaymentIntent client secret (for $20 service fee)
   paymentIntentId?: string;
   currency:         string;
   serviceFeeCents:  number;
@@ -115,6 +115,14 @@ export interface BookingResult {
   /** Set when the live Duffel price differs from what was shown at search time */
   priceChanged?:    boolean;
   newPriceCents?:   number;
+  // ── LiteAPI Payment SDK fields (production only) ──────────────────────────
+  // When requiresHotelPayment is true, the frontend must show the LiteAPI payment
+  // widget using secretKey + transactionId, then call /api/complete-hotel-booking.
+  requiresHotelPayment?: boolean;
+  hotelPrebookId?:       string;
+  hotelSecretKey?:       string;   // passed to LiteAPI payment SDK widget
+  hotelTransactionId?:   string;   // same transactionId passed to /rates/book after payment
+  isSandboxBooking?:     boolean;  // informational: true when using sand_ key
 }
 
 // ─── Cancellation ─────────────────────────────────────────────────────────────

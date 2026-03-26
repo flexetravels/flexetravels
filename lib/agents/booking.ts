@@ -319,7 +319,50 @@ export const bookingAgent = {
 
         if (!prebook.success || !prebook.prebookId) {
           hotelError = prebook.error ?? 'Hotel prebook failed';
+        } else if (prebook.requiresPaymentSdk) {
+          // ── Production: payment SDK flow ─────────────────────────────────────
+          // LiteAPI returned secretKey + transactionId for their hosted payment widget.
+          // The frontend will:
+          //   1. Load https://payment-wrapper.liteapi.travel/dist/liteAPIPayment.js
+          //   2. Mount the widget with secretKey + transactionId
+          //   3. Customer enters card → LiteAPI charges hotel cost directly
+          //   4. Frontend calls /api/complete-hotel-booking with prebookId + transactionId
+          // We set requiresHotelPayment = true; booking.ts returns early (book not called yet).
+          console.log('[booking-agent] production: payment SDK required, prebookId:', prebook.prebookId, '| transactionId present:', !!prebook.transactionId);
+          // Don't call liteApiBook here — will be called by /api/complete-hotel-booking
+          // after customer completes payment in the SDK widget.
+          // NOTE: hotelRef stays undefined; returned fields signal frontend to show widget.
+          return {
+            ok: true,
+            data: {
+              success:              true,
+              tripId:               req.tripId,
+              flightRef,
+              flightError,
+              hotelName:            req.hotelName,
+              requiresHotelPayment: true,
+              hotelPrebookId:       prebook.prebookId,
+              hotelSecretKey:       prebook.secretKey,
+              hotelTransactionId:   prebook.transactionId,
+              isSandboxBooking:     false,
+              // Still create Stripe intent for $20 service fee (flight may already be booked)
+              ...(await (async () => {
+                const origin   = (req.originAirport ?? '').toUpperCase();
+                const currency = origin.startsWith('Y') ? 'cad' : 'usd';
+                const bookingRef = flightRef ?? `FT-${Date.now()}`;
+                try {
+                  const pi = await createPaymentIntent({ bookingReference: bookingRef, bookingType: flightRef ? 'flight' : 'hotel', customerEmail: lead.email, amount: 2000, currency });
+                  return { clientSecret: pi.clientSecret, paymentIntentId: pi.paymentIntentId, currency, serviceFeeCents: 2000 };
+                } catch (e) {
+                  console.error('[booking-agent] Stripe error (non-fatal):', e);
+                  return { currency, serviceFeeCents: 2000 };
+                }
+              })()),
+            },
+            durationMs: Date.now() - t0,
+          };
         } else {
+          // ── Sandbox: server-side ACC_CREDIT_CARD flow ─────────────────────────
           const t2 = Date.now();
           const book = await liteApiBook({
             prebookId:      prebook.prebookId,
@@ -402,6 +445,7 @@ export const bookingAgent = {
         currency,
         serviceFeeCents:  2000,
         flexibilityScore,
+        isSandboxBooking: !!(process.env.LITEAPI_KEY?.startsWith('sand_')),
       },
       durationMs: Date.now() - t0,
     };

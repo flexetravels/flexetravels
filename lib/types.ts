@@ -49,17 +49,36 @@ export interface HotelResult {
   totalPrice:   number;
   currency:     string;
   image:        string;
-  images?:      string[];
-  rating:       number;    // out of 10
+  images?:      string[];      // full image URLs from /data/hotel
+  rating:       number;        // out of 10
   reviewCount?: number;
-  amenities:    string[];
+  amenities:    string[];      // real facility list from API
   distanceCenter?: string;
   cancellation?: string;
   checkIn:      string;
   checkOut:     string;
-  provider?:    string;    // 'amadeus' | 'sample'
-  isSample?:    boolean;   // true = indicative pricing
+  provider?:    string;        // 'liteapi' | 'sample'
+  isSample?:    boolean;       // true = indicative pricing
   bookingToken?: string;
+
+  // ── Enriched LiteAPI fields ─────────────────────────────────────────────
+  description?:    string;     // HTML hotel description
+  address?:        string;
+  checkinTime?:    string;     // e.g. "3:00 PM"
+  checkoutTime?:   string;     // e.g. "12:00 PM"
+  boardType?:      string;     // "RO" | "BB" | "HB" | "FB" | "AI"
+  boardName?:      string;     // "Room Only" | "Bed & Breakfast" etc.
+  maxOccupancy?:   number;
+  mspPrice?:       number;     // full price customer pays (incl. markup)
+  commissionAmount?: number;   // your commission on this booking
+  commissionCurrency?: string;
+  taxesAndFees?:   Array<{ included: boolean; description: string; amount: number; currency: string }>;
+  cancelPolicies?: Array<{ cancelTime?: string; amount?: number; currency?: string; type?: string; timezone?: string }>;
+  refundableTag?:  string;     // "RFN" | "NRFN"
+  allRoomTypes?:   Array<{
+    offerId?: string; name?: string; maxOccupancy?: number;
+    rates?: Array<{ rateId?: string; name?: string; boardType?: string; boardName?: string; price?: number; currency?: string; commission?: number; refundable?: boolean }>;
+  }>;
 }
 
 export interface Experience {

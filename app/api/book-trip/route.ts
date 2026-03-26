@@ -123,17 +123,23 @@ export async function POST(req: Request) {
 
   const d = result.data!;
   return NextResponse.json({
-    success:         d.success,
-    flightRef:       d.flightRef,
-    flightError:     d.flightError,
-    hotelRef:        d.hotelRef,
-    hotelName:       d.hotelName,
-    hotelError:      d.hotelError,
-    clientSecret:    d.clientSecret,
-    paymentIntentId: d.paymentIntentId,
-    currency:        d.currency,
-    serviceFeeCents: d.serviceFeeCents,
-    tripId:          d.tripId,
+    success:              d.success,
+    flightRef:            d.flightRef,
+    flightError:          d.flightError,
+    hotelRef:             d.hotelRef,
+    hotelName:            d.hotelName,
+    hotelError:           d.hotelError,
+    clientSecret:         d.clientSecret,
+    paymentIntentId:      d.paymentIntentId,
+    currency:             d.currency,
+    serviceFeeCents:      d.serviceFeeCents,
+    tripId:               d.tripId,
+    isSandboxBooking:     d.isSandboxBooking,
+    // LiteAPI payment SDK (production only) — frontend renders payment widget using these
+    requiresHotelPayment: d.requiresHotelPayment,
+    hotelPrebookId:       d.hotelPrebookId,
+    hotelSecretKey:       d.hotelSecretKey,
+    hotelTransactionId:   d.hotelTransactionId,
     flexibilityScore: d.flexibilityScore
       ? {
           score:   d.flexibilityScore.score,

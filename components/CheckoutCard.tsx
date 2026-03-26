@@ -89,7 +89,7 @@ interface CheckoutCardProps {
   sessionId?:       string;    // chat session ID — passed to API for DB persistence
 }
 
-type Phase = 'review' | 'passengers' | 'booking' | 'payment' | 'success' | 'error';
+type Phase = 'review' | 'passengers' | 'booking' | 'payment' | 'hotel-payment' | 'hotel-paying' | 'success' | 'error';
 
 // ─── Step indicator ────────────────────────────────────────────────────────────
 
@@ -97,9 +97,9 @@ const STEPS = ['Review', 'Passengers', 'Pay'] as const;
 type StepLabel = typeof STEPS[number];
 
 function phaseToStep(phase: Phase): number {
-  if (phase === 'review')                  return 0;
-  if (phase === 'passengers')              return 1;
-  if (phase === 'booking' || phase === 'payment') return 2;
+  if (phase === 'review')                                                    return 0;
+  if (phase === 'passengers')                                                return 1;
+  if (phase === 'booking' || phase === 'payment' || phase === 'hotel-payment' || phase === 'hotel-paying') return 2;
   return 2;
 }
 
@@ -266,6 +266,14 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
   // Confirmation state when no flight is in cart (hotel-only booking)
   const [confirmFlightless, setConfirmFlightless] = useState(false);
 
+  // ── LiteAPI payment SDK state (production only) ─────────────────────────────
+  // Populated when /api/book-trip returns requiresHotelPayment: true.
+  // The SDK widget renders at https://payment-wrapper.liteapi.travel
+  const [hotelPrebookId,      setHotelPrebookId]      = useState('');
+  const [hotelSecretKey,      setHotelSecretKey]       = useState('');
+  const [hotelTransactionId,  setHotelTransactionId]   = useState('');
+  const liteapiPayDivRef = useRef<HTMLDivElement>(null);
+
   const stripeRef     = useRef<StripeInstance | null>(null);
   const elementsRef   = useRef<StripeElements | null>(null);
   const mountRef      = useRef<StripePaymentElement | null>(null);
@@ -326,6 +334,92 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
       mountRef.current = null;
     };
   }, [phase, clientSecret, pk]);
+
+  // ── LiteAPI payment SDK (production) ─────────────────────────────────────────
+  // Loaded when usePaymentSdk: true — customer pays hotel cost directly through
+  // LiteAPI's hosted Stripe-powered widget. We never touch their card data.
+  useEffect(() => {
+    if (phase !== 'hotel-payment' || !hotelSecretKey || !liteapiPayDivRef.current) return;
+    let cancelled = false;
+
+    // Determine environment from API key presence or NEXT_PUBLIC_ flag
+    const isSandbox = !!(process.env.NEXT_PUBLIC_LITEAPI_SANDBOX);
+
+    (async () => {
+      // Load LiteAPI payment SDK script from their CDN
+      await new Promise<void>((resolve, reject) => {
+        const existing = document.querySelector('script[src*="liteAPIPayment"]');
+        if (existing) { resolve(); return; }
+        const s = document.createElement('script');
+        s.src = 'https://payment-wrapper.liteapi.travel/dist/liteAPIPayment.js?v=a1';
+        s.onload  = () => resolve();
+        s.onerror = () => reject(new Error('LiteAPI payment SDK failed to load'));
+        document.head.appendChild(s);
+      });
+
+      if (cancelled || !liteapiPayDivRef.current) return;
+
+      // Initialise the widget — mounts a Stripe-powered payment form in the target div
+      const LiteAPIPayment = (window as unknown as Record<string, unknown>)['LiteAPIPayment'] as ((opts: Record<string, unknown>) => void) | undefined;
+      if (!LiteAPIPayment) {
+        setError('Payment widget failed to load. Please refresh and try again.');
+        setPhase('error');
+        return;
+      }
+
+      LiteAPIPayment({
+        publicKey:     isSandbox ? 'sandbox' : 'live',
+        secretKey:     hotelSecretKey,
+        targetElement: '#liteapi-payment-container',
+        appearance:    'flat',
+        options:       { name: 'FlexeTravels' },
+        // returnUrl is used when 3D Secure redirect is required
+        returnUrl: `${window.location.origin}/booking?hotel_payment=complete&prebookId=${encodeURIComponent(hotelPrebookId)}`,
+      });
+    })().catch(err => {
+      if (!cancelled) {
+        setError(String(err));
+        setPhase('error');
+      }
+    });
+
+    return () => { cancelled = true; };
+  }, [phase, hotelSecretKey, hotelPrebookId]);
+
+  // ── Complete hotel booking after LiteAPI payment SDK ──────────────────────────
+  const handleHotelPayComplete = useCallback(async () => {
+    if (!hotelPrebookId || !hotelTransactionId) {
+      setError('Payment session data missing. Please try again.');
+      return;
+    }
+    setPhase('hotel-paying');
+    const lead = passengers[0];
+    try {
+      const res = await fetch('/api/complete-hotel-booking', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prebookId:      hotelPrebookId,
+          transactionId:  hotelTransactionId,
+          guestFirstName: lead.firstName,
+          guestLastName:  lead.lastName,
+          guestEmail:     lead.email,
+        }),
+      });
+      const data = await res.json() as { success: boolean; bookingId?: string; error?: string };
+      if (!res.ok || !data.success) {
+        setError(data.error ?? 'Hotel booking failed after payment. Please contact support.');
+        setPhase('error');
+        return;
+      }
+      if (data.bookingId) setHotelRef(data.bookingId);
+      setPhase('success');
+      onConfirmed?.(flightRef || undefined, data.bookingId || undefined);
+    } catch (e) {
+      setError(`Network error: ${String(e)}`);
+      setPhase('error');
+    }
+  }, [hotelPrebookId, hotelTransactionId, passengers, flightRef, onConfirmed]);
 
   // ── Validation ──────────────────────────────────────────────────────────────
   function validate(): string | null {
@@ -453,14 +547,20 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
       });
 
       const data = await res.json() as {
-        success:        boolean;
-        flightRef?:     string;
-        hotelRef?:      string;
-        flightError?:   string;
-        hotelError?:    string;
-        clientSecret?:  string;
-        currency?:      'cad' | 'usd';
-        error?:         string;
+        success:              boolean;
+        flightRef?:           string;
+        hotelRef?:            string;
+        flightError?:         string;
+        hotelError?:          string;
+        clientSecret?:        string;
+        currency?:            'cad' | 'usd';
+        error?:               string;
+        // LiteAPI payment SDK fields (production)
+        requiresHotelPayment?: boolean;
+        hotelPrebookId?:       string;
+        hotelSecretKey?:       string;
+        hotelTransactionId?:   string;
+        isSandboxBooking?:     boolean;
       };
 
       if (!res.ok || !data.success) {
@@ -469,9 +569,23 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
         return;
       }
 
-      // If hotel was expected but server silently skipped it, surface the error
-      // rather than quietly proceeding to payment without a hotel reservation.
-      if (hotel?.bookingToken && !data.hotelRef) {
+      if (data.flightRef) setFlightRef(data.flightRef);
+      if (data.hotelRef)  setHotelRef(data.hotelRef);
+      if (data.currency)  setCurrency(data.currency);
+
+      // ── Production hotel payment via LiteAPI SDK ─────────────────────────────
+      // If requiresHotelPayment, LiteAPI needs the customer to pay directly through
+      // their hosted payment widget. Show the SDK widget before proceeding.
+      if (data.requiresHotelPayment && data.hotelPrebookId && data.hotelSecretKey) {
+        setHotelPrebookId(data.hotelPrebookId);
+        setHotelSecretKey(data.hotelSecretKey);
+        setHotelTransactionId(data.hotelTransactionId ?? '');
+        setPhase('hotel-payment');
+        return;
+      }
+
+      // If hotel was expected but server silently skipped it (sandbox), surface the error.
+      if (hotel?.bookingToken && !data.hotelRef && !data.requiresHotelPayment) {
         setError(
           data.hotelError ??
           `Hotel booking failed for ${hotel.name}. ` +
@@ -481,10 +595,6 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
         setPhase('error');
         return;
       }
-
-      if (data.flightRef) setFlightRef(data.flightRef);
-      if (data.hotelRef)  setHotelRef(data.hotelRef);
-      if (data.currency)  setCurrency(data.currency);
 
       if (data.clientSecret) {
         setClientSecret(data.clientSecret);
@@ -956,6 +1066,66 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
             </button>
             <p className="text-center text-[10px] text-muted-foreground/50">
               Powered by Stripe · PCI-DSS compliant
+            </p>
+          </div>
+        )}
+
+        {/* ── LiteAPI hotel payment widget (production only) ─────────────────── */}
+        {(phase === 'hotel-payment' || phase === 'hotel-paying') && (
+          <div className="space-y-4">
+            {/* Flight confirmation if already booked */}
+            {flightRef && (
+              <div className="flex items-center gap-2 text-xs text-teal-700 dark:text-teal-300
+                              bg-teal-50 dark:bg-teal-950/30 px-3 py-2 rounded-xl">
+                <Plane className="w-3.5 h-3.5 flex-shrink-0" />
+                Flight booked — ref: <code className="font-mono font-black">{flightRef}</code>
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-foreground">Complete hotel payment</p>
+              <p className="text-xs text-muted-foreground">
+                Enter your card details below. Payment is processed securely by LiteAPI — FlexeTravels never stores your card data.
+              </p>
+            </div>
+
+            {/* LiteAPI payment SDK mounts here */}
+            <div
+              id="liteapi-payment-container"
+              ref={liteapiPayDivRef}
+              className="min-h-[200px] rounded-xl overflow-hidden"
+            />
+
+            {phase === 'hotel-paying' && (
+              <div className="flex items-center justify-center gap-2 text-sm text-teal-600">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Confirming your hotel booking…
+              </div>
+            )}
+
+            {error && (
+              <div className="flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400">
+                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                {error}
+              </div>
+            )}
+
+            {phase === 'hotel-payment' && (
+              <button
+                onClick={handleHotelPayComplete}
+                className={cn(
+                  'w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2',
+                  'bg-teal-600 text-white transition-all duration-150',
+                  'shadow-md shadow-teal-500/20',
+                  'hover:bg-teal-700 hover:shadow-lg active:scale-[0.98]'
+                )}
+              >
+                <Lock className="w-3.5 h-3.5" />
+                Confirm hotel booking
+              </button>
+            )}
+            <p className="text-center text-[10px] text-muted-foreground/50">
+              Hotel payment processed by LiteAPI · Powered by Stripe
             </p>
           </div>
         )}

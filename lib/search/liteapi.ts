@@ -16,6 +16,12 @@ const LITEAPI_BASE = 'https://api.liteapi.travel/v3.0';
 const HOTEL_CACHE = new Map<string, { data: NormalizedHotel[]; ts: number }>();
 const HOTEL_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
+// ─── Hotel detail cache (60-min TTL, keyed by hotelId) ────────────────────────
+// /data/hotel returns static info: description, images, facilities, check-in times.
+// Separate from rates cache — this data rarely changes.
+const HOTEL_DETAIL_CACHE = new Map<string, { data: LiteHotelDetail; ts: number }>();
+const HOTEL_DETAIL_CACHE_TTL_MS = 60 * 60 * 1000; // 60 minutes
+
 // ─── City → Country code mapping ──────────────────────────────────────────────
 // Covers all major destinations from North American travellers
 const CITY_COUNTRY: Record<string, string> = {
@@ -243,29 +249,79 @@ interface LiteHotelListItem {
   starRating?: number;
   main_photo?: string;
   thumbnail?:  string;
-  location?:   { latitute?: number; longitude?: number };
+  country?:    string;
+  address?:    string;
+  city?:       string;
+  location?:   { latitute?: number; longitude?: number; address?: string; city?: string; countryCode?: string };
+}
+
+// Full hotel detail from GET /data/hotel?hotelId=xxx
+// Includes rich description, all images, real facility list, check-in times
+interface LiteHotelDetail {
+  id:           string;
+  name:         string;
+  starRating?:  number;
+  main_photo?:  string;
+  hotelDescription?: string;   // HTML description
+  checkinCheckoutTimes?: {
+    checkin?:      string;     // e.g. "02:00 PM"
+    checkout?:     string;     // e.g. "11:30 AM"
+    checkinStart?: string;
+    checkinEnd?:   string;
+  };
+  hotelImages?: Array<{
+    url:           string;
+    caption?:      string;
+    order?:        number;
+    defaultImage?: boolean;
+  }>;
+  hotelFacilities?: string[];  // real amenities / facilities
+  location?: {
+    latitute?:    number;
+    longitude?:   number;
+    address?:     string;
+    city?:        string;
+    countryCode?: string;
+    zipCode?:     string;
+  };
+  contacts?: {
+    telephone?: string;
+    fax?:       string;
+    email?:     string;
+    website?:   string;
+  };
 }
 
 interface LiteRate {
-  rateId?:       string;
-  name?:         string;
-  boardType?:    string;
-  boardName?:    string;
-  maxOccupancy?: number;
+  rateId?:          string;
+  name?:            string;
+  boardType?:       string;    // "RO" | "BB" | "HB" | "FB" | "AI"
+  boardName?:       string;    // "Room Only" | "Bed & Breakfast" etc.
+  maxOccupancy?:    number;
+  adultCount?:      number;
+  childCount?:      number;
+  occupancyNumber?: number;
+  priceType?:       string;    // "commission"
+  remarks?:         string;    // HTML with amenities, policies, special instructions
+  commission?:      Array<{ amount: number; currency: string }>;
   retailRate?: {
-    total?: Array<{ amount: number; currency: string }>;
+    total?:         Array<{ amount: number; currency: string }>;
+    msp?:           Array<{ amount: number; currency: string }>;
+    taxesAndFees?:  Array<{ included: boolean; description: string; amount: number; currency: string }>;
   };
   cancellationPolicies?: {
-    refundableTag?:     string; // "RFN" = refundable, "NRFN" = non-refundable
-    cancelPolicyInfos?: Array<{ cancelTime?: string; amount?: number; currency?: string; type?: string }>;
+    refundableTag?:     string;  // "RFN" = refundable, "NRFN" = non-refundable
+    cancelPolicyInfos?: Array<{ cancelTime?: string; amount?: number; currency?: string; type?: string; timezone?: string }>;
+    hotelRemarks?:      string[];
   };
   paymentTypes?: string[];
 }
 
 interface LiteRoomType {
-  offerId?: string;
-  name?:    string;
-  rates?:   LiteRate[];
+  offerId?:      string;
+  name?:         string;
+  maxOccupancy?: number;
+  rates?:        LiteRate[];
 }
 
 interface LiteRateHotel {
@@ -403,6 +459,23 @@ export class LiteApiProvider implements SearchProvider {
       const rawToken    = cheapestOfferId ?? cheapestRate.rateId ?? '';
       const bookingToken = rawToken ? `liteapi_${rawToken}` : '';
 
+      // Build all room types for UX (room selection, comparison)
+      const allRoomTypes = (rateHotel.roomTypes ?? []).map(rt => ({
+        offerId:      rt.offerId,
+        name:         rt.name,
+        maxOccupancy: rt.maxOccupancy,
+        rates: (rt.rates ?? []).map(r => ({
+          rateId:    r.rateId,
+          name:      r.name,
+          boardType: r.boardType,
+          boardName: r.boardName,
+          price:     r.retailRate?.total?.[0]?.amount,
+          currency:  r.retailRate?.total?.[0]?.currency,
+          commission: r.commission?.[0]?.amount,
+          refundable: r.cancellationPolicies?.refundableTag === 'RFN',
+        })),
+      }));
+
       normalized.push({
         id:            rateHotel.hotelId,
         provider:      'liteapi',
@@ -415,13 +488,28 @@ export class LiteApiProvider implements SearchProvider {
         currency:      cheapestRate.retailRate?.total?.[0]?.currency ?? 'USD',
         image:         info.main_photo ?? info.thumbnail ?? '',
         images:        info.main_photo ? [info.main_photo] : [],
-        rating:        7.5 + (stars - 3) * 0.4, // Approximate: 5-star ≈ 8.3, 3-star ≈ 7.5
-        amenities:     ['WiFi', 'Air Conditioning', ...(stars >= 4 ? ['Pool', 'Gym'] : [])],
+        rating:        7.5 + (stars - 3) * 0.4,  // 5-star ≈ 8.3, 3-star ≈ 7.5
+        amenities:     [],   // will be populated by liteApiGetHotelDetail (real API data)
         cancellation:  refundable ? 'Free cancellation' : 'Non-refundable',
         checkIn:       params.checkIn,
         checkOut:      params.checkOut,
         bookingToken,
         isSample:      false,
+        // Board type from cheapest rate
+        boardType:     cheapestRate.boardType,
+        boardName:     cheapestRate.boardName,
+        maxOccupancy:  cheapestRate.maxOccupancy,
+        // Pricing breakdown
+        mspPrice:      cheapestRate.retailRate?.msp?.[0]?.amount,
+        commissionAmount:   cheapestRate.commission?.[0]?.amount,
+        commissionCurrency: cheapestRate.commission?.[0]?.currency,
+        taxesAndFees:  cheapestRate.retailRate?.taxesAndFees,
+        // Cancellation detail
+        cancelPolicies: cheapestRate.cancellationPolicies?.cancelPolicyInfos,
+        refundableTag,
+        // All room types for future UX
+        allRoomTypes,
+        address: info.address ?? (info.location as { address?: string } | undefined)?.address,
       });
     }
 
@@ -512,16 +600,76 @@ export async function liteApiGetFreshOfferId(
   }
 }
 
+// ─── Hotel detail fetch (GET /data/hotel) ─────────────────────────────────────
+// Returns rich hotel info: description, all images, real facilities, check-in times.
+// Cached 60 min. Safe to call at any time — does NOT consume rate quota.
+export async function liteApiGetHotelDetail(
+  hotelId: string,
+  apiKey?: string
+): Promise<LiteHotelDetail | null> {
+  const key = apiKey ?? process.env.LITEAPI_KEY;
+  if (!key || key.includes('PASTE') || key.includes('your_')) return null;
+
+  // Check cache first
+  const cached = HOTEL_DETAIL_CACHE.get(hotelId);
+  if (cached && Date.now() - cached.ts < HOTEL_DETAIL_CACHE_TTL_MS) {
+    return cached.data;
+  }
+
+  try {
+    const res = await fetch(
+      `${LITEAPI_BASE}/data/hotel?hotelId=${encodeURIComponent(hotelId)}&timeout=5`,
+      {
+        headers: { 'X-API-Key': key, 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(8_000),
+      }
+    );
+    if (!res.ok) {
+      console.warn('[liteApiGetHotelDetail] failed', res.status, 'for', hotelId);
+      return null;
+    }
+    const raw = await res.json() as { data?: LiteHotelDetail };
+    const detail = raw.data;
+    if (!detail) return null;
+
+    // Normalise images: sort by order, put defaultImage first
+    if (detail.hotelImages?.length) {
+      detail.hotelImages.sort((a, b) => {
+        if (a.defaultImage && !b.defaultImage) return -1;
+        if (!a.defaultImage && b.defaultImage) return 1;
+        return (a.order ?? 99) - (b.order ?? 99);
+      });
+    }
+
+    HOTEL_DETAIL_CACHE.set(hotelId, { data: detail, ts: Date.now() });
+    return detail;
+  } catch (e) {
+    console.error('[liteApiGetHotelDetail] exception for', hotelId, ':', e);
+    return null;
+  }
+}
+
 // ─── Pre-booking helper (used by bookHotel tool in chat route) ─────────────────
 export interface LiteApiPrebookResult {
-  success:           boolean;
-  prebookId?:        string;
-  hotelId?:          string;
-  confirmedTotal?:   number;
-  currency?:         string;
-  cancellationType?: string;
+  success:               boolean;
+  prebookId?:            string;
+  hotelId?:              string;
+  confirmedTotal?:       number;
+  currency?:             string;
+  cancellationType?:     string;
   cancellationDeadline?: string;
-  error?:            string;
+  // Pricing intel returned by prebook (useful for final price display)
+  msp?:                  number;   // merchant selling price confirmed at prebook
+  commission?:           number;   // commission amount
+  priceDifferencePercent?: number; // % change since rate search (0 = no change)
+  // ── Payment SDK fields (production only, when usePaymentSdk: true) ──────────
+  // LiteAPI returns secretKey + transactionId when usePaymentSdk=true.
+  // These are passed to the frontend to initialize the LiteAPI payment widget.
+  // Widget URL: https://payment-wrapper.liteapi.travel/dist/liteAPIPayment.js
+  secretKey?:            string;
+  transactionId?:        string;
+  requiresPaymentSdk?:   boolean;  // true in production, false in sandbox
+  error?:                string;
 }
 
 export async function liteApiPrebook(
@@ -534,10 +682,15 @@ export async function liteApiPrebook(
     return { success: false, error: 'LITEAPI_KEY not configured — hotel booking unavailable' };
   }
 
-  // LiteAPI v3 /rates/prebook API spec (confirmed from official Postman collection):
-  //   body: { "offerId": "<token>" }   — lowercase 'd', no guestNationality
-  // Previous code incorrectly sent "offerID" (capital D) which caused 4002 "required field missing"
-  console.log('[liteApiPrebook] offerId:', offerId.slice(0, 40) + (offerId.length > 40 ? '…' : ''));
+  // Sandbox keys start with "sand_"; production keys start with "prod_"
+  // - Sandbox:    usePaymentSdk: false → LiteAPI accepts ACC_CREDIT_CARD server-side
+  // - Production: usePaymentSdk: true  → LiteAPI returns secretKey + transactionId for
+  //               the payment SDK widget (payment-wrapper.liteapi.travel/dist/liteAPIPayment.js)
+  //               Customer enters card details in the LiteAPI-hosted widget; we never touch card data.
+  const isSandbox    = key.startsWith('sand_');
+  const usePaymentSdk = !isSandbox;
+
+  console.log('[liteApiPrebook] offerId:', offerId.slice(0, 40) + (offerId.length > 40 ? '…' : ''), '| isSandbox:', isSandbox, '| usePaymentSdk:', usePaymentSdk);
 
   const res = await fetch(`${LITEAPI_BASE}/rates/prebook?timeout=30`, {
     method: 'POST',
@@ -546,7 +699,7 @@ export async function liteApiPrebook(
       'Content-Type': 'application/json',
       'Accept':       'application/json',
     },
-    body: JSON.stringify({ offerId, usePaymentSdk: false }),
+    body: JSON.stringify({ offerId, usePaymentSdk }),
     signal: AbortSignal.timeout(35_000),
   });
 
@@ -555,8 +708,7 @@ export async function liteApiPrebook(
     console.error('[liteApiPrebook] failed', res.status, txt.slice(0, 400));
 
     // LiteAPI error 4002 = offerId expired / invalid — the rate token has a
-    // short TTL. Surface a clear "go search again" message so the UI can
-    // show an actionable prompt rather than a generic error.
+    // short TTL. Surface a clear "go search again" message.
     let errorCode = 0;
     try { errorCode = (JSON.parse(txt) as { error?: { code?: number } })?.error?.code ?? 0; } catch { /* ignore */ }
     if (errorCode === 4002 || errorCode === 4000) {
@@ -574,11 +726,17 @@ export async function liteApiPrebook(
 
   const data = raw as {
     data?: {
-      prebookId?:  string;
-      hotelId?:    string;
-      currency?:   string;
-      price?:      { total?: number; currency?: string };
-      cancellationPolicies?: { type?: string; deadline?: string };
+      prebookId?:              string;
+      hotelId?:                string;
+      currency?:               string;
+      price?:                  number;  // LiteAPI v3 returns price at top level in prebook
+      msp?:                    number;
+      commission?:             number;
+      priceDifferencePercent?: number;
+      cancellationPolicies?:   { type?: string; deadline?: string };
+      // Payment SDK fields — only present when usePaymentSdk: true
+      secretKey?:              string;
+      transactionId?:          string;
     };
   };
 
@@ -587,14 +745,27 @@ export async function liteApiPrebook(
     console.warn('[liteApiPrebook] no prebookId in response:', JSON.stringify(raw).slice(0, 300));
   }
 
+  const secretKey     = data.data?.secretKey;
+  const transactionId = data.data?.transactionId;
+  if (usePaymentSdk) {
+    console.log('[liteApiPrebook] SDK keys — secretKey present:', !!secretKey, '| transactionId present:', !!transactionId);
+  }
+
   return {
-    success:             true,
+    success:               true,
     prebookId,
-    hotelId:             data.data?.hotelId,
-    confirmedTotal:      data.data?.price?.total,
-    currency:            data.data?.price?.currency ?? data.data?.currency ?? 'USD',
-    cancellationType:    data.data?.cancellationPolicies?.type,
-    cancellationDeadline: data.data?.cancellationPolicies?.deadline,
+    hotelId:               data.data?.hotelId,
+    confirmedTotal:        data.data?.price ?? data.data?.msp,
+    currency:              data.data?.currency ?? 'USD',
+    cancellationType:      data.data?.cancellationPolicies?.type,
+    cancellationDeadline:  data.data?.cancellationPolicies?.deadline,
+    msp:                   data.data?.msp,
+    commission:            data.data?.commission,
+    priceDifferencePercent: data.data?.priceDifferencePercent,
+    // Payment SDK — populated in production, undefined in sandbox
+    secretKey,
+    transactionId,
+    requiresPaymentSdk: usePaymentSdk && !!secretKey,
   };
 }
 
@@ -617,6 +788,9 @@ export async function liteApiBook(params: {
   guestFirstName:     string;
   guestLastName:      string;
   guestEmail:         string;
+  // transactionId: provided by LiteAPI payment SDK after customer completes payment (production).
+  // When present, method is TRANSACTION_ID. When absent (sandbox), method is ACC_CREDIT_CARD.
+  transactionId?:     string;
   apiKey?:            string;
 }): Promise<LiteApiBookResult> {
   const key = params.apiKey ?? process.env.LITEAPI_KEY;
@@ -626,18 +800,22 @@ export async function liteApiBook(params: {
 
   const isSandbox = key.startsWith('sand_');
 
-  // LiteAPI v3 payment object field names (confirmed from their docs):
-  //   method:     'ACC_CREDIT_CARD'  — NOT 'CREDIT_CARD'
-  //   cardNumber: '4242...'          — NOT 'number'
-  //   expireDate: 'MM/YYYY'          — 4-digit year
-  // Sandbox test card: 4242424242424242, any 3-digit CVV, any future date.
-  const payment = {
-    method:     'ACC_CREDIT_CARD',
-    holderName: `${params.guestFirstName} ${params.guestLastName}`,
-    cardNumber: isSandbox ? '4242424242424242' : '',  // replaced by real token at prod
-    expireDate: '12/2028',
-    cvc:        '123',
-  };
+  // Payment method selection:
+  //   Production + payment SDK: TRANSACTION_ID (customer paid via LiteAPI's hosted widget)
+  //   Sandbox / fallback:       ACC_CREDIT_CARD (LiteAPI's built-in sandbox test card)
+  // LiteAPI v3 payment object field names (confirmed from official Postman collection):
+  //   method:     'ACC_CREDIT_CARD' or 'TRANSACTION_ID'
+  //   cardNumber: '4242...'  (ACC_CREDIT_CARD only)
+  //   expireDate: 'MM/YYYY'  (4-digit year)
+  const payment = params.transactionId
+    ? { method: 'TRANSACTION_ID', transactionId: params.transactionId }
+    : {
+        method:     'ACC_CREDIT_CARD',
+        holderName: `${params.guestFirstName} ${params.guestLastName}`,
+        cardNumber: '4242424242424242',  // LiteAPI sandbox test card
+        expireDate: '12/2028',
+        cvc:        '123',
+      };
 
   // LiteAPI v3 book body: uses `holder` (not `guestInfo`) + a `guests` array
   const bookBody = {
@@ -656,7 +834,7 @@ export async function liteApiBook(params: {
     payment,
   };
 
-  console.log('[liteApiBook] prebookId:', params.prebookId, 'isSandbox:', isSandbox, 'method:', payment.method);
+  console.log('[liteApiBook] prebookId:', params.prebookId, 'isSandbox:', isSandbox, 'method:', (payment as { method: string }).method);
 
   const res = await fetch(`${LITEAPI_BASE}/rates/book`, {
     method: 'POST',

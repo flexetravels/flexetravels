@@ -60,16 +60,49 @@ export interface NormalizedHotel {
   totalPrice: number;
   currency: string;
   image: string;
-  images?: string[];
-  rating: number;            // 0–10
+  images?: string[];           // full image URLs from /data/hotel API
+  rating: number;              // 0–10
   reviewCount?: number;
-  amenities: string[];
+  amenities: string[];         // real facility list from /data/hotel API
   distanceCenter?: string;
   cancellation?: string;
   checkIn: string;
   checkOut: string;
-  bookingToken?: string;     // provider-specific token
-  isSample?: boolean;        // true = indicative pricing, not live
+  bookingToken?: string;       // provider-specific token for prebook
+  isSample?: boolean;          // true = indicative pricing, not live
+
+  // ── Enriched LiteAPI fields ───────────────────────────────────────────────
+  description?: string;        // HTML hotel description
+  address?: string;            // street address
+  checkinTime?: string;        // e.g. "3:00 PM"
+  checkoutTime?: string;       // e.g. "12:00 PM"
+  boardType?: string;          // "RO" | "BB" | "HB" | "FB" | "AI"
+  boardName?: string;          // "Room Only" | "Bed & Breakfast" etc.
+  maxOccupancy?: number;
+  // Pricing & business data
+  mspPrice?: number;           // merchant selling price (full price incl. markup)
+  commissionAmount?: number;   // commission earned on this booking
+  commissionCurrency?: string;
+  taxesAndFees?: Array<{ included: boolean; description: string; amount: number; currency: string }>;
+  // Cancellation detail
+  cancelPolicies?: Array<{ cancelTime?: string; amount?: number; currency?: string; type?: string; timezone?: string }>;
+  refundableTag?: string;      // "RFN" = refundable | "NRFN" = non-refundable
+  // All room types (for future room-selection UX)
+  allRoomTypes?: Array<{
+    offerId?:      string;
+    name?:         string;
+    maxOccupancy?: number;
+    rates?: Array<{
+      rateId?:     string;
+      name?:       string;
+      boardType?:  string;
+      boardName?:  string;
+      price?:      number;
+      currency?:   string;
+      commission?: number;
+      refundable?: boolean;
+    }>;
+  }>;
 }
 
 export interface SearchResult<T> {
