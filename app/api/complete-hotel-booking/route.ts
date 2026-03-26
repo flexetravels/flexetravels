@@ -22,7 +22,7 @@ const BodySchema = z.object({
   guestLastName:  z.string().min(1),
   guestEmail:     z.string().email(),
   // Optional context for DB storage
-  tripId?:        z.string().optional(),
+  tripId:         z.string().optional(),
   sessionId:      z.string().optional().default('unknown'),
   hotelName:      z.string().optional(),
   hotelId:        z.string().optional(),
