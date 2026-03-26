@@ -216,6 +216,12 @@ async function _persistBooking(
 
     // Write hotel booking row
     if (result.hotelRef && result.hotelBookingId === undefined) {
+      // Convert hotel total price to cents for storage
+      // confirmedTotal comes from prebook and is in the rate currency (USD default)
+      const hotelAmountCents = result.hotelConfirmedTotal
+        ? Math.round(result.hotelConfirmedTotal * 100)
+        : 0;
+      const lead = req.passengers[0];
       const bk = await db.bookings.create({
         trip_id:      tripId,
         type:         'hotel',
@@ -223,11 +229,23 @@ async function _persistBooking(
         status:       'confirmed',
         provider_ref: result.hotelRef,
         booking_ref:  result.hotelRef,
-        amount_cents: 0,
+        amount_cents: hotelAmountCents,
         currency:     result.currency ?? 'USD',
+        metadata: {
+          hotelName:    result.hotelName,
+          hotelId:      req.hotelId,
+          checkIn:      req.hotelCheckIn,
+          checkOut:     req.hotelCheckOut,
+          guestEmail:   lead?.email,
+          guestName:    lead ? `${lead.firstName} ${lead.lastName}` : undefined,
+          guestCount:   req.passengers.length,
+          childCount:   req.childPassengers?.length ?? 0,
+          nationality:  req.guestNationality,
+          sessionId:    req.sessionId,
+        },
       });
       if (bk) {
-        console.log('[orchestrator] hotel booking row created:', bk.id, '| ref:', result.hotelRef);
+        console.log('[orchestrator] hotel booking row created:', bk.id, '| ref:', result.hotelRef, '| amount:', hotelAmountCents);
       } else {
         console.error('[orchestrator] _persistBooking: bookings.create returned null for hotel', result.hotelRef);
       }

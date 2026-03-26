@@ -195,11 +195,12 @@ export const bookingAgent = {
     const t0 = Date.now();
 
     const lead = req.passengers[0];
-    let flightRef:      string | undefined;
-    let flightError:    string | undefined;
-    let hotelRef:       string | undefined;
-    let hotelError:     string | undefined;
-    let flexibilityScore: BookingResult['flexibilityScore'];
+    let flightRef:            string | undefined;
+    let flightError:          string | undefined;
+    let hotelRef:             string | undefined;
+    let hotelError:           string | undefined;
+    let hotelConfirmedTotal:  number | undefined;
+    let flexibilityScore:     BookingResult['flexibilityScore'];
 
     // ── 1. Book flight ───────────────────────────────────────────────────────
     if (req.flightOfferId) {
@@ -382,7 +383,8 @@ export const bookingAgent = {
             durationMs: Date.now() - t2,
           });
           if (book.success) {
-            hotelRef = book.bookingId;
+            hotelRef           = book.bookingId;
+            hotelConfirmedTotal = prebook.confirmedTotal ?? book.totalAmount;
           } else {
             hotelError = book.error ?? 'Hotel booking failed';
           }
@@ -437,7 +439,8 @@ export const bookingAgent = {
         tripId:           req.tripId,
         flightRef,
         hotelRef,
-        hotelName:        req.hotelName,
+        hotelName:            req.hotelName,
+        hotelConfirmedTotal,
         flightError,
         hotelError,
         clientSecret,

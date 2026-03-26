@@ -103,8 +103,9 @@ export interface BookingResult {
   flightBookingId?: string;    // DB booking row ID
   hotelBookingId?:  string;
   flightRef?:       string;    // PNR / Duffel booking reference
-  hotelRef?:        string;    // LiteAPI booking ID (set after payment SDK completes)
-  hotelName?:       string;
+  hotelRef?:            string;    // LiteAPI booking ID (set after payment SDK completes)
+  hotelName?:           string;
+  hotelConfirmedTotal?: number;   // confirmed price from prebook (for DB storage)
   flightError?:     string;
   hotelError?:      string;
   clientSecret?:    string;    // Stripe PaymentIntent client secret (for $20 service fee)
