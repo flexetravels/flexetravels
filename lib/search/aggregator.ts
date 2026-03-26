@@ -200,7 +200,9 @@ export async function aggregateHotels(params: HotelSearchParams): Promise<{
   isSample: boolean;
   latencyMs: number;
 }> {
-  const providers = buildProviders().filter(p => p.name !== 'duffel'); // Duffel is flights-only
+  // LiteAPI is the hotel provider. Amadeus returns unreliable hotel data (400s) —
+  // exclude it from hotel searches so errors don't pollute the result log.
+  const providers = buildProviders().filter(p => p.name !== 'duffel' && p.name !== 'amadeus');
   const start = Date.now();
 
   if (providers.length === 0) {

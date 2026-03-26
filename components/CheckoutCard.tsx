@@ -783,6 +783,18 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
           <div className="space-y-5">
             <TripRow flight={flight} hotel={hotel} />
 
+            {/* Block right here if the hotel is a sample — don't let user waste time in passengers */}
+            {hotel?.isSample && (
+              <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 space-y-2">
+                <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                  ⚠ &ldquo;{hotel.name}&rdquo; is an estimated price — not bookable
+                </p>
+                <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                  Live hotel rates aren&apos;t available for this destination. Please go back and search for hotels — try a more specific city name or different dates to see real bookable options.
+                </p>
+              </div>
+            )}
+
             {/* Passenger counts */}
             <div className="space-y-2">
               {/* Adults — capped at the count searched for (offer is priced for that many seats) */}
@@ -851,9 +863,13 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
 
             <button
               onClick={() => setPhase('passengers')}
-              className="w-full py-3.5 rounded-2xl bg-teal-600 hover:bg-teal-700 active:scale-[0.98]
-                         text-white font-bold text-sm flex items-center justify-center gap-2
-                         shadow-md shadow-teal-500/20 hover:shadow-lg hover:shadow-teal-500/30 transition-all duration-150"
+              disabled={!!hotel?.isSample}
+              className={cn(
+                'w-full py-3.5 rounded-2xl text-white font-bold text-sm flex items-center justify-center gap-2 transition-all duration-150',
+                hotel?.isSample
+                  ? 'bg-muted text-muted-foreground cursor-not-allowed opacity-50'
+                  : 'bg-teal-600 hover:bg-teal-700 active:scale-[0.98] shadow-md shadow-teal-500/20 hover:shadow-lg hover:shadow-teal-500/30'
+              )}
             >
               Continue <ArrowRight className="w-4 h-4" />
             </button>

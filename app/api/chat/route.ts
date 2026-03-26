@@ -50,6 +50,8 @@ PLATFORM: Flights=Duffel(bookable,provider="duffel")+Amadeus(reference prices on
 
 IATA: YYZ=Toronto YVR=Vancouver YUL=Montreal YYC=Calgary JFK/LGA/EWR=NewYork LAX=LA ORD=Chicago MIA=Miami SEA=Seattle SFO=SanFrancisco DEN=Denver BOS=Boston ATL=Atlanta DFW=Dallas DXB=Dubai BCN=Barcelona NRT/HND=Tokyo DPS=Bali CDG=Paris LHR=London FCO=Rome LIS=Lisbon PUJ=PuntaCana CUN=Cancun.
 
+CABIN CLASS: ALWAYS pass cabinClass: 'economy' to searchFlights. ONLY switch to 'business', 'first', or 'premium_economy' if the user explicitly says those exact words ("business class", "first class", "lie-flat seat", etc.). Never infer cabin class from the destination.
+
 QUALIFICATION — lead with warmth, not an interrogation:
 When someone describes a vague dream ("I need a beach trip", "inspire me"), get excited and engage. Ask about travel style and vibe FIRST — not just dates. Think "what kind of experience are they after?"
 - For vague requests: respond enthusiastically, share 2-3 destination ideas with personality ("Tokyo in May is *chef's kiss* — perfect weather, no rainy season yet"), then ask ONE qualifying question.
@@ -230,8 +232,8 @@ export async function POST(req: Request) {
     model:     anthropic('claude-sonnet-4-5'),
     system:    buildSystem(),
     messages:  compressedMessages,
-    maxTokens: 4096,
-    maxSteps:  12,
+    maxTokens: 2048,
+    maxSteps:  8,
 
     tools: {
 
@@ -307,10 +309,12 @@ export async function POST(req: Request) {
         },
       }),
 
-      // ── Hotel search — LiteAPI (live) + Amadeus fallback + sample ──────────
+      // ── Hotel search — LiteAPI live rates ──────────────────────────────────
+      // Images come from LiteAPI's own /data/hotel endpoint (loaded lazily in
+      // the HotelCard detail panel) — no Unsplash fetching in the hot path.
       searchHotels: tool({
         description:
-          'Search hotels at destination with live rates from LiteAPI (1M+ properties). Falls back to Amadeus or sample data if unavailable. Results include vibrant Unsplash photos.',
+          'Search hotels at destination with live rates from LiteAPI (1M+ properties). Falls back to sample data if unavailable. Returns real photos, amenities, and bookable rates.',
         parameters: z.object({
           destination: z.string().describe('City name or IATA code e.g. "Cancun" or "CUN"'),
           checkIn:     z.string().describe('Check-in date YYYY-MM-DD'),
@@ -320,27 +324,18 @@ export async function POST(req: Request) {
           stars:       z.number().int().min(1).max(5).optional().describe('Minimum star rating'),
         }),
         execute: async (params) => {
-          const r = await aggregateHotels(params);
+          // Hard 15 s wall-clock cap — ensures Claude can stream results promptly.
+          const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 15_000));
+          const search  = aggregateHotels(params);
+          const r       = await Promise.race([search, timeout]);
 
-          // Enrich all hotels with a pool of vibrant destination images
-          const accessKey = process.env.UNSPLASH_ACCESS_KEY;
-          if (accessKey && r.hotels.length > 0) {
-            try {
-              const imagePool = await fetchHotelImagePool(params.destination, accessKey);
-              if (imagePool.length > 0) {
-                r.hotels.forEach((hotel, i) => {
-                  const offset = i % imagePool.length;
-                  hotel.image  = imagePool[offset]; // unique hero per hotel
-                  const gallery: string[] = [];
-                  for (let k = 0; k < imagePool.length; k++) {
-                    gallery.push(imagePool[(offset + k) % imagePool.length]);
-                  }
-                  hotel.images = gallery;
-                });
-              }
-            } catch {
-              // Image enrichment failure is non-fatal
-            }
+          if (!r) {
+            logger.search({
+              event: 'hotel_search', api: 'liteapi', sessionId,
+              params: params as Record<string, unknown>,
+              resultCount: 0, sources: [], errors: ['Hotel search timed out after 15s'],
+            });
+            return { hotels: [], count: 0, sources: [], isSample: false, errors: ['Search timed out — try again'] };
           }
 
           logger.search({

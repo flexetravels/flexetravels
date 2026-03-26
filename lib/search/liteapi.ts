@@ -367,9 +367,10 @@ export class LiteApiProvider implements SearchProvider {
     }
 
     // ── Step 1: Fetch hotel list for the city ──────────────────────────────────
+    // limit=12 keeps the rates payload small → faster rates call
     const listUrl =
       `${LITEAPI_BASE}/data/hotels?countryCode=${countryCode}` +
-      `&cityName=${encodeURIComponent(city)}&limit=20`;
+      `&cityName=${encodeURIComponent(city)}&limit=12`;
 
     const listRes = await fetch(listUrl, {
       headers: this.headers,
@@ -404,7 +405,7 @@ export class LiteApiProvider implements SearchProvider {
         currency:         'USD',
         guestNationality: countryCode === 'CA' ? 'CA' : 'US',
         roomMapping:      true,   // ensures offerId is included in each roomType object
-        timeout:          5,      // server-side timeout seconds per LiteAPI spec
+        timeout:          3,      // server-side timeout seconds per LiteAPI spec (3 s keeps total wall-clock under 12 s)
       }),
       signal: AbortSignal.timeout(20_000),
     });

@@ -598,24 +598,32 @@ export function HotelCard({ hotel, onSelect, selected, compact }: HotelCardProps
             )}
           </div>
 
-          <button
-            onClick={handleSelect}
-            className={cn(
-              'px-4 py-2.5 rounded-xl text-[13px] font-bold transition-all duration-150 flex items-center gap-1.5',
-              selected
-                ? 'bg-teal-600 dark:bg-teal-500 text-white shadow-lg shadow-teal-500/25'
-                : 'bg-teal-600 hover:bg-teal-700 text-white shadow-md shadow-teal-500/20 hover:shadow-lg hover:shadow-teal-500/30 active:scale-95'
-            )}
-          >
-            {selected ? <><Check className="w-3.5 h-3.5" /> Selected</> : 'Select'}
-          </button>
+          {hotel.isSample ? (
+            <span className="px-4 py-2.5 rounded-xl text-[13px] font-bold
+                             bg-muted text-muted-foreground cursor-not-allowed opacity-60">
+              Not bookable
+            </span>
+          ) : (
+            <button
+              onClick={handleSelect}
+              className={cn(
+                'px-4 py-2.5 rounded-xl text-[13px] font-bold transition-all duration-150 flex items-center gap-1.5',
+                selected
+                  ? 'bg-teal-600 dark:bg-teal-500 text-white shadow-lg shadow-teal-500/25'
+                  : 'bg-teal-600 hover:bg-teal-700 text-white shadow-md shadow-teal-500/20 hover:shadow-lg hover:shadow-teal-500/30 active:scale-95'
+              )}
+            >
+              {selected ? <><Check className="w-3.5 h-3.5" /> Selected</> : 'Select'}
+            </button>
+          )}
         </div>
 
-        {/* Indicative pricing notice */}
+        {/* Indicative pricing notice — shown clearly before the user tries anything */}
         {hotel.isSample && (
-          <p className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20
-                        px-2.5 py-1 rounded-lg">
-            ⚠ Indicative price — rates confirmed at booking
+          <p className="text-[11px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20
+                        border border-amber-200 dark:border-amber-800/50
+                        px-3 py-2 rounded-lg leading-snug">
+            ⚠ <strong>Estimated pricing only.</strong> Live hotel rates aren&apos;t available for this destination yet — search again or try a different city to see bookable options.
           </p>
         )}
       </div>
