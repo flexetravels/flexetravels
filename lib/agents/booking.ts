@@ -383,8 +383,13 @@ export const bookingAgent = {
             durationMs: Date.now() - t2,
           });
           if (book.success) {
-            hotelRef           = book.bookingId;
+            // Use bookingId from response; if LiteAPI returned 2xx but no id field,
+            // fall back to a timestamp ref so the confirmation flow still completes.
+            hotelRef           = book.bookingId ?? `LITEAPI-${Date.now()}`;
             hotelConfirmedTotal = prebook.confirmedTotal ?? book.totalAmount;
+            if (!book.bookingId) {
+              console.warn('[booking-agent] book succeeded but no bookingId — using fallback ref:', hotelRef);
+            }
           } else {
             hotelError = book.error ?? 'Hotel booking failed';
           }

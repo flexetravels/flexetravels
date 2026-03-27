@@ -693,14 +693,19 @@ export async function liteApiPrebook(
 
   console.log('[liteApiPrebook] offerId:', offerId.slice(0, 40) + (offerId.length > 40 ? '…' : ''), '| isSandbox:', isSandbox, '| usePaymentSdk:', usePaymentSdk);
 
-  const res = await fetch(`${LITEAPI_BASE}/rates/prebook?timeout=30`, {
+  // Sandbox: omit usePaymentSdk entirely (LiteAPI defaults to server-side card).
+  // Production: send usePaymentSdk: true so LiteAPI returns secretKey + transactionId.
+  const prebookBody: Record<string, unknown> = { offerId };
+  if (!isSandbox) prebookBody.usePaymentSdk = true;
+
+  const res = await fetch(`${LITEAPI_BASE}/rates/prebook`, {
     method: 'POST',
     headers: {
       'X-API-Key':    key,
       'Content-Type': 'application/json',
       'Accept':       'application/json',
     },
-    body: JSON.stringify({ offerId, usePaymentSdk }),
+    body: JSON.stringify(prebookBody),
     signal: AbortSignal.timeout(35_000),
   });
 
@@ -808,11 +813,12 @@ export async function liteApiBook(params: {
   //   method:     'ACC_CREDIT_CARD' or 'TRANSACTION_ID'
   //   cardNumber: '4242...'  (ACC_CREDIT_CARD only)
   //   expireDate: 'MM/YYYY'  (4-digit year)
+  // LiteAPI v3 ACC_CREDIT_CARD payment object — holderName is NOT a valid field in
+  // the v3 spec and causes a 400 validation error. Only cardNumber/expireDate/cvc.
   const payment = params.transactionId
     ? { method: 'TRANSACTION_ID', transactionId: params.transactionId }
     : {
         method:     'ACC_CREDIT_CARD',
-        holderName: `${params.guestFirstName} ${params.guestLastName}`,
         cardNumber: '4242424242424242',  // LiteAPI sandbox test card
         expireDate: '12/2028',
         cvc:        '123',
@@ -855,28 +861,37 @@ export async function liteApiBook(params: {
   }
 
   const raw = await res.json() as Record<string, unknown>;
-  console.log('[liteApiBook] success! top-level keys:', Object.keys(raw), '| data keys:', raw.data ? Object.keys(raw.data as object) : 'none');
+  // Log full raw response so we can see the exact shape LiteAPI returns
+  console.log('[liteApiBook] full raw response:', JSON.stringify(raw).slice(0, 1000));
 
-  const data = raw as {
-    data?: {
-      bookingId?:  string;
-      status?:     string;
-      price?:      { total?: number; currency?: string };
-      hotel?:      { name?: string; address?: string };
-      checkIn?:    string;
-      checkOut?:   string;
-    };
-  };
+  const d = (raw.data ?? {}) as Record<string, unknown>;
+
+  // LiteAPI v3 may use different keys across sandbox/production:
+  // "bookingId", "id", "booking_id", "bookingReference" — check all
+  const bookingId =
+    (d.bookingId  as string | undefined) ??
+    (d.id         as string | undefined) ??
+    (d.booking_id as string | undefined) ??
+    (d.bookingReference as string | undefined);
+
+  if (!bookingId) {
+    console.warn('[liteApiBook] WARNING: booking succeeded (2xx) but no bookingId found in response. Full data keys:', Object.keys(d));
+  } else {
+    console.log('[liteApiBook] bookingId:', bookingId);
+  }
+
+  const priceObj = d.price as { total?: number; currency?: string } | undefined;
+  const hotelObj = d.hotel as { name?: string; address?: string } | undefined;
 
   return {
     success:     true,
-    bookingId:   data.data?.bookingId,
-    status:      data.data?.status,
-    totalAmount: data.data?.price?.total,
-    currency:    data.data?.price?.currency ?? 'USD',
-    hotelName:   data.data?.hotel?.name,
-    address:     data.data?.hotel?.address,
-    checkIn:     data.data?.checkIn,
-    checkOut:    data.data?.checkOut,
+    bookingId,
+    status:      d.status as string | undefined,
+    totalAmount: priceObj?.total,
+    currency:    priceObj?.currency ?? 'USD',
+    hotelName:   hotelObj?.name,
+    address:     hotelObj?.address,
+    checkIn:     d.checkIn as string | undefined,
+    checkOut:    d.checkOut as string | undefined,
   };
 }
