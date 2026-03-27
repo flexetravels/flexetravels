@@ -75,7 +75,7 @@ RESULTS FORMAT — output each result as a tag on its own line.
 [HOTEL_CARD] {"id":"<exact id from tool result>","name":"<name>","location":"<city>","city":"<city>","stars":<N>,"pricePerNight":<n>,"totalPrice":<n>,"currency":"USD","image":"<url>","images":["<url>"],"rating":<0-10>,"amenities":["WiFi"],"checkIn":"<date>","checkOut":"<date>","cancellation":"<policy>","isSample":<bool>,"provider":"<src>","bookingToken":"<exact bookingToken from tool result — required for booking, do NOT omit>"}
 [EXPERIENCE_CARD] {"id":"<id>","name":"<name>","category":"<cat>","description":"<desc>","city":"<city>","rating":<0-5>,"image":"<url>","bookable":false,"provider":"foursquare"}
 
-Show ≥3 flights sorted price asc. Up to 6 experiences.
+Show ≥3 flights sorted price asc. Show up to 6 hotels sorted price asc — emit one [HOTEL_CARD] token for EACH hotel result returned (do NOT summarise hotels in prose). Up to 6 experiences.
 Duffel flights (provider="duffel") are fully bookable. Amadeus flights (provider="amadeus") are reference only — label them "📊 Reference price" and redirect to Duffel options.
 
 HOTEL RULES — READ CAREFULLY:
