@@ -193,26 +193,31 @@ export async function aggregateFlights(params: FlightSearchParams): Promise<{
   };
 }
 
-export async function aggregateHotels(params: HotelSearchParams): Promise<{
+export interface HotelAggregateResult {
   hotels: NormalizedHotel[];
   sources: string[];
   errors: string[];
-  isSample: boolean;
+  isSample: false;   // always false — we never fabricate hotel data
   latencyMs: number;
-}> {
+  /** Set when hotels is empty — tells the AI exactly what to say to the user */
+  noResultsMessage?: string;
+}
+
+export async function aggregateHotels(params: HotelSearchParams): Promise<HotelAggregateResult> {
   // LiteAPI is the hotel provider. Amadeus returns unreliable hotel data (400s) —
   // exclude it from hotel searches so errors don't pollute the result log.
   const providers = buildProviders().filter(p => p.name !== 'duffel' && p.name !== 'amadeus');
   const start = Date.now();
 
   if (providers.length === 0) {
-    // Return sample data — will be flagged so AI can disclose this to user
+    // LiteAPI key not configured — honest empty response, no fabrication
     return {
-      hotels: sampleHotels(params),
-      sources: ['sample'],
-      errors: [],
-      isSample: true,
+      hotels: [],
+      sources: [],
+      errors: ['Hotel provider not configured (LITEAPI_KEY missing)'],
+      isSample: false,
       latencyMs: Date.now() - start,
+      noResultsMessage: 'Hotel search is not available right now — please try again shortly.',
     };
   }
 
@@ -248,14 +253,19 @@ export async function aggregateHotels(params: HotelSearchParams): Promise<{
     .sort((a, b) => a.pricePerNight - b.pricePerNight)
     .slice(0, 6);
 
-  // If real search returned nothing, fall back to samples
+  // No real results found — return honest empty response, never fabricate
   if (filtered.length === 0) {
+    const dest = params.destination;
     return {
-      hotels: sampleHotels(params),
-      sources: ['sample'],
+      hotels: [],
+      sources: [],
       errors,
-      isSample: true,
+      isSample: false,
       latencyMs: Date.now() - start,
+      noResultsMessage:
+        `No hotels are currently available for ${dest} on these dates. ` +
+        `We searched our full inventory and found no options. ` +
+        `Please try different dates, a nearby city, or contact us for assistance.`,
     };
   }
 
