@@ -13,6 +13,20 @@ BASE="http://localhost:3000"
 ADMIN_SECRET="${ADMIN_SECRET:-}"  # set to your X-Admin-Secret if configured
 PASS=0; FAIL=0
 
+# ── Load .env.local into shell environment if vars not already set ─────────────
+ENVFILE="$(cd "$(dirname "$0")/.." && pwd)/.env.local"
+if [ -f "$ENVFILE" ]; then
+  while IFS='=' read -r key value; do
+    [[ "$key" =~ ^#.*$ ]] && continue    # skip comments
+    [[ -z "$key" ]]       && continue    # skip blank lines
+    key="${key// /}"                     # strip spaces from key
+    # Only set if not already in environment
+    if [ -z "${!key}" ]; then
+      export "$key"="$value"
+    fi
+  done < <(grep -v '^#' "$ENVFILE" | grep '=')
+fi
+
 # ── Colour helpers ─────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; NC='\033[0m'
 ok()   { echo -e "${GREEN}✓${NC} $1"; PASS=$((PASS+1)); }
@@ -81,9 +95,10 @@ fi
 section "3. Hotel Search (LiteAPI)"
 # ══════════════════════════════════════════════════════════════════════════════
 
-HOTEL_RESP=$(get "/api/debug/liteapi?destination=Vancouver&checkIn=$(date -d '+30 days' +%Y-%m-%d 2>/dev/null || date -v+30d +%Y-%m-%d)&checkOut=$(date -d '+32 days' +%Y-%m-%d 2>/dev/null || date -v+32d +%Y-%m-%d)&adults=1")
-HOTEL_STATUS=$(echo "$HOTEL_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print('ok' if d.get('success') else 'fail')" 2>/dev/null)
-[ "$HOTEL_STATUS" = "ok" ] && ok "LiteAPI hotel search working" || warn "LiteAPI returned no results (sandbox key may need activation)"
+HOTEL_RESP=$(get "/api/debug/liteapi?dest=Vancouver&checkIn=$(date -d '+30 days' +%Y-%m-%d 2>/dev/null || date -v+30d +%Y-%m-%d)&checkOut=$(date -d '+32 days' +%Y-%m-%d 2>/dev/null || date -v+32d +%Y-%m-%d)")
+HOTEL_STATUS=$(echo "$HOTEL_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print('ok' if d.get('bookable') else 'fail')" 2>/dev/null)
+HOTEL_VERDICT=$(echo "$HOTEL_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('verdict','no verdict'))" 2>/dev/null)
+[ "$HOTEL_STATUS" = "ok" ] && ok "LiteAPI hotel search working: $HOTEL_VERDICT" || warn "LiteAPI returned no bookable rates: $HOTEL_VERDICT"
 
 # ══════════════════════════════════════════════════════════════════════════════
 section "4. Booking Flow (book-trip)"
@@ -96,22 +111,47 @@ if [ "$OFFER_ID" != "skip" ] && [ -n "$OFFER_ID" ]; then
     "flightOfferId": "'"$OFFER_ID"'",
     "passengers": [{
       "firstName": "Test",
-      "lastName": "User",
-      "dateOfBirth": "1990-01-01",
+      "lastName": "Traveller",
+      "dateOfBirth": "1990-06-15",
       "email": "test@flexetravels.com",
-      "phone": "6041234567"
+      "phone": "+12025551234"
     }],
     "originAirport": "YVR"
   }')
 
-  BOOK_OK=$(echo "$BOOK_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('flightRef','') or d.get('error','no_ref'))" 2>/dev/null)
-  [[ "$BOOK_OK" != *"error"* ]] && [[ "$BOOK_OK" != "no_ref" ]] \
-    && ok "Duffel booking succeeded: ref=$BOOK_OK" \
-    || warn "Booking returned: $BOOK_OK (offer may have expired — normal in test)"
+  # Robust booking check: real Duffel refs are short alphanumeric (e.g. JE7XG6),
+  # not error messages. Detect failures by looking for "failed"/"error"/"invalid".
+  BOOK_OK=$(echo "$BOOK_RESP" | python3 -c "
+import json, sys, re
+d = json.load(sys.stdin)
+ref = d.get('flightRef', '')
+err = d.get('error', '') or d.get('flightError', '')
+# A real Duffel ref is 3-8 uppercase alphanumeric chars
+is_real_ref = bool(ref) and bool(re.match(r'^[A-Z0-9]{3,10}$', str(ref)))
+if is_real_ref:
+    print('ok:' + ref)
+elif err:
+    print('fail:' + str(err)[:120])
+elif ref:
+    print('fail:unexpected_ref=' + str(ref)[:80])
+else:
+    print('fail:no_ref')
+" 2>/dev/null)
 
-  # Check Stripe PaymentIntent was created
+  if [[ "$BOOK_OK" == ok:* ]]; then
+    ok "Duffel booking succeeded: ref=${BOOK_OK#ok:}"
+  else
+    warn "Booking failed: ${BOOK_OK#fail:} (offer may have expired — normal in test)"
+  fi
+
+  # Check Stripe PaymentIntent was created (only if booking succeeded)
   HAS_PI=$(echo "$BOOK_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print('yes' if d.get('clientSecret') else 'no')" 2>/dev/null)
-  [ "$HAS_PI" = "yes" ] && ok "Stripe PaymentIntent created" || fail "No Stripe client_secret in response"
+  if [[ "$BOOK_OK" == ok:* ]]; then
+    [ "$HAS_PI" = "yes" ] && ok "Stripe PaymentIntent created" || fail "Booking succeeded but no Stripe client_secret — Stripe integration broken"
+  else
+    [ "$HAS_PI" = "yes" ] && warn "Stripe PaymentIntent present despite booking failure (unexpected)" \
+                           || warn "Stripe PaymentIntent not created (expected — booking did not complete)"
+  fi
 else
   # Validate schema only — no real offer ID
   BOOK_RESP=$(post "/api/book-trip" '{
@@ -126,10 +166,29 @@ section "5. DB Persistence (Supabase)"
 # ══════════════════════════════════════════════════════════════════════════════
 
 DB_RESP=$(python3 - <<'PYEOF'
-import os, urllib.request, json, sys
+import os, urllib.request, json, sys, re
 
-url  = os.environ.get("SUPABASE_URL", "")
-key  = os.environ.get("SUPABASE_SERVICE_KEY", "")
+# Try shell env first, then fall back to .env.local
+def load_env_local():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    env_file = os.path.join(script_dir, '..', '.env.local')
+    env = {}
+    try:
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                k, _, v = line.partition('=')
+                env[k.strip()] = v.strip()
+    except Exception:
+        pass
+    return env
+
+env_local = load_env_local()
+
+url = os.environ.get("SUPABASE_URL") or env_local.get("SUPABASE_URL", "")
+key = os.environ.get("SUPABASE_SERVICE_KEY") or env_local.get("SUPABASE_SERVICE_KEY", "")
 
 if not url or not key or "PASTE" in url:
     print("not_configured")
@@ -159,7 +218,7 @@ section "6. Admin Panel"
 # ══════════════════════════════════════════════════════════════════════════════
 
 STATS=$(get "/api/admin/stats")
-STATS_OK=$(echo "$STATS" | python3 -c "import json,sys; d=json.load(sys.stdin); print('ok' if 'summary' in d or 'stats' in d or 'duffel' in d else 'fail')" 2>/dev/null)
+STATS_OK=$(echo "$STATS" | python3 -c "import json,sys; d=json.load(sys.stdin); print('ok' if 'apis' in d or 'window' in d or 'total' in d else 'fail')" 2>/dev/null)
 [ "$STATS_OK" = "ok" ] && ok "Admin stats endpoint responding" || fail "Admin stats endpoint broken"
 
 LOGS=$(get "/api/admin/logs?limit=5")

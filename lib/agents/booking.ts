@@ -24,12 +24,31 @@ interface DuffelOfferDetail {
 }
 
 // ─── Normalise phone numbers to E.164 ─────────────────────────────────────────
+// Duffel requires strict E.164: +[country_code][subscriber], 8–15 digits total.
+// Accepts: "+16041234567", "6041234567", "604-123-4567", "+1 (604) 123-4567", etc.
 
 function normalisePhone(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
+  // Strip everything except digits and leading +
+  const stripped = phone.trim();
+  const digits   = stripped.replace(/\D/g, '');
+
+  // Already has + prefix — verify digit count and return
+  if (stripped.startsWith('+')) {
+    // E.164 requires 7–15 digits after the +
+    if (digits.length >= 7 && digits.length <= 15) return `+${digits}`;
+  }
+
+  // North American 10-digit number (no country code)
   if (digits.length === 10) return `+1${digits}`;
+
+  // 11-digit number starting with 1 (NANP with country code)
   if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
-  return phone.startsWith('+') ? phone : `+${digits}`;
+
+  // International: has enough digits — prepend +
+  if (digits.length >= 7 && digits.length <= 15) return `+${digits}`;
+
+  // Fallback: return as-is with + to avoid sending a bare string
+  return `+${digits}`;
 }
 
 // ─── Duffel flight booking ────────────────────────────────────────────────────

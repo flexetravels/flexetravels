@@ -9,6 +9,28 @@
  */
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// ── Load .env.local so tests can run directly with `node scripts/test-hotel-search.mjs`
+// without needing to manually export every env var in the shell.
+function loadEnvLocal() {
+  try {
+    const dir = dirname(fileURLToPath(import.meta.url));
+    const file = resolve(dir, '..', '.env.local');
+    const lines = readFileSync(file, 'utf8').split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      const k = trimmed.slice(0, eqIdx).trim();
+      const v = trimmed.slice(eqIdx + 1).trim();
+      if (k && !(k in process.env)) process.env[k] = v;
+    }
+  } catch { /* .env.local not found — rely on shell env */ }
+}
+loadEnvLocal();
 
 const LITEAPI_BASE = 'https://api.liteapi.travel/v3.0';
 const KEY = process.env.LITEAPI_KEY;
@@ -26,6 +48,9 @@ const HEADERS = {
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Pause between LiteAPI calls to stay under the 10 req/s sandbox rate limit */
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 function nextWeekDates(nights = 3) {
   const d = new Date();
@@ -117,6 +142,7 @@ console.log('1. City fallback chain — Bali (DPS)');
 
 await test('"Bali" primary city returns ≥0 hotels (result captured)', async () => {
   if (SKIP_NETWORK) { console.log('\n     ⏭  skipped (no network)'); return; }
+  await sleep(300);
   const hotels = await fetchHotelList('ID', 'Bali');
   // We don't assert > 0 here — it might return 0, which is expected
   console.log(`\n     → "Bali" returned ${hotels.length} hotels`);
@@ -135,6 +161,7 @@ console.log('\n2. No-results path (no hallucination)');
 
 await test('Nonsense destination returns empty list, not an error', async () => {
   if (SKIP_NETWORK) { console.log('\n     ⏭  skipped (no network)'); return; }
+  await sleep(400);
   const hotels = await fetchHotelList('US', 'XYZZY_NONEXISTENT_CITY_12345');
   assert.equal(hotels.length, 0, 'Should return 0 hotels for nonsense city');
   // This simulates what triggers the noResultsMessage path
@@ -167,6 +194,7 @@ const KNOWN_CITIES = [
 for (const { city, countryCode } of KNOWN_CITIES) {
   await test(`"${city}" hotel list returns results`, async () => {
     if (SKIP_NETWORK) { console.log('\n     ⏭  skipped (no network)'); return; }
+    await sleep(400); // stay under LiteAPI 10 req/s sandbox limit
     const hotels = await fetchHotelList(countryCode, city);
     console.log(`\n     → "${city}" returned ${hotels.length} hotels`);
     // In sandbox, some cities may have limited inventory — warn but don't hard-fail
@@ -182,6 +210,7 @@ console.log('\n4. Rates call (bookable inventory)');
 
 await test('Toronto hotels have live rates with valid offerIds', async () => {
   if (SKIP_NETWORK) { console.log('\n     ⏭  skipped (no network)'); return; }
+  await sleep(600); // extra pause before rates call — it counts as multiple requests
   const { checkIn, checkOut } = nextWeekDates(3);
   const hotelList = await fetchHotelList('CA', 'Toronto');
 
