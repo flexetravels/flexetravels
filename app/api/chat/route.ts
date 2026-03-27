@@ -9,7 +9,7 @@
 import { streamText, tool } from 'ai';
 import { anthropic } from '@ai-sdk/anthropic';
 import { z } from 'zod';
-import { aggregateFlights, aggregateHotels, aggregateExperiences } from '@/lib/search/aggregator';
+import { aggregateFlights, aggregateHotels, aggregateExperiences, sampleHotels } from '@/lib/search/aggregator';
 import { DuffelProvider } from '@/lib/search/duffel';
 import { liteApiPrebook, liteApiBook } from '@/lib/search/liteapi';
 import { grokPriceInsight } from '@/lib/ai/grok';
@@ -77,7 +77,8 @@ RESULTS FORMAT — output each result as a tag on its own line.
 
 Show ≥3 flights + ≥3 hotels sorted price asc. Up to 6 experiences.
 Duffel flights (provider="duffel") are fully bookable. Amadeus flights (provider="amadeus") are reference only — label them "📊 Reference price" and redirect to Duffel options.
-Hotels with isSample:false + bookingToken = bookable via LiteAPI. Hotels with isSample:true = estimated pricing — say so warmly.
+CRITICAL: ALWAYS emit [HOTEL_CARD] tokens for every hotel in the searchHotels result — even when isSample:true. Never write hotel names in plain text instead of card tokens.
+Hotels with isSample:false + bookingToken = bookable via LiteAPI. Hotels with isSample:true = estimated/indicative pricing — say so warmly in 1 sentence, then show the cards.
 After results always end with a warm summary + "A flat $20 service fee applies. Which flight and hotel grab you?"
 
 CONVERSATIONAL TONE AFTER RESULTS:
@@ -330,12 +331,14 @@ export async function POST(req: Request) {
           const r       = await Promise.race([search, timeout]);
 
           if (!r) {
+            // Timeout — return sample/indicative hotels so the AI always has cards to show.
+            const fallback = sampleHotels(params);
             logger.search({
               event: 'hotel_search', api: 'liteapi', sessionId,
               params: params as Record<string, unknown>,
-              resultCount: 0, sources: [], errors: ['Hotel search timed out after 15s'],
+              resultCount: fallback.length, sources: ['sample'], errors: ['Hotel search timed out after 15s — showing indicative pricing'],
             });
-            return { hotels: [], count: 0, sources: [], isSample: false, errors: ['Search timed out — try again'] };
+            return { hotels: fallback, count: fallback.length, sources: ['sample'], isSample: true, errors: ['Live hotel rates timed out — indicative pricing shown'] };
           }
 
           logger.search({

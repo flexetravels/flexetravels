@@ -94,7 +94,7 @@ const HOTEL_FALLBACK_IMAGES = [
 ];
 
 // ─── Sample hotel fallback ────────────────────────────────────────────────────
-function sampleHotels(params: HotelSearchParams): NormalizedHotel[] {
+export function sampleHotels(params: HotelSearchParams): NormalizedHotel[] {
   const nights = Math.max(
     1,
     Math.round((new Date(params.checkOut).getTime() - new Date(params.checkIn).getTime()) / 86400000)

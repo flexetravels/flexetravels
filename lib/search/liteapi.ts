@@ -173,7 +173,7 @@ const IATA_TO_CITY: Record<string, { city: string; countryCode: string }> = {
   'HKT': { city: 'Phuket',        countryCode: 'TH' },
   'CNX': { city: 'Chiang Mai',    countryCode: 'TH' },
   'SIN': { city: 'Singapore',     countryCode: 'SG' },
-  'DPS': { city: 'Bali',          countryCode: 'ID' },
+  'DPS': { city: 'Kuta',          countryCode: 'ID' },  // Bali island → Kuta (near airport, best LiteAPI coverage)
   'DXB': { city: 'Dubai',         countryCode: 'AE' },
   'AUH': { city: 'Abu Dhabi',     countryCode: 'AE' },
   'HKG': { city: 'Hong Kong',     countryCode: 'HK' },
@@ -218,6 +218,19 @@ const IATA_TO_CITY: Record<string, { city: string; countryCode: string }> = {
 function toTitleCase(str: string): string {
   return str.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
+
+// When a city name returns 0 hotels from LiteAPI /data/hotels, try these alternatives
+// in order. LiteAPI indexes by specific municipality names, not regions/islands.
+const CITY_FALLBACKS: Record<string, string[]> = {
+  'bali':      ['Seminyak', 'Denpasar', 'Ubud', 'Nusa Dua'],
+  'kuta':      ['Seminyak', 'Denpasar', 'Ubud', 'Nusa Dua'],
+  'maldives':  ['Male', 'Hulhule'],
+  'phuket':    ['Patong', 'Kathu', 'Bang Tao'],
+  'santorini': ['Fira', 'Oia', 'Thira'],
+  'mykonos':   ['Mykonos Town', 'Mykonos'],
+  'ibiza':     ['Ibiza Town', 'Sant Antoni'],
+  'bora bora': ['Vaitape', 'Bora-Bora'],
+};
 
 export function resolveCityCountry(destination: string): { city: string; countryCode: string } {
   const upper = destination.toUpperCase().trim();
@@ -367,27 +380,46 @@ export class LiteApiProvider implements SearchProvider {
     }
 
     // ── Step 1: Fetch hotel list for the city ──────────────────────────────────
-    // limit=12 keeps the rates payload small → faster rates call
-    const listUrl =
-      `${LITEAPI_BASE}/data/hotels?countryCode=${countryCode}` +
-      `&cityName=${encodeURIComponent(city)}&limit=12`;
+    // limit=12 keeps the rates payload small → faster rates call.
+    // Some destinations are indexed by specific municipality names in LiteAPI
+    // (e.g. "Kuta" not "Bali"). Try the primary city, then CITY_FALLBACKS if 0 results.
+    const fetchHotelList = async (cityName: string): Promise<LiteHotelListItem[]> => {
+      const url =
+        `${LITEAPI_BASE}/data/hotels?countryCode=${countryCode}` +
+        `&cityName=${encodeURIComponent(cityName)}&limit=12`;
+      const res = await fetch(url, {
+        headers: this.headers,
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`LiteAPI hotels list ${res.status}: ${txt.slice(0, 200)}`);
+      }
+      const data = await res.json() as { data?: LiteHotelListItem[] };
+      return data.data ?? [];
+    };
 
-    const listRes = await fetch(listUrl, {
-      headers: this.headers,
-      signal: AbortSignal.timeout(8_000),   // was 15 s
-    });
-
-    if (!listRes.ok) {
-      const txt = await listRes.text();
-      throw new Error(`LiteAPI hotels list ${listRes.status}: ${txt.slice(0, 200)}`);
-    }
-
-    const listData = await listRes.json() as { data?: LiteHotelListItem[] };
-    const hotelList = listData.data ?? [];
+    let hotelList = await fetchHotelList(city);
+    let resolvedCity = city;
 
     if (hotelList.length === 0) {
-      throw new Error(`No hotels found for ${city}, ${countryCode} in LiteAPI`);
+      const alternatives = CITY_FALLBACKS[city.toLowerCase()] ?? [];
+      for (const alt of alternatives) {
+        console.log(`[LiteAPI] 0 hotels for "${city}" — trying fallback city: "${alt}"`);
+        hotelList = await fetchHotelList(alt);
+        if (hotelList.length > 0) {
+          resolvedCity = alt;
+          console.log(`[LiteAPI] Found ${hotelList.length} hotels with fallback city: "${alt}"`);
+          break;
+        }
+      }
     }
+
+    if (hotelList.length === 0) {
+      throw new Error(`No hotels found for ${city}, ${countryCode} in LiteAPI (tried all fallbacks)`);
+    }
+
+    console.log(`[LiteAPI] Using city "${resolvedCity}" — ${hotelList.length} hotels found`);
 
     // Build a lookup map for hotel details by ID
     const hotelInfoMap = new Map(hotelList.map(h => [h.id, h]));
@@ -481,8 +513,8 @@ export class LiteApiProvider implements SearchProvider {
         id:            rateHotel.hotelId,
         provider:      'liteapi',
         name:          info.name,
-        location:      city,
-        city:          city,
+        location:      resolvedCity,
+        city:          resolvedCity,
         stars,
         pricePerNight: Math.round(pricePerNight * 100) / 100,
         totalPrice:    Math.round(totalPrice * 100) / 100,
