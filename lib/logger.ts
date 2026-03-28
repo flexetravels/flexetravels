@@ -1,13 +1,7 @@
 // ─── FlexeTravels Transaction Logger ─────────────────────────────────────────
-// Writes structured JSON-lines to logs/transactions.jsonl for admin panel.
 // Keeps the last 2,000 entries in memory for fast dashboard access.
-// Safe to import in any API route — file I/O is fire-and-forget.
-
-// fs/path are Node-only — not available on Edge runtime. We guard all usage.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const fs   = typeof EdgeRuntime === 'undefined' ? require('fs')   : null;
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const path = typeof EdgeRuntime === 'undefined' ? require('path') : null;
+// Logs to console only — Edge-runtime compatible (no fs/path).
+// File I/O removed: Vercel production filesystem is ephemeral + read-only.
 
 // ─── Log entry types ──────────────────────────────────────────────────────────
 
@@ -60,17 +54,6 @@ export interface LogEntry {
 const MAX_MEMORY_ENTRIES = 2_000;
 const memoryLog: LogEntry[] = [];
 
-// ─── File path (Node-only, skipped on Edge) ───────────────────────────────────
-
-const LOG_DIR  = path ? path.join(process.cwd(), 'logs') : '';
-const LOG_FILE = path ? path.join(LOG_DIR, 'transactions.jsonl') : '';
-
-function ensureLogDir() {
-  if (!fs) return;
-  try {
-    if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
-  } catch { /* ignore */ }
-}
 
 // ─── ID generator ─────────────────────────────────────────────────────────────
 
@@ -92,16 +75,6 @@ export function logEvent(entry: Omit<LogEntry, 'id' | 'ts'>): LogEntry {
   memoryLog.push(full);
   if (memoryLog.length > MAX_MEMORY_ENTRIES) {
     memoryLog.splice(0, memoryLog.length - MAX_MEMORY_ENTRIES);
-  }
-
-  // Async write to file — Node.js only, skipped on Edge runtime
-  if (fs && typeof setImmediate !== 'undefined') {
-    setImmediate(() => {
-      try {
-        ensureLogDir();
-        fs.appendFileSync(LOG_FILE, JSON.stringify(full) + '\n', 'utf8');
-      } catch { /* non-fatal */ }
-    });
   }
 
   // Mirror to console for server logs
@@ -358,16 +331,20 @@ export function getLogStats() {
   };
 }
 
-/** Read log file for entries not yet in memory (e.g. after restart) */
-export function loadLogsFromFile(limit = 1000): LogEntry[] {
-  if (!fs) return [];
+/** No-op on Edge/production — returns empty (memory buffer is the source of truth) */
+export function loadLogsFromFile(_limit = 1000): LogEntry[] {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs   = require('fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require('path');
+    const LOG_FILE = path.join(process.cwd(), 'logs', 'transactions.jsonl');
     if (!fs.existsSync(LOG_FILE)) return [];
     const lines = fs.readFileSync(LOG_FILE, 'utf8')
       .split('\n')
       .filter(Boolean)
-      .slice(-limit);
-    return lines.map(l => JSON.parse(l) as LogEntry).reverse();
+      .slice(-_limit);
+    return lines.map((l: string) => JSON.parse(l) as LogEntry).reverse();
   } catch {
     return [];
   }
