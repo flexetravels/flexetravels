@@ -17,7 +17,6 @@ import { geminiDestinationGuide, geminiAlternatives } from '@/lib/ai/gemini';
 import { compressMessageHistory } from '@/lib/utils';
 import { logger } from '@/lib/logger';
 
-export const runtime    = 'edge';   // No serverless timeout — streaming runs as long as needed
 export const maxDuration = 120;
 
 // ─── Dynamic system prompt ─────────────────────────────────────────────────────
