@@ -1,7 +1,7 @@
 // ─── FlexeTravels AI Chat Route ────────────────────────────────────────────────
 // Primary model:   Claude (anthropic)  — orchestrates all tools and conversation
 // Market intel:    Grok (xAI)          — price comparison & market insights
-// Destination AI:  Gemini (Google)     — travel guides & alternative suggestions
+// Destination AI:  Claude (Anthropic)     — travel guides & alternative suggestions
 // Flights:         Duffel (bookable) + Amadeus (price reference)
 // Hotels:          LiteAPI (live rates) + Amadeus fallback + sample fallback
 // Experiences:     OpenTripMap (POI discovery) → Viator (bookable, coming soon)
@@ -652,7 +652,7 @@ export async function POST(req: Request) {
       // ── Gemini destination guide ───────────────────────────────────────────
       getDestinationGuide: tool({
         description:
-          'Get a concise travel guide from Gemini AI — best neighbourhoods, activities, food, tips. Call in parallel with searchFlights/searchHotels.',
+          'Get a concise travel guide from Claude AI — best neighbourhoods, activities, food, tips. Call in parallel with searchFlights/searchHotels.',
         parameters: z.object({
           destination: z.string().describe('Destination city or country'),
           travelDates: z.string().optional().describe('Approximate travel dates'),
@@ -661,7 +661,7 @@ export async function POST(req: Request) {
         execute: async ({ destination, travelDates, interests }) => {
           try {
             const guide = await geminiDestinationGuide(destination, travelDates, interests);
-            return { guide, source: 'Gemini (Google)' };
+            return { guide, source: 'Claude (Anthropic)' };
           } catch (err) {
             return { guide: null, error: String(err) };
           }
@@ -683,7 +683,7 @@ export async function POST(req: Request) {
             const alternatives = await geminiAlternatives(
               params.originalDestination, params.budget, params.interests, params.departureCity,
             );
-            return { alternatives, source: 'Gemini (Google)' };
+            return { alternatives, source: 'Claude (Anthropic)' };
           } catch (err) {
             return { alternatives: null, error: String(err) };
           }

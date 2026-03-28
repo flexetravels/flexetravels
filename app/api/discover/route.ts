@@ -1,6 +1,6 @@
 // ─── /api/discover — Daily-cached trending destinations, events & experiences ──
-// Uses Gemini 2.0 Flash to generate fresh content once per day, keyed by date+region.
-// Falls back to curated static data if Gemini is unavailable.
+// Uses Claude Haiku to generate fresh content once per day, keyed by date+region.
+// Falls back to curated static data if Claude is unavailable.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { geminiGenerate } from '@/lib/ai/gemini';
@@ -105,7 +105,7 @@ interface GeminiDiscoverResponse {
   experiences:  RawCard[];
 }
 
-async function generateFromGemini(region: string, today: string): Promise<GeminiDiscoverResponse> {
+async function generateFromClaude(region: string, today: string): Promise<GeminiDiscoverResponse> {
   const regionLabel =
     region === 'CA' ? 'Canada' :
     region === 'US' ? 'United States' :
@@ -168,12 +168,12 @@ Rules:
 
   const raw = await geminiGenerate(
     prompt,
-    'You are a senior travel editor. Respond only with the JSON object requested. No preamble.',
-    'gemini-2.0-flash',
+    'You are a senior travel editor. Respond only with the JSON object requested. No preamble, no markdown, no code fences.',
+    undefined,
     { maxOutputTokens: 4096, temperature: 0.6 }
   );
 
-  // Strip markdown code fences if Gemini wraps the output
+  // Strip markdown code fences if Claude wraps the output
   const cleaned = raw
     .replace(/^```json\s*/i, '')
     .replace(/^```\s*/i, '')
@@ -187,9 +187,9 @@ Rules:
 async function buildDiscoverData(region: string, today: string): Promise<DiscoverData> {
   let raw: GeminiDiscoverResponse;
   try {
-    raw = await generateFromGemini(region, today);
+    raw = await generateFromClaude(region, today);
   } catch (err) {
-    console.error('[discover] Gemini failed, using fallback:', err);
+    console.error('[discover] Claude failed, using fallback:', err);
     return getFallbackData(region, today);
   }
 
