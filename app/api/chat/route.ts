@@ -53,7 +53,7 @@ PLATFORM: Flights=Duffel only (bookable). Hotels=LiteAPI (live rates). Fee=$20 f
 
 IATA: YYZ=Toronto YVR=Vancouver YUL=Montreal YYC=Calgary JFK/EWR=NYC LAX=LA ORD=Chicago MIA=Miami SFO=SF DEN=Denver BOS=Boston ATL=Atlanta DFW=Dallas DXB=Dubai BCN=Barcelona NRT=Tokyo DPS=Bali CDG=Paris LHR=London FCO=Rome LIS=Lisbon PUJ=PuntaCana CUN=Cancun.
 
-SEARCH: Once you have origin, destination, dates, party size → call searchFlights + searchHotels in parallel. cabinClass always 'economy' unless user says otherwise. "we/couple/us/partner" → adults=2.
+SEARCH: Once you have origin, destination, dates, party size → call searchFlights AND searchHotels AND getDestinationGuide in the SAME turn simultaneously (parallel tool calls). Never call them sequentially — always invoke all at once. cabinClass always 'economy' unless user says otherwise. "we/couple/us/partner" → adults=2.
 
 CHILDREN: If kids mentioned, ask ages. Then emit before results: [CHILDREN_INFO] {"count":<N>,"ages":[...]}
 

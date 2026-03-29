@@ -61,8 +61,21 @@ function ComposingBlock({
 }: {
   toolCalls: Array<{ toolName: string; state: 'call' | 'result' }>;
 }) {
-  const toolsActive  = toolCalls.some(tc => tc.state === 'call');
-  const toolsDone    = toolCalls.length > 0 && !toolsActive;
+  const activeTools = toolCalls.filter(tc => tc.state === 'call').map(tc => tc.toolName);
+  const toolsDone   = toolCalls.length > 0 && activeTools.length === 0;
+
+  const statusText = () => {
+    if (activeTools.length === 0) return toolsDone ? 'Composing your results…' : 'Thinking…';
+    if (activeTools.includes('searchFlights') && activeTools.includes('searchHotels'))
+      return 'Searching flights & hotels…';
+    if (activeTools.includes('searchFlights'))   return 'Searching flights across airlines…';
+    if (activeTools.includes('searchHotels'))    return 'Finding the best hotels…';
+    if (activeTools.includes('getDestinationGuide')) return 'Building your travel guide…';
+    if (activeTools.includes('searchExperiences'))   return 'Discovering experiences…';
+    if (activeTools.includes('bookFlight'))          return 'Booking your flight…';
+    if (activeTools.includes('preBookHotel'))        return 'Holding your room…';
+    return 'Searching across providers…';
+  };
 
   return (
     <div className="bubble-bot">
@@ -77,20 +90,13 @@ function ComposingBlock({
             />
           ))}
         </div>
-        <span className="text-sm text-muted-foreground">
-          {toolsActive
-            ? 'Searching across providers…'
-            : toolsDone
-              ? 'Composing your results…'
-              : 'Thinking…'}
-        </span>
+        <span className="text-sm text-muted-foreground">{statusText()}</span>
       </div>
     </div>
   );
 }
 
 // ─── Skeleton loaders ─────────────────────────────────────────────────────────
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function SkeletonFlightCard() {
   return (
     <div className="travel-card p-4 flex items-center gap-3 animate-pulse">
@@ -109,7 +115,6 @@ function SkeletonFlightCard() {
   );
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function SkeletonHotelCard() {
   return (
     <div className="travel-card overflow-hidden animate-pulse">
@@ -133,7 +138,6 @@ function SkeletonHotelCard() {
   );
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function SkeletonExperienceCard() {
   return (
     <div className="travel-card overflow-hidden animate-pulse">
@@ -706,6 +710,21 @@ export function ChatMessage({
           ) : (
             <ComposingBlock toolCalls={toolCalls ?? []} />
           )}
+          {/* Skeleton cards — shown immediately while tools are running */}
+          {(() => {
+            const activeTools = (toolCalls ?? []).filter(tc => tc.state === 'call').map(tc => tc.toolName);
+            const showFlightSkel = activeTools.includes('searchFlights') || activeTools.includes('searchBookableFlights');
+            const showHotelSkel  = activeTools.includes('searchHotels');
+            const showExpSkel    = activeTools.includes('searchExperiences');
+            if (!showFlightSkel && !showHotelSkel && !showExpSkel) return null;
+            return (
+              <div className="flex flex-col gap-2">
+                {showFlightSkel && [0,1,2].map(i => <SkeletonFlightCard key={i} />)}
+                {showHotelSkel  && [0,1,2].map(i => <SkeletonHotelCard  key={i} />)}
+                {showExpSkel    && [0,1].map(i   => <SkeletonExperienceCard key={i} />)}
+              </div>
+            );
+          })()}
         </div>
       </div>
     );
