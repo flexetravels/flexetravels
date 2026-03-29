@@ -15,7 +15,7 @@ import Image from 'next/image';
 import {
   MapPin, Wifi, Car, UtensilsCrossed, Waves,
   ChevronLeft, ChevronRight, Check, ChevronDown, ChevronUp,
-  Clock, Users, Utensils, RefreshCw, Loader2,
+  Clock, Users, Utensils, RefreshCw, Loader2, BedDouble,
 } from 'lucide-react';
 import { useState, useCallback, useRef } from 'react';
 import { cn, formatPrice, formatDate } from '@/lib/utils';
@@ -432,9 +432,19 @@ export function HotelCard({ hotel, onSelect, selected, compact }: HotelCardProps
         </div>
 
         {hotel.checkIn && hotel.checkOut && (
-          <div className="text-[11px] text-muted-foreground/80 bg-muted/40 rounded-lg px-3 py-1.5">
-            📅 {formatDate(hotel.checkIn)} → {formatDate(hotel.checkOut)}
-            {nights ? ` · ${nights} night${nights !== 1 ? 's' : ''}` : ''}
+          <div className="text-[11px] text-muted-foreground/80 bg-muted/40 rounded-lg px-3 py-1.5 flex items-center justify-between gap-2 flex-wrap">
+            <span>
+              📅 {formatDate(hotel.checkIn)} → {formatDate(hotel.checkOut)}
+              {nights ? ` · ${nights} night${nights !== 1 ? 's' : ''}` : ''}
+            </span>
+            {hotel.roomCount && hotel.roomCount > 1 && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold
+                               px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/30
+                               text-indigo-700 dark:text-indigo-300 flex-shrink-0">
+                <BedDouble className="w-2.5 h-2.5" />
+                {hotel.roomCount} rooms
+              </span>
+            )}
           </div>
         )}
 
@@ -586,6 +596,11 @@ export function HotelCard({ hotel, onSelect, selected, compact }: HotelCardProps
               </span>
               <span className="text-xs text-muted-foreground">/night</span>
             </div>
+            {hotel.roomCount && hotel.roomCount > 1 && (
+              <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium mt-0.5">
+                {hotel.roomCount} rooms · {formatPrice(Math.round(hotel.pricePerNight / hotel.roomCount * 100) / 100, hotel.currency)}/room
+              </p>
+            )}
             {nights && (
               <p className="text-[11px] text-muted-foreground/80 mt-0.5">
                 {formatPrice(hotel.totalPrice, hotel.currency)} total

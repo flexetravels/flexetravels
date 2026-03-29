@@ -79,6 +79,7 @@ export interface HotelResult {
     offerId?: string; name?: string; maxOccupancy?: number;
     rates?: Array<{ rateId?: string; name?: string; boardType?: string; boardName?: string; price?: number; currency?: string; commission?: number; refundable?: boolean }>;
   }>;
+  roomCount?:      number;     // number of rooms needed for the searched party (ceil(adults/2))
 }
 
 export interface Experience {

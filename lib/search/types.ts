@@ -70,6 +70,7 @@ export interface NormalizedHotel {
   checkOut: string;
   bookingToken?: string;       // provider-specific token for prebook
   isSample?: boolean;          // true = indicative pricing, not live
+  roomCount?: number;          // number of rooms needed for the searched party (ceil(adults/2))
 
   // ── Enriched LiteAPI fields ───────────────────────────────────────────────
   description?: string;        // HTML hotel description

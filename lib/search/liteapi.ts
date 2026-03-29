@@ -11,6 +11,26 @@ import type {
 
 const LITEAPI_BASE = 'https://api.liteapi.travel/v3.0';
 
+// ─── Multi-room occupancy builder ─────────────────────────────────────────────
+// Most hotels enforce a maximum of 2 adults per room. This helper distributes
+// N adults across the minimum number of rooms (ceil(N/2)), returning a valid
+// LiteAPI occupancies array. Examples:
+//   1 adult  → [{ adults: 1 }]
+//   2 adults → [{ adults: 2 }]
+//   3 adults → [{ adults: 2 }, { adults: 1 }]
+//   4 adults → [{ adults: 2 }, { adults: 2 }]
+//   5 adults → [{ adults: 2 }, { adults: 2 }, { adults: 1 }]
+// The price LiteAPI returns covers ALL rooms combined.
+function buildOccupancies(adults: number): Array<{ adults: number; children: never[] }> {
+  const n     = Math.max(1, adults);
+  const rooms = Math.ceil(n / 2);
+  return Array.from({ length: rooms }, (_, i) => {
+    const isLast     = i === rooms - 1;
+    const roomAdults = isLast && n % 2 === 1 ? 1 : 2;
+    return { adults: roomAdults, children: [] as never[] };
+  });
+}
+
 // ─── Hotel search cache (in-process, 30-min TTL per city+dates+guests) ─────────
 // Avoids hitting LiteAPI's slow rates endpoint on every message turn.
 const HOTEL_CACHE = new Map<string, { data: NormalizedHotel[]; ts: number }>();
@@ -433,7 +453,7 @@ export class LiteApiProvider implements SearchProvider {
         hotelIds,
         checkin:          params.checkIn,
         checkout:         params.checkOut,
-        occupancies:      [{ adults: params.adults ?? 2, children: [] }],
+        occupancies:      buildOccupancies(params.adults ?? 2),
         currency:         'USD',
         guestNationality: countryCode === 'CA' ? 'CA' : 'US',
         roomMapping:      true,   // ensures offerId is included in each roomType object
@@ -540,6 +560,8 @@ export class LiteApiProvider implements SearchProvider {
         refundableTag,
         // All room types for future UX
         allRoomTypes,
+        // Number of rooms needed for this party size (ceil(adults/2))
+        roomCount: Math.ceil((params.adults ?? 2) / 2),
         address: info.address ?? (info.location as { address?: string } | undefined)?.address,
       });
     }
@@ -587,7 +609,7 @@ export async function liteApiGetFreshOfferId(
         hotelIds:        [hotelId],
         checkin:         checkIn,
         checkout:        checkOut,
-        occupancies:     [{ adults: Math.max(1, adults), children: [] }],
+        occupancies:     buildOccupancies(adults),
         currency:        'USD',
         guestNationality,
         roomMapping:     true,   // ensures offerId field is present on each roomType
@@ -857,18 +879,18 @@ export async function liteApiBook(params: {
       };
 
   // LiteAPI v3 book body: uses `holder` (not `guestInfo`) + a `guests` array.
-  // All adult passengers are included so the hotel has accurate occupancy info.
-  const leadGuest = {
-    occupancyNumber: 1,
-    firstName:       params.guestFirstName,
-    lastName:        params.guestLastName,
-    email:           params.guestEmail,
-  };
-  // All guests are in the same single room (occupancy 1) — occupancyNumber refers
-  // to which room the guest is in, not their index. Sending occupancyNumber > 1
-  // when only one occupancy was preboooked triggers LiteAPI error 4002.
-  const additionalGuestEntries = (params.additionalGuests ?? []).map((g) => ({
-    occupancyNumber: 1,
+  // All adult passengers are included so LiteAPI has accurate occupancy info.
+  //
+  // occupancyNumber = which ROOM the guest is in (1-based), NOT their guest index.
+  // We book ceil(N/2) rooms (2 adults max per room, matching buildOccupancies logic).
+  //   Guest 0 → room 1, Guest 1 → room 1, Guest 2 → room 2, Guest 3 → room 2 …
+  const allPassengers = [
+    { firstName: params.guestFirstName, lastName: params.guestLastName, email: params.guestEmail },
+    ...(params.additionalGuests ?? []),
+  ];
+
+  const guestEntries = allPassengers.map((g, i) => ({
+    occupancyNumber: Math.floor(i / 2) + 1,   // 2 per room, 1-based room index
     firstName:       g.firstName,
     lastName:        g.lastName,
     ...(g.email ? { email: g.email } : {}),
@@ -881,7 +903,7 @@ export async function liteApiBook(params: {
       lastName:  params.guestLastName,
       email:     params.guestEmail,
     },
-    guests: [leadGuest, ...additionalGuestEntries],
+    guests: guestEntries,
     payment,
   };
 
