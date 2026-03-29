@@ -46,13 +46,31 @@ function ConfirmationView({ searchParams }: { searchParams: ReturnType<typeof us
         {/* Success card */}
         <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl overflow-hidden">
 
-          {/* Header gradient */}
-          <div className="bg-gradient-to-r from-teal-500 to-teal-700 p-5 sm:p-8 text-center">
-            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4">
-              <CheckCircle className="w-10 h-10 text-white" />
+          {/* Header gradient with celebration */}
+          <div className="bg-gradient-to-r from-teal-500 to-teal-700 p-5 sm:p-8 text-center relative overflow-hidden">
+            {/* Confetti dots */}
+            <div className="absolute inset-0 pointer-events-none" aria-hidden>
+              {[...Array(12)].map((_, i) => (
+                <div key={i}
+                  className="absolute w-2 h-2 rounded-full animate-bounce"
+                  style={{
+                    left: `${8 + (i * 7.5)}%`,
+                    top: `${10 + (i % 3) * 25}%`,
+                    backgroundColor: ['#fbbf24', '#f472b6', '#a78bfa', '#34d399', '#60a5fa', '#fb923c'][i % 6],
+                    animationDelay: `${i * 0.15}s`,
+                    animationDuration: `${1.5 + (i % 3) * 0.5}s`,
+                    opacity: 0.7,
+                  }}
+                />
+              ))}
             </div>
-            <h1 className="text-2xl font-bold text-white mb-1">Booking Confirmed!</h1>
-            <p className="text-teal-100 text-sm">Your {type} is booked</p>
+            <div className="relative">
+              <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckCircle className="w-10 h-10 text-white" />
+              </div>
+              <h1 className="text-2xl font-bold text-white mb-1">Your adventure begins!</h1>
+              <p className="text-teal-100 text-sm">Your {type} booking is confirmed and ready to go</p>
+            </div>
           </div>
 
           {/* Details */}

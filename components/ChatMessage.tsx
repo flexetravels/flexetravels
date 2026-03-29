@@ -174,6 +174,10 @@ function FlightResultsPanel({
     return f.stops >= 2;
   });
 
+  const cheapestFlightId = filtered.length > 1
+    ? filtered.reduce((min, f) => f.price < min.price ? f : min, filtered[0]).id
+    : null;
+
   const sorted = [...filtered].sort((a, b) => {
     if (sort === 'price')    return a.price - b.price;
     if (sort === 'stops')    return a.stops - b.stops;
@@ -275,6 +279,7 @@ function FlightResultsPanel({
                 <FlightCard
                   flight={f}
                   selected={selected === f.id}
+                  isBestValue={f.id === cheapestFlightId}
                   onSelect={(fl) => {
                     setSelected(fl.id);
                     onSelect?.(fl);
@@ -324,6 +329,10 @@ function HotelResultsPanel({
     if (starFilter === 'all') return true;
     return h.stars >= parseInt(starFilter);
   });
+
+  const cheapestHotelId = filtered.length > 1
+    ? filtered.reduce((min, h) => h.pricePerNight < min.pricePerNight ? h : min, filtered[0]).id
+    : null;
 
   const sorted = [...filtered].sort((a, b) => {
     if (sort === 'price')  return a.pricePerNight - b.pricePerNight;
@@ -418,6 +427,7 @@ function HotelResultsPanel({
                 <HotelCard
                   hotel={h}
                   selected={selected === h.id}
+                  isBestDeal={h.id === cheapestHotelId}
                   onSelect={(ht) => {
                     setSelected(ht.id);
                     onSelect?.(ht);

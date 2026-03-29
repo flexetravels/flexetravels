@@ -9,6 +9,16 @@ import { resolveCityCountry } from '@/lib/search/liteapi';
 const LITEAPI_BASE = 'https://api.liteapi.travel/v3.0';
 
 export async function GET(req: Request) {
+  // ── Auth gate — require ADMIN_SECRET in production ──────────────────────────
+  const secret = process.env.ADMIN_SECRET;
+  if (secret) {
+    const { searchParams: sp } = new URL(req.url);
+    const provided = req.headers.get('x-admin-secret') ?? sp.get('secret');
+    if (provided !== secret) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+  }
+
   const { searchParams } = new URL(req.url);
   const dest     = searchParams.get('dest')    ?? 'Cancun';
   const checkIn  = searchParams.get('checkIn') ?? (() => {

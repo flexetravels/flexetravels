@@ -826,7 +826,10 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
 
       {/* Header */}
       <div className="px-5 pt-5 pb-0 flex items-center justify-between">
-        <h2 className="font-black text-base text-foreground tracking-tight">Complete Booking</h2>
+        <div className="flex items-center gap-2">
+          <Lock className="w-3.5 h-3.5 text-teal-500" />
+          <h2 className="font-black text-base text-foreground tracking-tight">Secure Checkout</h2>
+        </div>
         <button
           onClick={onClose}
           className="w-7 h-7 rounded-full bg-muted/60 hover:bg-muted flex items-center justify-center transition-colors"
@@ -924,13 +927,38 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
               )}
             </div>
 
-            {/* Service fee line */}
-            <div className="flex items-center justify-between text-sm">
-              <div className="flex items-center gap-1.5 text-muted-foreground">
-                <Lock className="w-3.5 h-3.5" />
-                FlexeTravels service fee
+            {/* Cost breakdown */}
+            <div className="border-t border-border/40 pt-3 space-y-1.5">
+              {flight && (
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>Flight</span>
+                  <span>{formatPrice(flight.price, flight.currency)}</span>
+                </div>
+              )}
+              {hotel && !hotel.isSample && (
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>Hotel</span>
+                  <span>{formatPrice(hotel.totalPrice, hotel.currency)}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <div className="flex items-center gap-1.5">
+                  <Lock className="w-3 h-3" />
+                  FlexeTravels service fee
+                </div>
+                <span className="text-teal-700 dark:text-teal-300 font-bold">{feeDisplay}</span>
               </div>
-              <span className="font-bold text-teal-700 dark:text-teal-300">{feeDisplay}</span>
+              {(flight || (hotel && !hotel.isSample)) && (
+                <div className="flex items-center justify-between text-sm font-black text-foreground border-t border-border/40 pt-1.5 mt-1">
+                  <span>Total</span>
+                  <span className="text-teal-700 dark:text-teal-300">
+                    {formatPrice(
+                      (flight?.price ?? 0) + (hotel && !hotel.isSample ? (hotel.totalPrice ?? 0) : 0) + 20,
+                      (flight?.currency ?? hotel?.currency ?? currency).toUpperCase(),
+                    )}
+                  </span>
+                </div>
+              )}
             </div>
 
             <button
@@ -946,7 +974,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
               Continue <ArrowRight className="w-4 h-4" />
             </button>
             <p className="text-center text-[10px] text-muted-foreground/50">
-              Secured by Stripe · PCI-DSS compliant
+              You won&apos;t be charged until you confirm · Secured by Stripe
             </p>
           </div>
         )}
@@ -1127,6 +1155,10 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
               <span className="font-semibold text-foreground">Service fee</span>
               <span className="font-black text-teal-700 dark:text-teal-300">{feeDisplay}</span>
             </div>
+
+            <p className="text-xs text-muted-foreground/70 text-center">
+              You won&apos;t be charged until you tap the button below. Your card is processed securely by Stripe — FlexeTravels never sees your card details.
+            </p>
 
             {/* Stripe mounts here */}
             <div ref={paymentDivRef} className="min-h-[140px]" />

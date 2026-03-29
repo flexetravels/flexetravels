@@ -202,6 +202,72 @@ export const db = {
     },
   },
 
+  // ── Payments (Stripe persistence) ──────────────────────────────────────────
+  payments: {
+    async create(data: Partial<PaymentRow>): Promise<PaymentRow | null> {
+      const rows = await rest<PaymentRow[]>('POST', 'payments', { body: data, returning: true });
+      return rows?.[0] ?? null;
+    },
+    async getByRef(bookingRef: string): Promise<PaymentRow | null> {
+      const rows = await rest<PaymentRow[]>('GET', 'payments', { filter: { booking_ref: `eq.${bookingRef}` } });
+      return rows?.[0] ?? null;
+    },
+    async getByIntentId(intentId: string): Promise<PaymentRow | null> {
+      const rows = await rest<PaymentRow[]>('GET', 'payments', { filter: { stripe_intent_id: `eq.${intentId}` } });
+      return rows?.[0] ?? null;
+    },
+  },
+
+  // ── Search Logs (growth analytics) ───────────────────────────────────────
+  searchLogs: {
+    async create(data: Partial<SearchLogRow>): Promise<SearchLogRow | null> {
+      const rows = await rest<SearchLogRow[]>('POST', 'search_logs', { body: data, returning: true });
+      return rows?.[0] ?? null;
+    },
+  },
+
+  // ── User Sessions (anonymous engagement) ─────────────────────────────────
+  userSessions: {
+    async upsert(sessionId: string, userAgentHash?: string): Promise<void> {
+      if (!DB_AVAILABLE) return;
+      const existing = await rest<UserSessionRow[]>('GET', 'user_sessions', {
+        filter: { session_id: `eq.${sessionId}` },
+      });
+      if (existing && existing.length > 0) {
+        await rest('PATCH', 'user_sessions', {
+          filter: { session_id: `eq.${sessionId}` },
+          body: {
+            last_seen_at:    new Date().toISOString(),
+            total_searches:  (existing[0].total_searches ?? 0) + 1,
+          },
+        });
+      } else {
+        await rest('POST', 'user_sessions', {
+          body: {
+            session_id:      sessionId,
+            user_agent_hash: userAgentHash ?? null,
+            total_searches:  1,
+          },
+        });
+      }
+    },
+    async incrementBookings(sessionId: string): Promise<void> {
+      if (!DB_AVAILABLE) return;
+      const existing = await rest<UserSessionRow[]>('GET', 'user_sessions', {
+        filter: { session_id: `eq.${sessionId}` },
+      });
+      if (existing && existing.length > 0) {
+        await rest('PATCH', 'user_sessions', {
+          filter: { session_id: `eq.${sessionId}` },
+          body: {
+            last_seen_at:    new Date().toISOString(),
+            total_bookings:  (existing[0].total_bookings ?? 0) + 1,
+          },
+        });
+      }
+    },
+  },
+
   // ── Execution Logs ─────────────────────────────────────────────────────────
   executionLogs: {
     async create(data: Partial<ExecutionLogRow>): Promise<ExecutionLogRow | null> {
@@ -304,6 +370,46 @@ export interface AutomationScriptRow {
   active:        boolean;
   created_at:    string;
   updated_at:    string;
+}
+
+export interface PaymentRow {
+  id:                string;
+  stripe_intent_id:  string | null;
+  stripe_session_id: string | null;
+  booking_ref:       string;
+  amount_cents:      number;
+  currency:          string;
+  status:            'succeeded' | 'failed' | 'refunded';
+  paid_at:           string;
+  created_at:        string;
+}
+
+export interface SearchLogRow {
+  id:               string;
+  session_id:       string;
+  search_type:      'flight' | 'hotel';
+  origin:           string | null;
+  destination:      string;
+  depart_date:      string | null;
+  return_date:      string | null;
+  adults:           number;
+  children:         number;
+  result_count:     number;
+  provider_sources: string[];
+  latency_ms:       number | null;
+  converted:        boolean;
+  created_at:       string;
+}
+
+export interface UserSessionRow {
+  session_id:       string;
+  first_seen_at:    string;
+  last_seen_at:     string;
+  user_agent_hash:  string | null;
+  total_searches:   number;
+  total_bookings:   number;
+  metadata:         Record<string, unknown> | null;
+  created_at:       string;
 }
 
 export interface ExecutionLogRow {
