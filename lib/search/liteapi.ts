@@ -864,8 +864,11 @@ export async function liteApiBook(params: {
     lastName:        params.guestLastName,
     email:           params.guestEmail,
   };
-  const additionalGuestEntries = (params.additionalGuests ?? []).map((g, i) => ({
-    occupancyNumber: i + 2,            // 2, 3, … (1-based, lead is 1)
+  // All guests are in the same single room (occupancy 1) — occupancyNumber refers
+  // to which room the guest is in, not their index. Sending occupancyNumber > 1
+  // when only one occupancy was preboooked triggers LiteAPI error 4002.
+  const additionalGuestEntries = (params.additionalGuests ?? []).map((g) => ({
+    occupancyNumber: 1,
     firstName:       g.firstName,
     lastName:        g.lastName,
     ...(g.email ? { email: g.email } : {}),
