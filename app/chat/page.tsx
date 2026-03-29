@@ -337,8 +337,11 @@ export default function ChatPage() {
   const [cartHotel,     setCartHotel]     = useState<HotelResult  | null>(null);
   const [cartChildren,  setCartChildren]  = useState<{ count: number; ages: number[] } | null>(null);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const chatAreaRef    = useRef<HTMLDivElement>(null);
+  const messagesEndRef  = useRef<HTMLDivElement>(null);
+  const chatAreaRef     = useRef<HTMLDivElement>(null);
+  // true while the user has scrolled up — suppresses auto-scroll until they
+  // return to the bottom or send a new message.
+  const userScrolledUp  = useRef(false);
 
   // Ghost preference
   useEffect(() => {
@@ -370,16 +373,23 @@ export default function ChatPage() {
     },
   });
 
-  // Auto-scroll
+  // Auto-scroll — only follows the stream when the user hasn't scrolled up.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!userScrolledUp.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages, isLoading]);
 
-  // Scroll btn
+  // Scroll handler — detects user intent:
+  //   • near bottom (≤ 80px) → re-enable auto-scroll + hide button
+  //   • scrolled up           → pause auto-scroll + show button
   const onScroll = () => {
     const el = chatAreaRef.current;
     if (!el) return;
-    setShowScrollBtn(el.scrollHeight - el.scrollTop - el.clientHeight > 160);
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const nearBottom = distFromBottom <= 80;
+    userScrolledUp.current = !nearBottom;
+    setShowScrollBtn(distFromBottom > 160);
   };
 
   // Hotkeys
@@ -415,6 +425,7 @@ export default function ChatPage() {
     const dep   = new Date(f.departure).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     // Offer ID is intentionally NOT included here — the checkout card owns it.
     // Keeping it out prevents the AI from triggering premature booking tool calls.
+    userScrolledUp.current = false;
     append({
       role: 'user',
       content: `[FLIGHT_SELECTED] ${f.airline} ${f.origin}→${f.destination}, ${dep}, ${f.stops === 0 ? 'non-stop' : `${f.stops} stop`}, ${price}.`,
@@ -433,6 +444,7 @@ export default function ChatPage() {
     const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: h.currency ?? 'USD' }).format(n);
     const bookable = h.bookingToken && !h.isSample;
     // [HOTEL_SELECTED] tag tells the AI the hotel was chosen.
+    userScrolledUp.current = false;
     append({
       role: 'user',
       content: bookable
@@ -465,6 +477,7 @@ export default function ChatPage() {
 
   const doSubmit = useCallback(() => {
     setApiError(null);
+    userScrolledUp.current = false;   // always follow the new response
     handleSubmit(new Event('submit') as unknown as React.FormEvent);
   }, [handleSubmit]);
 
@@ -631,7 +644,7 @@ export default function ChatPage() {
           {showScrollBtn && (
             <div className="absolute bottom-32 sm:bottom-28 right-4 sm:right-5 z-20">
               <button
-                onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
+                onClick={() => { userScrolledUp.current = false; messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-full min-h-[44px]
                            bg-card/90 border border-border shadow-lg backdrop-blur-sm
                            text-xs text-muted-foreground hover:text-foreground transition-all
