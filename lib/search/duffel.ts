@@ -135,7 +135,7 @@ export class DuffelProvider implements SearchProvider {
           cabin_class: params.cabinClass,
         },
       }),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!res.ok) {

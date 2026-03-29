@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Standalone output — minimal Docker image for Railway (~50MB vs ~500MB)
+  output: 'standalone',
+
   // Skip ESLint during production builds — lint is enforced in CI/pre-commit instead
   eslint: { ignoreDuringBuilds: true },
   // Skip TypeScript type errors from blocking builds (type-check in CI separately)
@@ -53,6 +56,13 @@ const nextConfig = {
         ],
       },
       {
+        // Static assets — immutable cache (1 year, content-hashed by Next.js)
+        source: '/_next/static/(.*)',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+        ],
+      },
+      {
         // API routes — no caching, no credentials leaking
         source: '/api/(.*)',
         headers: [
@@ -65,10 +75,12 @@ const nextConfig = {
 
   // ── Proxy to existing FastAPI backend for legacy tool calls ────────────────
   async rewrites() {
+    const backendUrl = process.env.BACKEND_URL;
+    if (!backendUrl) return [];  // Skip proxy if BACKEND_URL not set
     return [
       {
         source:      '/api/backend/:path*',
-        destination: `${process.env.BACKEND_URL || 'http://localhost:8000'}/:path*`,
+        destination: `${backendUrl}/:path*`,
       },
     ];
   },

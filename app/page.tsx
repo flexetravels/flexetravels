@@ -516,6 +516,55 @@ function WhyDifferent() {
   );
 }
 
+// ─── Social proof / Testimonials ────────────────────────────────────────────────
+function Testimonials() {
+  const quotes = [
+    { text: 'Booked our Cancun trip in 5 minutes — flights, hotel, everything. My wife couldn\'t believe it.',
+      name: 'James T.', role: 'Family of 4', avatar: 'JT' },
+    { text: 'The AI found us a boutique hotel in Lisbon that was cheaper than anything on Booking.com. Game changer.',
+      name: 'Sarah M.', role: 'Couple', avatar: 'SM' },
+    { text: 'I normally spend hours comparing tabs. This did it all in one conversation. Worth every penny of the $20 fee.',
+      name: 'David K.', role: 'Solo traveler', avatar: 'DK' },
+  ];
+
+  return (
+    <section className="relative z-10 py-20 px-5 sm:px-8">
+      <div className="max-w-7xl mx-auto">
+        <div className="text-center mb-14">
+          <p className="text-teal-400 text-xs font-bold uppercase tracking-[0.2em] mb-4">Loved by travelers</p>
+          <h2 className="text-3xl sm:text-4xl font-extrabold text-white">
+            What our early users are saying
+          </h2>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {quotes.map(q => (
+            <div key={q.name}
+              className="bg-white/[0.04] border border-white/[0.08] rounded-2xl p-6
+                         hover:bg-white/[0.06] hover:border-white/[0.14] transition-all duration-300">
+              <div className="flex gap-1 mb-4">
+                {[...Array(5)].map((_, i) => (
+                  <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
+                ))}
+              </div>
+              <p className="text-white/70 text-sm leading-relaxed mb-5">&ldquo;{q.text}&rdquo;</p>
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-teal-500 to-teal-700
+                                flex items-center justify-center text-white text-xs font-bold">
+                  {q.avatar}
+                </div>
+                <div>
+                  <p className="text-white text-sm font-semibold">{q.name}</p>
+                  <p className="text-white/35 text-xs">{q.role}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ─── Verified destinations ─────────────────────────────────────────────────────
 function VerifiedDestinations({ onPrompt }: { onPrompt: (p: string) => void }) {
   return (
@@ -659,6 +708,7 @@ export default function LandingPage() {
       <StatsRibbon />
       <HowItWorks />
       <WhyDifferent />
+      <Testimonials />
       <VerifiedDestinations onPrompt={handlePrompt} />
       <TrustStrip />
 

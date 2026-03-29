@@ -148,9 +148,18 @@ async function testLiteApi() {
 
 // ─── Route handler ─────────────────────────────────────────────────────────────
 
-export async function GET() {
+export async function GET(req: Request) {
   if (process.env.NODE_ENV === 'production') {
     return NextResponse.json({ error: 'Test endpoint disabled in production' }, { status: 403 });
+  }
+  // Auth gate — require ADMIN_SECRET even in non-production
+  const secret = process.env.ADMIN_SECRET;
+  if (secret) {
+    const { searchParams } = new URL(req.url);
+    const provided = req.headers.get('x-admin-secret') ?? searchParams.get('secret');
+    if (provided !== secret) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
   }
 
   const started = new Date().toISOString();

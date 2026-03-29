@@ -879,22 +879,23 @@ export async function liteApiBook(params: {
       };
 
   // LiteAPI v3 book body: uses `holder` (not `guestInfo`) + a `guests` array.
-  // All adult passengers are included so LiteAPI has accurate occupancy info.
-  //
-  // occupancyNumber = which ROOM the guest is in (1-based), NOT their guest index.
-  // We book ceil(N/2) rooms (2 adults max per room, matching buildOccupancies logic).
-  //   Guest 0 → room 1, Guest 1 → room 1, Guest 2 → room 2, Guest 3 → room 2 …
+  // `guests` expects ONE lead guest per room (not all passengers).
+  // occupancyNumber = 1-based room index. 2 adults per room (matching buildOccupancies logic).
+  //   Room 1 lead: passenger 0, Room 2 lead: passenger 2, Room 3 lead: passenger 4 …
   const allPassengers = [
     { firstName: params.guestFirstName, lastName: params.guestLastName, email: params.guestEmail },
     ...(params.additionalGuests ?? []),
   ];
 
-  const guestEntries = allPassengers.map((g, i) => ({
-    occupancyNumber: Math.floor(i / 2) + 1,   // 2 per room, 1-based room index
-    firstName:       g.firstName,
-    lastName:        g.lastName,
-    ...(g.email ? { email: g.email } : {}),
-  }));
+  // One entry per room — take the first passenger from each 2-person group
+  const guestEntries = allPassengers
+    .filter((_, i) => i % 2 === 0)
+    .map((g, roomIndex) => ({
+      occupancyNumber: roomIndex + 1,
+      firstName:       g.firstName,
+      lastName:        g.lastName,
+      ...(g.email ? { email: g.email } : {}),
+    }));
 
   const bookBody = {
     prebookId: params.prebookId,

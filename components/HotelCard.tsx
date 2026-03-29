@@ -41,6 +41,7 @@ interface HotelCardProps {
   onSelect?: (hotel: HotelResult) => void;
   selected?: boolean;
   compact?: boolean;
+  isBestDeal?: boolean;
 }
 
 // ── Amenity icon map ──────────────────────────────────────────────────────────
@@ -278,7 +279,7 @@ function RoomCard({
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export function HotelCard({ hotel, onSelect, selected, compact }: HotelCardProps) {
+export function HotelCard({ hotel, onSelect, selected, compact, isBestDeal }: HotelCardProps) {
   const nights =
     hotel.checkIn && hotel.checkOut
       ? Math.round(
@@ -409,7 +410,14 @@ export function HotelCard({ hotel, onSelect, selected, compact }: HotelCardProps
         />
       ) : (
         <div className="h-28 bg-gradient-to-br from-teal-500/20 to-indigo-500/20
-                        flex items-end px-4 pb-3 rounded-t-[13px]">
+                        flex items-end px-4 pb-3 rounded-t-[13px] relative">
+          {isBestDeal && (
+            <span className="absolute top-2.5 right-2.5 text-[10px] font-bold text-amber-700 dark:text-amber-300
+                             bg-amber-50 dark:bg-amber-900/25 border border-amber-200 dark:border-amber-700
+                             px-2 py-0.5 rounded-full">
+              Best deal
+            </span>
+          )}
           <div>
             <h3 className="font-black text-base text-foreground">{hotel.name}</h3>
             <div className="flex items-center gap-2 mt-0.5">
@@ -606,9 +614,13 @@ export function HotelCard({ hotel, onSelect, selected, compact }: HotelCardProps
                 {formatPrice(hotel.totalPrice, hotel.currency)} total
               </p>
             )}
-            {hotel.cancellation && (
+            {hotel.cancellation ? (
               <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5 font-medium">
                 ✓ {hotel.cancellation}
+              </p>
+            ) : (
+              <p className="text-[10px] text-rose-500 dark:text-rose-400 mt-0.5 font-medium">
+                Non-refundable
               </p>
             )}
           </div>

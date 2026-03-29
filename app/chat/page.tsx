@@ -137,14 +137,20 @@ function WelcomeScreen({ onSend }: { onSend: (msg: string) => void }) {
         </div>
       </div>
 
+      <p className="text-xs text-teal-600 dark:text-teal-400 font-semibold tracking-wide uppercase mb-3">
+        Your personal travel concierge
+      </p>
       <h1 className="text-2xl sm:text-[2rem] md:text-[2.4rem] font-bold tracking-tight
                      text-foreground mb-2 leading-tight">
         What kind of trip are you dreaming of?
       </h1>
       <p className="text-muted-foreground text-[.875rem] sm:text-[.9375rem] max-w-[440px]
-                    leading-relaxed mb-6 px-2">
+                    leading-relaxed mb-2 px-2">
         Pick a vibe and I&apos;ll find real flights, hotels &amp; build your perfect itinerary —
         or just describe what you have in mind.
+      </p>
+      <p className="text-muted-foreground/60 text-xs max-w-[400px] mb-6 px-2 italic">
+        Try: &ldquo;Plan a romantic week in Santorini for our anniversary in June&rdquo;
       </p>
 
       {/* ── Vibe chips ── */}
@@ -316,7 +322,7 @@ function InputBar({ input, isLoading, onChange, onSubmit, onStop }: InputBarProp
         </div>
 
         <p className="mt-2 text-center text-xs text-muted-foreground/50">
-          AI may make errors — always verify prices before booking.
+          Prices are live from airlines and hotels. Always verify final pricing at checkout.
         </p>
       </div>
     </div>

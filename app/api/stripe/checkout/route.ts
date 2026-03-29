@@ -29,7 +29,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 });
     }
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+    if (!appUrl) {
+      console.error('[/api/stripe/checkout] NEXT_PUBLIC_APP_URL not set');
+      return NextResponse.json({ error: 'App URL not configured' }, { status: 503 });
+    }
     const { bookingReference, flightDescription, customerEmail } = parsed.data;
 
     const { url, sessionId } = await createServiceFeeCheckout({

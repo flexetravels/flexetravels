@@ -18,6 +18,7 @@ interface FlightCardProps {
   onSelect?: (flight: FlightResult) => void;
   selected?: boolean;
   compact?: boolean;
+  isBestValue?: boolean;
 }
 
 // ── Airline logo — avs.io CDN with initials fallback ──────────────────────────
@@ -54,7 +55,7 @@ function AirlineLogo({ airline, iataCode }: { airline: string; iataCode?: string
   );
 }
 
-export function FlightCard({ flight, onSelect, selected, compact }: FlightCardProps) {
+export function FlightCard({ flight, onSelect, selected, compact, isBestValue }: FlightCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   const stopLabel =
@@ -111,6 +112,13 @@ export function FlightCard({ flight, onSelect, selected, compact }: FlightCardPr
         </div>
 
         <div className="flex items-center gap-1.5">
+          {isBestValue && (
+            <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300
+                             bg-amber-50 dark:bg-amber-900/25 border border-amber-200 dark:border-amber-700
+                             px-2 py-0.5 rounded-full">
+              Best value
+            </span>
+          )}
           <span className={cn(
             'text-[11px] font-semibold px-2.5 py-0.5 rounded-full',
             stopBg, stopColor

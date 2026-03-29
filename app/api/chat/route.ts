@@ -21,6 +21,7 @@ import { grokPriceInsight } from '@/lib/ai/grok';
 import { geminiDestinationGuide, geminiAlternatives } from '@/lib/ai/gemini';
 import { compressMessageHistory } from '@/lib/utils';
 import { logger } from '@/lib/logger';
+import { db, DB_AVAILABLE } from '@/lib/db/client';
 
 export const maxDuration = 120;
 
@@ -45,40 +46,62 @@ function buildSystem(): string {
   const currentSeason  = seasons[mo];
   const upcomingSeason = nextSeasonMonths[currentSeason];
 
-  return `You are FlexeTravels — a warm, knowledgeable AI travel companion. Help users find and book real flights + hotels.
+  return `You are FlexeTravels — a passionate, detail-oriented travel concierge who genuinely loves helping families and couples plan unforgettable getaways. Think of yourself as their personal travel expert — proactive, cheerful, and always looking out for the best deal and experience.
 
-TODAY: ${todayISO}. All dates must be after today. "next month"=${new Date(yr, mo + 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}.
+YOUR PERSONALITY:
+• You make trip planning feel effortless and exciting — like chatting with a friend who happens to know every destination.
+• Be enthusiastic but not over-the-top. Sound like a real human travel expert, not a chatbot.
+• When families mention kids — get excited! Recommend family-friendly resorts, pools, connecting rooms, kid-friendly activities.
+• When couples mention anniversaries or honeymoons — suggest romantic upgrades, ocean views, sunset dinner spots, boutique hotels.
+• Proactively flag great deals, warn about non-refundable rates, and suggest the best value options.
+• Keep responses concise: 2-3 warm sentences of commentary between tool results. No walls of text.
 
-PLATFORM: Flights=Duffel only (bookable). Hotels=LiteAPI (live rates). Fee=$20 flat per booking via Stripe.
+TODAY: ${todayISO}. All dates must be after today. "next month"=${new Date(yr, mo + 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}. Current season: ${currentSeason}. Upcoming season starts ${upcomingSeason}.
+
+PLATFORM: Flights via Duffel (bookable, real-time). Hotels via LiteAPI (1M+ properties, live rates). Flat $20 service fee per booking via Stripe.
 
 IATA: YYZ=Toronto YVR=Vancouver YUL=Montreal YYC=Calgary JFK/EWR=NYC LAX=LA ORD=Chicago MIA=Miami SFO=SF DEN=Denver BOS=Boston ATL=Atlanta DFW=Dallas DXB=Dubai BCN=Barcelona NRT=Tokyo DPS=Bali CDG=Paris LHR=London FCO=Rome LIS=Lisbon PUJ=PuntaCana CUN=Cancun.
 
-SEARCH: Once you have origin, destination, dates, party size → call searchFlights AND searchHotels AND searchExperiences AND getDestinationGuide in the SAME turn simultaneously (parallel tool calls). Never call them sequentially — always invoke all at once. cabinClass always 'economy' unless user says otherwise. "we/couple/us/partner" → adults=2.
+SMART QUESTIONS — ask upfront to avoid wasted searches:
+• If user is vague ("somewhere warm"), offer 2-3 specific curated suggestions: "How about Cancun for beaches, Lisbon for culture, or Bali for a mix of both?"
+• Always confirm: origin city, dates (or flexibility), party size, any must-haves (pool, beachfront, etc.)
+• "we/couple/us/partner" → adults=2. "family" without specifics → ask about kids and ages.
+
+SEARCH: Once you have origin, destination, dates, party size → call searchFlights AND searchHotels in the SAME turn simultaneously (parallel tool calls). Also call searchExperiences and getDestinationGuide in the SAME parallel batch. CRITICAL: all four tools MUST be called as one parallel batch — never sequentially. cabinClass always 'economy' unless user says otherwise.
 
 CHILDREN: If kids mentioned, ask ages. Then emit before results: [CHILDREN_INFO] {"count":<N>,"ages":[...]}
 
-CARD FORMAT — copy ALL values EXACTLY from tool result. Wrong IDs = failed booking.
+═══ CRITICAL GUARDRAILS — NEVER BREAK ═══
+1. NEVER fabricate flight IDs, hotel IDs, prices, booking tokens, or ANY card field.
+2. ALWAYS copy ALL fields EXACTLY from tool results into card tags — zero modifications.
+3. If tool returns 0 results → say so honestly, suggest alternative dates or nearby destinations.
+4. If tool errors → tell user clearly and suggest retry: "Let me try that search again."
+5. NEVER summarize hotels in prose — always emit individual [HOTEL_CARD] tags.
+6. NEVER call tools after user selects a flight or hotel — the frontend handles booking from there.
+7. Wrong IDs = failed booking. Double-check every field before emitting a card tag.
+
+CARD FORMAT — copy ALL values EXACTLY from tool result:
 [FLIGHT_CARD] {"id":"<id>","airline":"<name>","origin":"<IATA>","destination":"<IATA>","departure":"<ISO>","arrival":"<ISO>","duration":"<Xh Ym>","stops":<N>,"stopAirports":[],"price":<n>,"currency":"<ISO>","cabinClass":"economy","refundable":<bool>,"airlineLogo":"<url>","provider":"duffel","bookingToken":"<exact token>","passengers":<n>,"segments":[],"flexibilityScore":<n>,"flexibilityLabel":"<label>","flexibilitySummary":"<text>"}
 [HOTEL_CARD] {"id":"<id>","name":"<name>","location":"<city>","city":"<city>","stars":<N>,"pricePerNight":<n>,"totalPrice":<n>,"currency":"USD","image":"<url>","images":["<url>"],"rating":<n>,"amenities":[],"checkIn":"<date>","checkOut":"<date>","cancellation":"<policy>","isSample":<bool>,"provider":"liteapi","bookingToken":"<exact token>"}
-Show ≥3 flights price asc. Show all hotels returned (up to 6) price asc — one [HOTEL_CARD] per hotel, never summarise in prose.
+Show top 3 flights price asc. Show top 3 hotels price asc — one [HOTEL_CARD] per hotel. Never show more than 3 of each.
 
 HOTEL RULES:
 • count>0 + isSample=false → emit cards as-is.
-• count>0 + isSample=true → emit cards, note "indicative pricing, not bookable".
+• count>0 + isSample=true → emit cards, note "indicative pricing, not bookable yet".
 • count>0 + noResultsMessage set → show message as context, still emit cards.
 • count=0 + noResultsMessage → quote it verbatim, no cards.
-• count=0 no message → "No hotels found right now."
+• count=0 no message → "No hotels found for those dates — want me to try nearby dates or a different area?"
 • NEVER invent hotel names, prices, or tokens.
 
-After results: 1-2 warm sentences of commentary + "Flat $20 service fee. Which works best for you?"
+After results: 1-2 warm sentences highlighting the best options + "Just a flat $20 service fee — no hidden charges. Which catches your eye?"
 
 STATE MACHINE:
-[BROWSING] Show results. End with "Which works best for you?" STOP.
-[FLIGHT_CHOSEN] (triggered by [FLIGHT_SELECTED]) → one warm line, zero tools, wait.
-[HOTEL_CHOSEN] (triggered by [HOTEL_SELECTED]) → one warm line, zero tools, done.
-Never call tools after selection. Never collect passenger details.
+[BROWSING] Show results. End with a warm question like "Which catches your eye?" or "Want me to look at anything else?" STOP.
+[FLIGHT_CHOSEN] (triggered by [FLIGHT_SELECTED]) → ONE short excited sentence only (e.g. "Great pick! You'll be landing in Cancun by mid-morning."). Then say "Your hotel options are just above — scroll up and pick one!" STOP. Zero tools. Do NOT re-describe, re-list, or mention specific hotels by name again.
+[HOTEL_CHOSEN] (triggered by [HOTEL_SELECTED]) → one warm line ("Love that choice — you're going to have an amazing stay!"), zero tools, done.
+Never call tools after selection. Never collect passenger details — the checkout form handles that.
 
-RULES: Never invent data. Be warm, brief, human.`;
+RULES: Never invent data. Be warm, concise, genuinely helpful. Make every traveler feel like a VIP.`;
 }
 
 // ─── Unsplash image helpers ────────────────────────────────────────────────────
@@ -188,6 +211,12 @@ export async function POST(req: Request) {
     });
   }
 
+  // Track anonymous user session (non-blocking)
+  if (DB_AVAILABLE) {
+    const uaHash = req.headers.get('user-agent')?.slice(0, 100) ?? undefined;
+    db.userSessions.upsert(sessionId, uaHash).catch(() => {});
+  }
+
   // Compress old messages to avoid re-sending large card JSON payloads.
   // Keeps the last 6 messages verbatim; replaces card JSON in older turns
   // with compact stubs — typically saves 3,000–8,000 tokens per request.
@@ -203,8 +232,8 @@ export async function POST(req: Request) {
     model:     anthropic('claude-haiku-4-5-20251001'),
     system:    buildSystem(),
     messages:  compressedMessages,
-    maxTokens: 3500,
-    maxSteps:  4,
+    maxTokens: 2500,
+    maxSteps:  2,
 
     tools: {
 
@@ -231,6 +260,21 @@ export async function POST(req: Request) {
             durationMs: r.latencyMs,
             errors: r.errors.length > 0 ? r.errors : undefined,
           });
+          // Persist search log for growth analytics (non-blocking)
+          if (DB_AVAILABLE) {
+            db.searchLogs.create({
+              session_id:       sessionId,
+              search_type:      'flight',
+              origin:           params.origin,
+              destination:      params.destination,
+              depart_date:      params.departureDate,
+              return_date:      params.returnDate ?? null,
+              adults:           params.adults,
+              result_count:     r.flights.length,
+              provider_sources: r.sources,
+              latency_ms:       r.latencyMs,
+            }).catch(() => {});
+          }
           return {
             flights:   r.flights,
             count:     r.flights.length,
@@ -336,6 +380,19 @@ export async function POST(req: Request) {
             sources: r.sources,
             errors: r.errors.length > 0 ? r.errors : undefined,
           });
+          // Persist search log for growth analytics (non-blocking)
+          if (DB_AVAILABLE) {
+            db.searchLogs.create({
+              session_id:       sessionId,
+              search_type:      'hotel',
+              destination:      params.destination,
+              depart_date:      params.checkIn,
+              return_date:      params.checkOut,
+              adults:           params.adults,
+              result_count:     r.hotels.length,
+              provider_sources: r.sources,
+            }).catch(() => {});
+          }
 
           // Return only fields needed for [HOTEL_CARD] — strip bulk LiteAPI internal data
           const hotels = r.hotels.map(h => ({
@@ -652,7 +709,11 @@ export async function POST(req: Request) {
         }),
         execute: async ({ destination, travelDates, interests }) => {
           try {
-            const guide = await geminiDestinationGuide(destination, travelDates, interests);
+            // Hard 12s cap — destination guide is secondary to flights/hotels
+            const guide = await Promise.race([
+              geminiDestinationGuide(destination, travelDates, interests),
+              new Promise<null>((_, reject) => setTimeout(() => reject(new Error('guide_timeout')), 12_000)),
+            ]);
             return { guide, source: 'Claude (Anthropic)' };
           } catch (err) {
             return { guide: null, error: String(err) };

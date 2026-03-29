@@ -1,45 +1,17 @@
-// ─── Stripe Webhook Route ─────────────────────────────────────────────────────
-// Listens for checkout.session.completed events to confirm $20 fee payment.
-// In staging: webhook handled via Stripe CLI or Dashboard test events.
+// ─── Stripe Webhook Route (Consolidated) ─────────────────────────────────────
+// All Stripe webhook handling is now in /api/webhooks/stripe.
+// This route forwards any requests that still hit the old path.
 
 import { NextResponse } from 'next/server';
-import { verifyWebhookSignature } from '@/lib/stripe';
-import { confirmedPayments } from '@/lib/confirmed-payments';
 
 export async function POST(req: Request) {
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!webhookSecret) {
-    return NextResponse.json({ error: 'Webhook not configured' }, { status: 503 });
-  }
-
-  const signature = req.headers.get('stripe-signature') ?? '';
-  const payload   = await req.text();
-
-  // Verify signature
-  const isValid = await verifyWebhookSignature(payload, signature, webhookSecret);
-  if (!isValid) {
-    console.warn('[stripe webhook] Invalid signature');
-    return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
-  }
-
-  const event = JSON.parse(payload) as {
-    type: string;
-    data: { object: { id: string; payment_status: string; metadata?: Record<string, string> } };
-  };
-
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    const bookingRef = session.metadata?.booking_reference;
-
-    if (bookingRef) {
-      confirmedPayments.set(session.id, {
-        paidAt:     new Date().toISOString(),
-        bookingRef,
-      });
-      console.log(`[stripe webhook] Fee confirmed for booking ${bookingRef}`);
-    }
-  }
-
-  return NextResponse.json({ received: true });
+  // Forward to canonical webhook handler
+  const url = new URL('/api/webhooks/stripe', req.url);
+  const res = await fetch(url.toString(), {
+    method:  'POST',
+    headers: req.headers,
+    body:    await req.text(),
+  });
+  const body = await res.text();
+  return new NextResponse(body, { status: res.status, headers: { 'Content-Type': 'application/json' } });
 }
-

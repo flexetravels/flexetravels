@@ -147,16 +147,24 @@ export async function aggregateFlights(params: FlightSearchParams): Promise<{
     return { flights: [], sources: [], errors: ['No flight providers configured'], latencyMs: 0 };
   }
 
-  // Run all providers in parallel
-  const results = await Promise.allSettled(
-    providers.map(async (p): Promise<SearchResult<NormalizedFlight>> => {
+  // ── Hard 18 s wall-clock cap — don't make users wait longer than necessary ──
+  // Each provider races against the cap. Whoever responds first wins; providers
+  // that are still in-flight at 18 s resolve as empty and are dropped silently.
+  const FLIGHT_WALL_CLOCK_MS = 16_000;
+
+  const withCap = (p: Promise<SearchResult<NormalizedFlight>>, provider: string): Promise<SearchResult<NormalizedFlight>> =>
+    new Promise(resolve => {
+      const timer = setTimeout(() => resolve({ provider: '__timeout__', results: [], latencyMs: FLIGHT_WALL_CLOCK_MS }), FLIGHT_WALL_CLOCK_MS);
+      p.then(v => { clearTimeout(timer); resolve(v); }).catch(() => { clearTimeout(timer); resolve({ provider, results: [], latencyMs: FLIGHT_WALL_CLOCK_MS, error: 'timed out' }); });
+    });
+
+  const results = await Promise.all(
+    providers.map(p => {
       const t0 = Date.now();
-      try {
-        const results = await p.searchFlights(params);
-        return { provider: p.name, results, latencyMs: Date.now() - t0 };
-      } catch (err) {
-        return { provider: p.name, results: [], latencyMs: Date.now() - t0, error: String(err) };
-      }
+      const promise = p.searchFlights(params)
+        .then(r => ({ provider: p.name, results: r, latencyMs: Date.now() - t0 }))
+        .catch(err => ({ provider: p.name, results: [] as NormalizedFlight[], latencyMs: Date.now() - t0, error: String(err) }));
+      return withCap(promise, p.name);
     })
   );
 
@@ -165,13 +173,10 @@ export async function aggregateFlights(params: FlightSearchParams): Promise<{
   const errors: string[] = [];
 
   for (const r of results) {
-    if (r.status === 'fulfilled') {
-      allFlights.push(...r.value.results);
-      if (r.value.results.length > 0) sources.push(r.value.provider);
-      if (r.value.error) errors.push(`${r.value.provider}: ${r.value.error}`);
-    } else {
-      errors.push(String(r.reason));
-    }
+    if (r.provider === '__timeout__') continue;
+    allFlights.push(...r.results);
+    if (r.results.length > 0) sources.push(r.provider);
+    if (r.error) errors.push(`${r.provider}: ${r.error}`);
   }
 
   const deduped = dedupeFlights(allFlights).sort((a, b) => a.price - b.price).slice(0, 8);
