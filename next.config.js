@@ -17,6 +17,8 @@ const nextConfig = {
       // Hotel images (LiteAPI CDN)
       { protocol: 'https', hostname: '*.liteapi.travel' },
       { protocol: 'https', hostname: 'photos.liteapi.travel' },
+      { protocol: 'https', hostname: 'static.cupid.travel' },
+      { protocol: 'https', hostname: '*.cupid.travel' },
       // Hotel images (backend / SerpAPI)
       { protocol: 'https', hostname: '*.googleusercontent.com' },
       { protocol: 'https', hostname: '*.googleapis.com' },

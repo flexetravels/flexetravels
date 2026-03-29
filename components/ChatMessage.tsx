@@ -260,7 +260,7 @@ function FlightResultsPanel({
           <div
             ref={scrollRef}
             className="flex gap-3 overflow-x-auto scroll-smooth snap-x snap-mandatory pb-2
-                       touch-pan-x
+                       overscroll-x-contain
                        [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
             style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
           >
@@ -405,7 +405,7 @@ function HotelResultsPanel({
           <div
             ref={scrollRef}
             className="flex gap-3 overflow-x-auto scroll-smooth snap-x snap-mandatory pb-2
-                       touch-pan-x
+                       overscroll-x-contain
                        [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
             style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
           >
@@ -676,10 +676,11 @@ export function ChatMessage({
   }
 
   // ── Assistant bubble — STREAMING state ────────────────────────────────────
-  // While the AI is still generating we ONLY show tool status pills + a stable
-  // composing indicator.  We deliberately skip all card parsing during streaming
-  // to prevent layout thrashing / flicker from incremental partial-JSON output.
+  // Show tool status pills + streaming prose text immediately.
+  // Card JSON is stripped from the live text to avoid showing raw JSON.
+  // Cards themselves render only once streaming=false (complete JSON required).
   if (streaming) {
+    const streamingText = stripCardTags(content).trim();
     return (
       <div className="msg-row-bot">
         <div className="bot-avatar flex-shrink-0 self-start mt-0.5">
@@ -694,8 +695,17 @@ export function ChatMessage({
               ))}
             </div>
           )}
-          {/* Stable composing placeholder — no partial content shown */}
-          <ComposingBlock toolCalls={toolCalls ?? []} />
+          {/* Show streaming prose as it arrives, or composing indicator if no text yet */}
+          {streamingText ? (
+            <div className="bubble-bot">
+              <div className="prose-chat">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingText}</ReactMarkdown>
+              </div>
+              <span className="inline-block w-2 h-4 bg-current opacity-70 animate-pulse ml-1 align-middle" />
+            </div>
+          ) : (
+            <ComposingBlock toolCalls={toolCalls ?? []} />
+          )}
         </div>
       </div>
     );

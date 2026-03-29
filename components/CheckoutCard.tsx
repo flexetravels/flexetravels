@@ -338,6 +338,9 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
   // ── LiteAPI payment SDK (production) ─────────────────────────────────────────
   // Loaded when usePaymentSdk: true — customer pays hotel cost directly through
   // LiteAPI's hosted Stripe-powered widget. We never touch their card data.
+  //
+  // onPaymentComplete fires automatically after the card is charged — the widget
+  // auto-advances to confirm the hotel booking without any manual button click.
   useEffect(() => {
     if (phase !== 'hotel-payment' || !hotelSecretKey || !liteapiPayDivRef.current) return;
     let cancelled = false;
@@ -367,14 +370,44 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
         return;
       }
 
+      // Persist the data needed to complete the booking after a potential 3DS redirect.
+      // If the bank redirects the customer away and back, the widget's onPaymentComplete
+      // won't fire — the /booking page reads this and calls /api/complete-hotel-booking.
+      try {
+        const lead = passengers[0];
+        sessionStorage.setItem('ft_hotel_pending', JSON.stringify({
+          prebookId:      hotelPrebookId,
+          transactionId:  hotelTransactionId,
+          flightRef:      flightRef || undefined,
+          guestFirstName: lead?.firstName ?? '',
+          guestLastName:  lead?.lastName  ?? '',
+          guestEmail:     lead?.email     ?? '',
+          savedAt:        Date.now(),
+        }));
+      } catch { /* sessionStorage may be unavailable — 3DS flow degrades to manual button */ }
+
       LiteAPIPayment({
         publicKey:     isSandbox ? 'sandbox' : 'live',
         secretKey:     hotelSecretKey,
         targetElement: '#liteapi-payment-container',
         appearance:    'flat',
         options:       { name: 'FlexeTravels' },
-        // returnUrl is used when 3D Secure redirect is required
+        // returnUrl fires when 3D Secure redirects the customer to their bank then back.
+        // The /booking page reads ft_hotel_pending from sessionStorage and completes the booking.
         returnUrl: `${window.location.origin}/booking?hotel_payment=complete&prebookId=${encodeURIComponent(hotelPrebookId)}`,
+        // Auto-advance to booking confirmation the moment the card is charged.
+        // Without this, customers would have to manually click a "confirm" button
+        // after paying — risking abandoned bookings if they close the modal.
+        onPaymentComplete: () => {
+          if (!cancelled) handleHotelPayComplete();
+        },
+        onError: (msg: unknown) => {
+          if (!cancelled) {
+            setError(typeof msg === 'string' ? msg : 'Payment failed. Please try again.');
+            // Reset back to hotel-payment so the widget stays visible for retry
+            setPhase('hotel-payment');
+          }
+        },
       });
     })().catch(err => {
       if (!cancelled) {
@@ -384,6 +417,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
     });
 
     return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, hotelSecretKey, hotelPrebookId]);
 
   // ── Complete hotel booking after LiteAPI payment SDK ──────────────────────────
@@ -1126,18 +1160,19 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
               </div>
             )}
 
+            {/* Fallback button — shown only if the widget's onPaymentComplete
+                didn't fire (e.g. 3DS redirect flow that returned to this page) */}
             {phase === 'hotel-payment' && (
               <button
                 onClick={handleHotelPayComplete}
                 className={cn(
-                  'w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2',
-                  'bg-teal-600 text-white transition-all duration-150',
-                  'shadow-md shadow-teal-500/20',
-                  'hover:bg-teal-700 hover:shadow-lg active:scale-[0.98]'
+                  'w-full py-3 rounded-2xl font-semibold text-xs flex items-center justify-center gap-2',
+                  'bg-muted text-muted-foreground border border-border/60',
+                  'hover:bg-muted/80 transition-all duration-150'
                 )}
               >
-                <Lock className="w-3.5 h-3.5" />
-                Confirm hotel booking
+                <Lock className="w-3 h-3" />
+                Payment complete — confirm my booking
               </button>
             )}
             <p className="text-center text-[10px] text-muted-foreground/50">

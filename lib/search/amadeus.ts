@@ -8,7 +8,7 @@ import type {
   NormalizedFlight, NormalizedHotel,
 } from './types';
 
-const AMADEUS_BASE = 'https://test.api.amadeus.com'; // use 'api.amadeus.com' in production
+const AMADEUS_BASE = process.env.AMADEUS_BASE_URL || 'https://api.amadeus.com';
 
 // ─── Token cache (module-level, reused across requests in the same process) ───
 let _cachedToken: string | null = null;

@@ -3,7 +3,7 @@
 // Exports retain the original "gemini*" names so callers need zero changes.
 
 import { generateText } from 'ai';
-import { anthropic } from '@ai-sdk/anthropic';
+import { createAnthropic } from '@ai-sdk/anthropic';
 
 const CLAUDE_GUIDE_MODEL = 'claude-haiku-4-5';
 
@@ -17,11 +17,12 @@ export async function geminiGenerate(
   _model?: string,
   options?: { maxOutputTokens?: number; temperature?: number }
 ): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.FLEXE_ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY;
   if (!apiKey || apiKey.includes('PASTE')) {
     throw new Error('ANTHROPIC_API_KEY not configured');
   }
 
+  const anthropic = createAnthropic({ apiKey });
   const { text } = await generateText({
     model:       anthropic(CLAUDE_GUIDE_MODEL),
     system:      systemInstruction,

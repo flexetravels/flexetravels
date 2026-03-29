@@ -284,10 +284,109 @@ function CheckoutView() {
   );
 }
 
-// ─── Main page — routes between checkout and confirmation ─────────────────────
+// ─── 3DS Hotel Payment Completion ─────────────────────────────────────────────
+// LiteAPI's widget redirects here after 3D Secure bank auth.
+// Reads ft_hotel_pending from sessionStorage and calls /api/complete-hotel-booking.
+function HotelPaymentCompleteView() {
+  const router = useRouter();
+  const [status, setStatus] = useState<'completing' | 'error'>('completing');
+  const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = sessionStorage.getItem('ft_hotel_pending');
+        if (!raw) {
+          setErrorMsg('Payment session not found. If you completed payment, please contact support with your booking details.');
+          setStatus('error');
+          return;
+        }
+        const pending = JSON.parse(raw) as {
+          prebookId: string; transactionId: string; flightRef?: string;
+          guestFirstName?: string; guestLastName?: string; guestEmail?: string;
+        };
+
+        // Guard against sessions older than 30 minutes (LiteAPI transactionId TTL)
+        const { savedAt } = pending as { savedAt?: number };
+        if (savedAt && Date.now() - savedAt > 30 * 60 * 1000) {
+          setErrorMsg('Payment session expired. Please contact support — your card may have been charged.');
+          setStatus('error');
+          return;
+        }
+
+        const res = await fetch('/api/complete-hotel-booking', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            prebookId:      pending.prebookId,
+            transactionId:  pending.transactionId,
+            guestFirstName: pending.guestFirstName ?? 'Guest',
+            guestLastName:  pending.guestLastName  ?? 'Traveller',
+            guestEmail:     pending.guestEmail     ?? '',
+          }),
+        });
+
+        if (cancelled) return;
+
+        const data = await res.json() as { success: boolean; bookingId?: string; error?: string };
+        if (!res.ok || !data.success) {
+          setErrorMsg(data.error ?? 'Hotel booking failed after payment. Please contact support.');
+          setStatus('error');
+          return;
+        }
+
+        // Success — clear pending session and navigate to confirmation
+        try { sessionStorage.removeItem('ft_hotel_pending'); } catch { /* ignore */ }
+        const ref = pending.flightRef ?? data.bookingId ?? '';
+        router.replace(`/booking?ref=${encodeURIComponent(ref)}&type=hotel`);
+      } catch (e) {
+        if (!cancelled) {
+          setErrorMsg(`Network error: ${String(e)}`);
+          setStatus('error');
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [router]);
+
+  if (status === 'error') {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="max-w-md w-full text-center space-y-4">
+          <AlertCircle className="w-14 h-14 text-red-500 mx-auto" />
+          <h1 className="text-xl font-bold text-foreground">Booking could not be completed</h1>
+          <p className="text-sm text-muted-foreground">{errorMsg}</p>
+          <Link href="/chat"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl
+                       bg-teal-600 text-white text-sm font-bold hover:bg-teal-700 transition-colors">
+            <ArrowLeft className="w-4 h-4" /> Back to chat
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="text-center space-y-3">
+        <Loader2 className="w-8 h-8 text-teal-500 animate-spin mx-auto" />
+        <p className="text-sm font-medium text-foreground">Confirming your hotel booking…</p>
+        <p className="text-xs text-muted-foreground">This takes just a moment</p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main page — routes between checkout, 3DS completion, and confirmation ─────
 function BookingContent() {
   const params = useSearchParams();
-  const hasRef = !!params.get('ref');
+  const hasRef          = !!params.get('ref');
+  const hotelPayComplete = params.get('hotel_payment') === 'complete';
+
+  if (hotelPayComplete) {
+    return <HotelPaymentCompleteView />;
+  }
 
   if (hasRef) {
     return <ConfirmationView searchParams={params} />;

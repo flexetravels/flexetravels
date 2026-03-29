@@ -12,7 +12,7 @@
 
 import type { HotelSearchParams, NormalizedHotel } from './types';
 
-const AMADEUS_BASE = 'https://test.api.amadeus.com';
+const AMADEUS_BASE = process.env.AMADEUS_BASE_URL || 'https://api.amadeus.com';
 
 // ─── Airport → Amadeus IATA city code (where they differ) ─────────────────────
 // Amadeus hotel-by-city uses city codes, not airport codes.

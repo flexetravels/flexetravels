@@ -478,10 +478,8 @@ export class LiteApiProvider implements SearchProvider {
 
       const pricePerNight = totalPrice / nights;
 
-      // Apply user filters
-      if (params.maxPrice && pricePerNight > params.maxPrice) continue;
+      // Filtering is handled by the aggregator — provider returns all results
       const stars = info.starRating ?? 3;
-      if (params.stars && stars < params.stars) continue;
 
       // LiteAPI v3.0 tags: "RFN" = refundable, "NRFN" = non-refundable
       const refundableTag = cheapestRate.cancellationPolicies?.refundableTag ?? '';
@@ -829,6 +827,8 @@ export async function liteApiBook(params: {
   // transactionId: provided by LiteAPI payment SDK after customer completes payment (production).
   // When present, method is TRANSACTION_ID. When absent (sandbox), method is ACC_CREDIT_CARD.
   transactionId?:     string;
+  // Additional adult guests beyond the lead (for multi-passenger bookings)
+  additionalGuests?:  { firstName: string; lastName: string; email?: string }[];
   apiKey?:            string;
 }): Promise<LiteApiBookResult> {
   const key = params.apiKey ?? process.env.LITEAPI_KEY;
@@ -856,7 +856,21 @@ export async function liteApiBook(params: {
         cvc:        '123',
       };
 
-  // LiteAPI v3 book body: uses `holder` (not `guestInfo`) + a `guests` array
+  // LiteAPI v3 book body: uses `holder` (not `guestInfo`) + a `guests` array.
+  // All adult passengers are included so the hotel has accurate occupancy info.
+  const leadGuest = {
+    occupancyNumber: 1,
+    firstName:       params.guestFirstName,
+    lastName:        params.guestLastName,
+    email:           params.guestEmail,
+  };
+  const additionalGuestEntries = (params.additionalGuests ?? []).map((g, i) => ({
+    occupancyNumber: i + 2,            // 2, 3, … (1-based, lead is 1)
+    firstName:       g.firstName,
+    lastName:        g.lastName,
+    ...(g.email ? { email: g.email } : {}),
+  }));
+
   const bookBody = {
     prebookId: params.prebookId,
     holder: {
@@ -864,12 +878,7 @@ export async function liteApiBook(params: {
       lastName:  params.guestLastName,
       email:     params.guestEmail,
     },
-    guests: [{
-      occupancyNumber: 1,              // required by LiteAPI v3 — 1-based occupancy index
-      firstName:       params.guestFirstName,
-      lastName:        params.guestLastName,
-      email:           params.guestEmail,
-    }],
+    guests: [leadGuest, ...additionalGuestEntries],
     payment,
   };
 

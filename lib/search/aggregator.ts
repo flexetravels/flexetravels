@@ -37,16 +37,7 @@ function buildProviders(): SearchProvider[] {
     providers.push(new DuffelProvider(duffelToken));
   }
 
-  // Support both naming conventions (AMADEUS_CLIENT_ID or AMADEUS_API_KEY)
-  const amadeusId =
-    process.env.AMADEUS_CLIENT_ID?.replace(/PASTE.*/i, '') ||
-    process.env.AMADEUS_API_KEY || '';
-  const amadeusSecret =
-    process.env.AMADEUS_CLIENT_SECRET?.replace(/PASTE.*/i, '') ||
-    process.env.AMADEUS_API_SECRET || '';
-  if (amadeusId && amadeusSecret) {
-    providers.push(new AmadeusProvider(amadeusId, amadeusSecret));
-  }
+  // Amadeus disabled — using Duffel exclusively for flights, LiteAPI for hotels
 
   // LiteAPI — real-time hotel rates (hotels-only provider)
   const liteApiKey = process.env.LITEAPI_KEY;
@@ -197,7 +188,7 @@ export interface HotelAggregateResult {
   hotels: NormalizedHotel[];
   sources: string[];
   errors: string[];
-  isSample: false;   // always false — we never fabricate hotel data
+  isSample: boolean;
   latencyMs: number;
   /** Set when hotels is empty — tells the AI exactly what to say to the user */
   noResultsMessage?: string;
@@ -247,25 +238,38 @@ export async function aggregateHotels(params: HotelSearchParams): Promise<HotelA
     }
   }
 
-  const filtered = dedupeHotels(allHotels)
+  const deduped = dedupeHotels(allHotels);
+
+  const filtered = deduped
     .filter(h => !params.maxPrice || h.pricePerNight <= params.maxPrice)
     .filter(h => !params.stars || h.stars >= params.stars)
     .sort((a, b) => a.pricePerNight - b.pricePerNight)
     .slice(0, 6);
 
-  // No real results found — return honest empty response, never fabricate
-  if (filtered.length === 0) {
-    const dest = params.destination;
+  console.log(`[aggregateHotels] raw=${allHotels.length}, deduped=${deduped.length}, filtered=${filtered.length}, maxPrice=${params.maxPrice ?? 'none'}, stars=${params.stars ?? 'none'}`);
+
+  // Filters eliminated everything but raw results exist — relax filters
+  if (filtered.length === 0 && deduped.length > 0) {
+    const relaxed = deduped
+      .sort((a, b) => a.pricePerNight - b.pricePerNight)
+      .slice(0, 6);
     return {
-      hotels: [],
-      sources: [],
-      errors,
-      isSample: false,
+      hotels: relaxed, sources, errors, isSample: false,
       latencyMs: Date.now() - start,
-      noResultsMessage:
-        `No hotels are currently available for ${dest} on these dates. ` +
-        `We searched our full inventory and found no options. ` +
-        `Please try different dates, a nearby city, or contact us for assistance.`,
+      noResultsMessage: `No hotels matched your exact budget/star filters, but here are the best available options:`,
+    };
+  }
+
+  // No real results at all — use sample hotels as last resort
+  if (filtered.length === 0) {
+    const samples = sampleHotels(params);
+    return {
+      hotels: samples,
+      sources: ['sample'],
+      errors,
+      isSample: true,
+      latencyMs: Date.now() - start,
+      noResultsMessage: `No live hotel inventory found for ${params.destination} on these dates. Here are indicative options to give you an idea of pricing:`,
     };
   }
 

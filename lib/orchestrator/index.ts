@@ -199,7 +199,9 @@ async function _persistBooking(
         trip_id:           tripId,
         type:              'flight',
         provider:          'duffel',
-        status:            'confirmed',
+        // 'pending' until Stripe service-fee webhook confirms payment.
+        // Webhook at /api/webhooks/stripe updates this to 'confirmed'.
+        status:            'pending',
         provider_ref:      result.flightRef,
         booking_ref:       result.flightRef,
         amount_cents:      0,
@@ -226,7 +228,8 @@ async function _persistBooking(
         trip_id:      tripId,
         type:         'hotel',
         provider:     'liteapi',
-        status:       'confirmed',
+        // 'pending' until Stripe service-fee webhook confirms payment.
+        status:       'pending',
         provider_ref: result.hotelRef,
         booking_ref:  result.hotelRef,
         amount_cents: hotelAmountCents,

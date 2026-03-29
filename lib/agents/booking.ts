@@ -385,10 +385,16 @@ export const bookingAgent = {
           // ── Sandbox: server-side ACC_CREDIT_CARD flow ─────────────────────────
           const t2 = Date.now();
           const book = await liteApiBook({
-            prebookId:      prebook.prebookId,
-            guestFirstName: lead.firstName,
-            guestLastName:  lead.lastName,
-            guestEmail:     lead.email,
+            prebookId:        prebook.prebookId,
+            guestFirstName:   lead.firstName,
+            guestLastName:    lead.lastName,
+            guestEmail:       lead.email,
+            // Include all additional adults so LiteAPI has accurate occupancy
+            additionalGuests: req.passengers.slice(1).map(p => ({
+              firstName: p.firstName,
+              lastName:  p.lastName,
+              email:     p.email,
+            })),
           });
           logger.hotelBooking({
             api:        'liteapi',

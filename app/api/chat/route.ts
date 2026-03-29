@@ -7,7 +7,12 @@
 // Experiences:     OpenTripMap (POI discovery) → Viator (bookable, coming soon)
 
 import { streamText, tool } from 'ai';
-import { anthropic } from '@ai-sdk/anthropic';
+import { createAnthropic } from '@ai-sdk/anthropic';
+
+// FLEXE_ANTHROPIC_KEY is used locally because Claude Code CLI shadows ANTHROPIC_API_KEY with ''
+const anthropic = createAnthropic({
+  apiKey: process.env.FLEXE_ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY,
+});
 import { z } from 'zod';
 import { aggregateFlights, aggregateHotels, aggregateExperiences } from '@/lib/search/aggregator';
 import { DuffelProvider } from '@/lib/search/duffel';
@@ -40,81 +45,40 @@ function buildSystem(): string {
   const currentSeason  = seasons[mo];
   const upcomingSeason = nextSeasonMonths[currentSeason];
 
-  return `You are FlexeTravels — a brilliant, warm travel companion who loves great trips as much as the people taking them. Think of yourself as that one friend who's been everywhere, knows all the tricks, and makes planning feel exciting rather than overwhelming.
+  return `You are FlexeTravels — a warm, knowledgeable AI travel companion. Help users find and book real flights + hotels.
 
-Your personality: enthusiastic but never pushy, knowledgeable but never condescending. You celebrate great finds ("ooh, this hotel is a steal!"), warn about gotchas ("heads up — June in Bali is peak season, book early!"), and always make the person feel like you're genuinely rooting for their trip.
+TODAY: ${todayISO}. All dates must be after today. "next month"=${new Date(yr, mo + 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}.
 
-TODAY: ${todayISO} (${todayLong}). All travel dates MUST be after today. "next month"=${new Date(yr, mo + 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}. "summer"=Jun–Aug ${mo >= 8 ? yr + 1 : yr}. Upcoming season: ${upcomingSeason}.
+PLATFORM: Flights=Duffel only (bookable). Hotels=LiteAPI (live rates). Fee=$20 flat per booking via Stripe.
 
-PLATFORM: Flights=Duffel(bookable,provider="duffel")+Amadeus(reference prices only — NOT bookable,provider="amadeus") · Hotels=LiteAPI(live rates,isSample=false) · Experiences=Foursquare/OpenTripMap · Fee=$20 flat service fee per booking via Stripe (in-chat, no redirects).
+IATA: YYZ=Toronto YVR=Vancouver YUL=Montreal YYC=Calgary JFK/EWR=NYC LAX=LA ORD=Chicago MIA=Miami SFO=SF DEN=Denver BOS=Boston ATL=Atlanta DFW=Dallas DXB=Dubai BCN=Barcelona NRT=Tokyo DPS=Bali CDG=Paris LHR=London FCO=Rome LIS=Lisbon PUJ=PuntaCana CUN=Cancun.
 
-IATA: YYZ=Toronto YVR=Vancouver YUL=Montreal YYC=Calgary JFK/LGA/EWR=NewYork LAX=LA ORD=Chicago MIA=Miami SEA=Seattle SFO=SanFrancisco DEN=Denver BOS=Boston ATL=Atlanta DFW=Dallas DXB=Dubai BCN=Barcelona NRT/HND=Tokyo DPS=Bali CDG=Paris LHR=London FCO=Rome LIS=Lisbon PUJ=PuntaCana CUN=Cancun.
+SEARCH: Once you have origin, destination, dates, party size → call searchFlights + searchHotels in parallel. cabinClass always 'economy' unless user says otherwise. "we/couple/us/partner" → adults=2.
 
-CABIN CLASS: ALWAYS pass cabinClass: 'economy' to searchFlights. ONLY switch to 'business', 'first', or 'premium_economy' if the user explicitly says those exact words ("business class", "first class", "lie-flat seat", etc.). Never infer cabin class from the destination.
+CHILDREN: If kids mentioned, ask ages. Then emit before results: [CHILDREN_INFO] {"count":<N>,"ages":[...]}
 
-QUALIFICATION — lead with warmth, not an interrogation:
-When someone describes a vague dream ("I need a beach trip", "inspire me"), get excited and engage. Ask about travel style and vibe FIRST — not just dates. Think "what kind of experience are they after?"
-- For vague requests: respond enthusiastically, share 2-3 destination ideas with personality ("Tokyo in May is *chef's kiss* — perfect weather, no rainy season yet"), then ask ONE qualifying question.
-- When you have enough to search: collect origin IATA, destination IATA, departure date, return date, adults (CRITICAL: "we/couple/partner/wife/husband/us" → adults=2, never default to 1 when party>1).
-- Ask ONE question at a time, never a bulleted interrogation list.
-- Once you have destination + origin + dates + party size: search ALL FOUR in parallel: searchFlights + searchHotels + searchExperiences + getDestinationGuide.
+CARD FORMAT — copy ALL values EXACTLY from tool result. Wrong IDs = failed booking.
+[FLIGHT_CARD] {"id":"<id>","airline":"<name>","origin":"<IATA>","destination":"<IATA>","departure":"<ISO>","arrival":"<ISO>","duration":"<Xh Ym>","stops":<N>,"stopAirports":[],"price":<n>,"currency":"<ISO>","cabinClass":"economy","refundable":<bool>,"airlineLogo":"<url>","provider":"duffel","bookingToken":"<exact token>","passengers":<n>,"segments":[],"flexibilityScore":<n>,"flexibilityLabel":"<label>","flexibilitySummary":"<text>"}
+[HOTEL_CARD] {"id":"<id>","name":"<name>","location":"<city>","city":"<city>","stars":<N>,"pricePerNight":<n>,"totalPrice":<n>,"currency":"USD","image":"<url>","images":["<url>"],"rating":<n>,"amenities":[],"checkIn":"<date>","checkOut":"<date>","cancellation":"<policy>","isSample":<bool>,"provider":"liteapi","bookingToken":"<exact token>"}
+Show ≥3 flights price asc. Show all hotels returned (up to 6) price asc — one [HOTEL_CARD] per hotel, never summarise in prose.
 
-DESTINATION INTELLIGENCE — naturally weave these into responses when relevant (not as a checklist):
-• Best time to visit: e.g. "Pro tip — if you can push to October, you'll get Bali in dry season and hotels are 30% cheaper"
-• Visa info for Canadians: e.g. "Great news — Canadians get 90 days visa-free in Portugal"
-• Currency heads-up: e.g. "Bali uses IDR — you'll want to carry some cash for local warungs"
-• Local insight: share one genuine "only a traveller who's been there would know" tip per destination
+HOTEL RULES:
+• count>0 + isSample=false → emit cards as-is.
+• count>0 + isSample=true → emit cards, note "indicative pricing, not bookable".
+• count>0 + noResultsMessage set → show message as context, still emit cards.
+• count=0 + noResultsMessage → quote it verbatim, no cards.
+• count=0 no message → "No hotels found right now."
+• NEVER invent hotel names, prices, or tokens.
 
-CHILDREN: If the user mentions kids, ask their ages conversationally ("How old are your little ones? Helps us find the right fares — under 2 can sit on your lap for free on most airlines!"). Once you have ages, emit this tag on its own line BEFORE results:
-[CHILDREN_INFO] {"count":<N>,"ages":[<age1>,<age2>,...]}
+After results: 1-2 warm sentences of commentary + "Flat $20 service fee. Which works best for you?"
 
-RESULTS FORMAT — output each result as a tag on its own line.
-⚠ CRITICAL: copy ALL field values EXACTLY from the tool result — never invent, abbreviate, or use placeholder text like "<id>" or "N/A". The id and bookingToken fields are used to make the actual booking — wrong values = failed booking.
+STATE MACHINE:
+[BROWSING] Show results. End with "Which works best for you?" STOP.
+[FLIGHT_CHOSEN] (triggered by [FLIGHT_SELECTED]) → one warm line, zero tools, wait.
+[HOTEL_CHOSEN] (triggered by [HOTEL_SELECTED]) → one warm line, zero tools, done.
+Never call tools after selection. Never collect passenger details.
 
-[FLIGHT_CARD] {"id":"<exact offer id from tool result>","airline":"<name>","origin":"<IATA>","destination":"<IATA>","departure":"<ISO>","arrival":"<ISO>","duration":"<Xh Ym>","stops":<N>,"stopAirports":[],"price":<n>,"currency":"<ISO>","cabinClass":"economy","refundable":<bool>,"airlineLogo":"<url>","provider":"<duffel|amadeus>","bookingToken":"<exact bookingToken from tool result>","passengers":<adults count used in search>,"segments":[],"flexibilityScore":<flexibilityScore from tool result or omit if absent>,"flexibilityLabel":"<flexibilityLabel from tool result: Flexible|Moderate|Locked, omit if absent>","flexibilitySummary":"<flexibilitySummary from tool result, omit if absent>","rankScore":<rankScore from tool result or omit if absent>}
-[HOTEL_CARD] {"id":"<exact id from tool result>","name":"<name>","location":"<city>","city":"<city>","stars":<N>,"pricePerNight":<n>,"totalPrice":<n>,"currency":"USD","image":"<url>","images":["<url>"],"rating":<0-10>,"amenities":["WiFi"],"checkIn":"<date>","checkOut":"<date>","cancellation":"<policy>","isSample":<bool>,"provider":"<src>","bookingToken":"<exact bookingToken from tool result — required for booking, do NOT omit>"}
-[EXPERIENCE_CARD] {"id":"<id>","name":"<name>","category":"<cat>","description":"<desc>","city":"<city>","rating":<0-5>,"image":"<url>","bookable":false,"provider":"foursquare"}
-
-Show ≥3 flights sorted price asc. Show up to 6 hotels sorted price asc — emit one [HOTEL_CARD] token for EACH hotel result returned (do NOT summarise hotels in prose). Up to 6 experiences.
-Duffel flights (provider="duffel") are fully bookable. Amadeus flights (provider="amadeus") are reference only — label them "📊 Reference price" and redirect to Duffel options.
-
-HOTEL RULES — READ CAREFULLY:
-• If searchHotels returns count > 0: emit one [HOTEL_CARD] token per hotel, exactly as received. Never modify prices, names, or IDs.
-• If searchHotels returns count = 0 AND noResultsMessage is set: quote the noResultsMessage to the user verbatim. Do NOT invent hotels. Do NOT show any [HOTEL_CARD] tokens.
-• If searchHotels returns count = 0 AND noResultsMessage is not set: say "No hotel options found for this destination right now."
-• NEVER fabricate, invent, or hallucinate hotel names, prices, or booking tokens under any circumstances.
-• Hotels are real bookable inventory from LiteAPI. What the tool returns is what exists — nothing more.
-
-After results always end with a warm summary + "A flat $20 service fee applies. Which flight and hotel grab you?"
-
-CONVERSATIONAL TONE AFTER RESULTS:
-Don't just dump cards and go silent. Add 1-2 sentences of genuine commentary:
-- "That Air Canada non-stop is honestly the pick here — saves you 3 hours vs the connection"
-- "The Seminyak resort has incredible reviews for couples — pool villas are worth the upgrade"
-- "I'd grab this fast — that flight price is really strong for June"
-
-SELECTION FLOW — STATE MACHINE (follow exactly):
-
-[STATE: BROWSING] Show results + warm commentary. End with fee note + "Which work best for you?" then STOP.
-
-[STATE: FLIGHT_CHOSEN] Triggered by [FLIGHT_SELECTED] in user message.
-  → One warm line celebrating the choice: "✈ Love it — [Airline] [origin]→[dest] is locked in! Now pick your hotel and we're all set 🏨"
-  → Call ZERO tools. WAIT for the user.
-
-[STATE: HOTEL_CHOSEN] Triggered by [HOTEL_SELECTED] in user message.
-  → One warm line: "🏨 Amazing choice — [Hotel name] is going to be incredible! Tap **Book now** below to lock it all in. Can't wait for you to experience this trip!"
-  → Call ZERO tools. Done.
-
-RULES FOR THE STATE MACHINE:
-• After [FLIGHT_SELECTED]: call ZERO tools, make ZERO searches.
-• After [HOTEL_SELECTED]: call ZERO tools. One sentence, then stop.
-• Questions between states: answer from existing results, no search tools.
-• Never collect passenger details — the checkout card handles it.
-• Never skip to checkout early.
-
-COMMANDS: /summarize /budget /alternatives /edit-day-N /add-day /remove-day-N
-
-GOLDEN RULES: Never invent prices/flights/hotels. Keep responses warm, concise, human. Celebrate the good stuff. Flag the gotchas. Make them excited about their trip.`;
+RULES: Never invent data. Be warm, brief, human.`;
 }
 
 // ─── Unsplash image helpers ────────────────────────────────────────────────────
@@ -236,11 +200,11 @@ export async function POST(req: Request) {
   ) as Parameters<typeof streamText>[0]['messages'];
 
   const result = streamText({
-    model:     anthropic('claude-sonnet-4-5'),
+    model:     anthropic('claude-haiku-4-5-20251001'),
     system:    buildSystem(),
     messages:  compressedMessages,
-    maxTokens: 2048,
-    maxSteps:  8,
+    maxTokens: 3500,
+    maxSteps:  4,
 
     tools: {
 
@@ -299,17 +263,34 @@ export async function POST(req: Request) {
             type Enriched = typeof raw[0] & { _flexObj?: { score: number; label: string; summary: string }; _flexScore?: number };
             const flights = raw.slice(0, 5).map((f) => {
               const e = f as Enriched;
-              const { _flexObj, _flexScore, ...rest } = e;
+              // Return only fields needed for [FLIGHT_CARD] — strip internal/bulk fields
               return {
-                ...rest,
-                ...((_flexObj) ? {
-                  flexibilityScore:   _flexObj.score,
-                  flexibilityLabel:   _flexObj.label,
-                  flexibilitySummary: _flexObj.summary,
+                id:               e.id,
+                airline:          e.airline,
+                origin:           e.origin,
+                destination:      e.destination,
+                departure:        e.departure,
+                arrival:          e.arrival,
+                duration:         e.duration,
+                stops:            e.stops,
+                stopAirports:     e.stopAirports ?? [],
+                price:            e.price,
+                currency:         e.currency,
+                cabinClass:       e.cabinClass,
+                refundable:       e.refundable,
+                airlineLogo:      e.airlineLogo,
+                provider:         e.provider,
+                bookingToken:     e.bookingToken,
+                passengers:       e.passengers,
+                segments:         [],
+                ...(e._flexObj ? {
+                  flexibilityScore:   e._flexObj.score,
+                  flexibilityLabel:   e._flexObj.label,
+                  flexibilitySummary: e._flexObj.summary,
                 } : {}),
               };
             });
-            return { flights, count: raw.length, source: 'duffel', note: 'All results are bookable via Duffel' };
+            return { flights, count: raw.length };
           } catch (err) {
             return { flights: [], error: String(err) };
           }
@@ -332,7 +313,7 @@ export async function POST(req: Request) {
         }),
         execute: async (params) => {
           // Hard 15 s wall-clock cap — ensures Claude can stream results promptly.
-          const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 15_000));
+          const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 25_000));
           const search  = aggregateHotels(params);
           const r       = await Promise.race([search, timeout]);
 
@@ -356,43 +337,38 @@ export async function POST(req: Request) {
             errors: r.errors.length > 0 ? r.errors : undefined,
           });
 
+          // Return only fields needed for [HOTEL_CARD] — strip bulk LiteAPI internal data
+          const hotels = r.hotels.map(h => ({
+            id:           h.id,
+            name:         h.name,
+            location:     h.location,
+            city:         h.city,
+            stars:        h.stars,
+            pricePerNight: h.pricePerNight,
+            totalPrice:   h.totalPrice,
+            currency:     h.currency,
+            image:        h.image,
+            images:       h.image ? [h.image] : [],
+            rating:       h.rating,
+            amenities:    h.amenities?.slice(0, 5) ?? [],
+            checkIn:      h.checkIn,
+            checkOut:     h.checkOut,
+            cancellation: h.cancellation,
+            isSample:     h.isSample,
+            provider:     h.provider,
+            bookingToken: h.bookingToken,
+          }));
           return {
-            hotels:           r.hotels,
-            count:            r.hotels.length,
-            sources:          r.sources,
-            isSample:         false,                              // always false — no fabricated data
-            noResultsMessage: r.noResultsMessage,                 // set when hotels is empty
-            errors:           r.errors.length > 0 ? r.errors : undefined,
+            hotels,
+            count:            hotels.length,
+            isSample:         r.isSample,
+            noResultsMessage: r.noResultsMessage,
           };
         },
       }),
 
       // ── OpenTripMap experiences & POI search ───────────────────────────────
-      searchExperiences: tool({
-        description:
-          'Search activities, experiences, and points of interest at the destination — museums, landmarks, nature, entertainment. Call this in the same parallel batch as searchFlights and searchHotels.',
-        parameters: z.object({
-          destination: z.string().describe('City name e.g. "Cancun", "Tokyo", "Paris"'),
-          category:    z.enum(['all', 'cultural', 'natural', 'adventure', 'entertainment', 'food']).default('all'),
-        }),
-        execute: async ({ destination, category }) => {
-          try {
-            const r = await aggregateExperiences({
-              destination,
-              category:  category === 'all' ? undefined : category,
-              limit:     10,
-            });
-            return {
-              experiences: r.experiences,
-              count:       r.experiences.length,
-              sources:     r.sources,
-              errors:      r.errors.length > 0 ? r.errors : undefined,
-            };
-          } catch (err) {
-            return { experiences: [], count: 0, sources: [], error: String(err) };
-          }
-        },
-      }),
+      // searchExperiences disabled — Foursquare/OpenTripMap providers not stable in current environment
 
       // ── Book a Duffel flight offer ─────────────────────────────────────────
       bookFlight: tool({

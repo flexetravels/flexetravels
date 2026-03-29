@@ -128,7 +128,7 @@ export async function createPaymentIntent(params: {
   const body: Record<string, unknown> = {
     amount,
     currency,
-    payment_method_types: ['card'],
+    automatic_payment_methods: { enabled: true },
     description: `FlexeTravels service fee — ${params.bookingType} booking (ref: ${params.bookingReference})`,
     metadata: {
       booking_reference: params.bookingReference,
