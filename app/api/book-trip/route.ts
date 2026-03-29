@@ -23,10 +23,11 @@ const ChildPassengerSchema = z.object({
 });
 
 const BodySchema = z.object({
-  sessionId:           z.string().optional(),
-  flightOfferId:       z.string().optional(),
+  sessionId:              z.string().optional(),
+  flightOfferId:          z.string().optional(),
+  requestedPriceCents:    z.number().optional(),  // price shown to user — for stale-rate detection
   // Flight search params for server-side offer refresh on 422
-  flightOrigin:        z.string().optional(),
+  flightOrigin:           z.string().optional(),
   flightDestination:   z.string().optional(),
   flightDepartureDate: z.string().optional(),
   flightCabinClass:    z.string().optional(),
@@ -77,7 +78,7 @@ export async function POST(req: Request) {
   }
 
   const {
-    sessionId, flightOfferId, hotelRateId, hotelName,
+    sessionId, flightOfferId, requestedPriceCents, hotelRateId, hotelName,
     hotelId, hotelCheckIn, hotelCheckOut,
     passengers, childPassengers, originAirport, guestNationality,
     flightOrigin, flightDestination, flightDepartureDate, flightCabinClass, flightPassengers,
@@ -105,6 +106,7 @@ export async function POST(req: Request) {
   const result = await book({
     sessionId:           sessionId ?? `anon_${Date.now()}`,
     flightOfferId:       resolvedFlight,
+    requestedPriceCents,
     flightOrigin,
     flightDestination,
     flightDepartureDate,
@@ -136,6 +138,8 @@ export async function POST(req: Request) {
   const d = result.data!;
   return NextResponse.json({
     success:              d.success,
+    priceChanged:         d.priceChanged,
+    newPriceCents:        d.newPriceCents,
     flightRef:            d.flightRef,
     flightError:          d.flightError,
     hotelRef:             d.hotelRef,

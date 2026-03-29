@@ -566,6 +566,8 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
         body: JSON.stringify({
           sessionId:        sessionId,
           flightOfferId:    hasValidFlightId ? flightId : undefined,
+          // Send the price shown to the user so the server can detect any change.
+          requestedPriceCents: flight?.price ? Math.round(flight.price * 100) : undefined,
           // Pass flight search params so the server can do a fresh offer request
           // if the stored offer ID has expired (Duffel offers expire quickly).
           flightOrigin:       flight?.origin,
@@ -589,6 +591,8 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
 
       const data = await res.json() as {
         success:              boolean;
+        priceChanged?:        boolean;
+        newPriceCents?:       number;
         flightRef?:           string;
         hotelRef?:            string;
         flightError?:         string;
@@ -603,6 +607,21 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
         hotelTransactionId?:   string;
         isSandboxBooking?:     boolean;
       };
+
+      // ── Price-change alert ────────────────────────────────────────────────────
+      // If the live Duffel price differs from what was shown, surface a clear
+      // banner so the user can confirm before we charge anything.
+      if (data.priceChanged && data.newPriceCents) {
+        const newPrice = (data.newPriceCents / 100).toFixed(2);
+        const oldPrice = flight?.price?.toFixed(2) ?? '?';
+        const cur      = (flight?.currency ?? 'USD').toUpperCase();
+        setError(
+          `⚠️ Price updated: this flight is now ${cur} $${newPrice} (was $${oldPrice}). ` +
+          `Please click "Book Trip" again to confirm the new price.`
+        );
+        setPhase('review');   // send back to review so user can consciously re-submit
+        return;
+      }
 
       if (!res.ok || !data.success) {
         setError(data.error ?? data.flightError ?? data.hotelError ?? 'Booking failed. Please try again.');
@@ -823,6 +842,18 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
         {phase === 'review' && (
           <div className="space-y-5">
             <TripRow flight={flight} hotel={hotel} />
+
+            {/* Price-change alert — shown when live Duffel price differs from search price */}
+            {error && error.startsWith('⚠️ Price updated') && (
+              <div className="rounded-xl border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 space-y-1.5">
+                <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                  <span>⚠️</span> Flight price has changed
+                </p>
+                <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                  {error.replace('⚠️ Price updated: ', '')}
+                </p>
+              </div>
+            )}
 
             {/* Block right here if the hotel is a sample — don't let user waste time in passengers */}
             {hotel?.isSample && (
