@@ -4,8 +4,9 @@
 AI-powered travel booking platform. Users chat with an AI concierge that searches real flights (Duffel) and hotels (LiteAPI), then books them end-to-end. Flat $20 service fee charged via Stripe.
 
 **Live URL:** https://www.flexetravels.com
-**GitHub:** flexetravels/flexetravels-next (branch: `master`)
-**Hosting:** Railway (auto-deploys on push to `master`)
+**GitHub:** flexetravels/flexetravels-next (branch: `main`)
+**Hosting:** Railway (auto-deploys on push to `origin main`)
+**Deploy command:** `git push origin main`
 **Stack:** Next.js 15 App Router, TypeScript, Tailwind CSS, Vercel AI SDK
 
 ---
