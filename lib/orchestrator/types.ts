@@ -66,7 +66,13 @@ export interface ScoredFlight {
 export interface BookingRequest {
   sessionId:           string;
   tripId?:             string;     // DB trip ID if already created
-  flightOfferId?:      string;     // Duffel offer ID
+  flightOfferId?:      string;     // Duffel offer ID (may be stale — refresh params below)
+  /** Flight search params for server-side Duffel offer refresh on 422 */
+  flightOrigin?:        string;    // e.g. 'YYZ'
+  flightDestination?:   string;    // e.g. 'CDG'
+  flightDepartureDate?: string;    // YYYY-MM-DD
+  flightCabinClass?:    string;    // 'economy' | 'business' etc.
+  flightPassengers?:    number;    // adult count
   hotelRateId?:        string;     // LiteAPI bookingToken (may be stale — use hotelId+dates to refresh)
   hotelName?:          string;
   /** LiteAPI hotel property ID — used to re-fetch a live offerId right before prebook */

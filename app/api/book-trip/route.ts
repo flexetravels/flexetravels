@@ -23,9 +23,15 @@ const ChildPassengerSchema = z.object({
 });
 
 const BodySchema = z.object({
-  sessionId:        z.string().optional(),
-  flightOfferId:    z.string().optional(),
-  hotelRateId:      z.string().optional(),
+  sessionId:           z.string().optional(),
+  flightOfferId:       z.string().optional(),
+  // Flight search params for server-side offer refresh on 422
+  flightOrigin:        z.string().optional(),
+  flightDestination:   z.string().optional(),
+  flightDepartureDate: z.string().optional(),
+  flightCabinClass:    z.string().optional(),
+  flightPassengers:    z.number().optional(),
+  hotelRateId:         z.string().optional(),
   hotelName:        z.string().optional(),
   hotelId:          z.string().optional(),   // LiteAPI property ID for fresh-rate fetch
   hotelCheckIn:     z.string().optional(),   // YYYY-MM-DD
@@ -74,6 +80,7 @@ export async function POST(req: Request) {
     sessionId, flightOfferId, hotelRateId, hotelName,
     hotelId, hotelCheckIn, hotelCheckOut,
     passengers, childPassengers, originAirport, guestNationality,
+    flightOrigin, flightDestination, flightDepartureDate, flightCabinClass, flightPassengers,
   } = parsed.data;
 
   // Clean up placeholder IDs emitted by the AI
@@ -96,9 +103,14 @@ export async function POST(req: Request) {
 
   // Delegate entirely to the booking agent (via orchestrator)
   const result = await book({
-    sessionId:        sessionId ?? `anon_${Date.now()}`,
-    flightOfferId:    resolvedFlight,
-    hotelRateId:      resolvedHotel,
+    sessionId:           sessionId ?? `anon_${Date.now()}`,
+    flightOfferId:       resolvedFlight,
+    flightOrigin,
+    flightDestination,
+    flightDepartureDate,
+    flightCabinClass,
+    flightPassengers,
+    hotelRateId:         resolvedHotel,
     hotelName,
     hotelId,
     hotelCheckIn,

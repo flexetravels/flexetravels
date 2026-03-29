@@ -58,11 +58,54 @@ function normalisePhone(phone: string): string {
 // This prevents customers being charged a stale rate without re-confirming.
 const PRICE_CHANGE_TOLERANCE_CENTS = 100; // $1.00
 
+// ─── Duffel offer refresh ─────────────────────────────────────────────────────
+// Creates a fresh offer request and returns the best matching offer ID.
+// Called automatically when order creation returns 422 (expired offer).
+async function refreshDuffelOffer(
+  origin: string,
+  destination: string,
+  departureDate: string,  // YYYY-MM-DD
+  adults: number,
+  cabinClass: string,
+  headers: Record<string, string>,
+): Promise<string | null> {
+  try {
+    const sliceBody = {
+      data: {
+        slices: [{ origin, destination, departure_date: departureDate }],
+        passengers: Array.from({ length: adults }, () => ({ type: 'adult' })),
+        cabin_class: cabinClass || 'economy',
+      },
+    };
+    const reqRes = await fetch('https://api.duffel.com/air/offer_requests?return_offers=true', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(sliceBody),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!reqRes.ok) return null;
+    const reqData = await reqRes.json() as { data?: { offers?: Array<{ id: string; total_amount: string }> } };
+    const offers = reqData.data?.offers ?? [];
+    if (offers.length === 0) return null;
+    // Pick lowest price offer
+    offers.sort((a, b) => parseFloat(a.total_amount) - parseFloat(b.total_amount));
+    console.log('[booking-agent] refreshed offer:', offers[0].id, 'from', offers.length, 'options');
+    return offers[0].id;
+  } catch (e) {
+    console.warn('[booking-agent] offer refresh failed:', String(e));
+    return null;
+  }
+}
+
 async function bookDuffelFlight(
   offerId: string,
   passengers: BookingRequest['passengers'],
   childPassengers: BookingRequest['childPassengers'],
   requestedPriceCents?: number,
+  refreshParams?: {
+    origin: string; destination: string; departureDate: string;
+    adults: number; cabinClass: string;
+  },
 ): Promise<{
   success: boolean;
   bookingRef?: string;
@@ -191,6 +234,53 @@ async function bookDuffelFlight(
     const bdy = (() => { try { return JSON.parse(txt); } catch { return {}; } })();
     const msg = bdy?.errors?.[0]?.message ?? txt.slice(0, 300);
     console.error('[booking-agent] Duffel order create failed', orderRes.status, msg);
+
+    // On 422 (expired/invalid offer), try to auto-refresh and retry once
+    if (orderRes.status === 422 && refreshParams) {
+      console.log('[booking-agent] 422 on order — attempting offer refresh for', refreshParams.origin, '→', refreshParams.destination);
+      const freshOfferId = await refreshDuffelOffer(
+        refreshParams.origin,
+        refreshParams.destination,
+        refreshParams.departureDate,
+        refreshParams.adults,
+        refreshParams.cabinClass,
+        headers,
+      );
+      if (freshOfferId) {
+        // Re-fetch fresh offer details for passenger mapping
+        const freshOfferRes = await fetch(`https://api.duffel.com/air/offers/${freshOfferId}`, {
+          headers, signal: AbortSignal.timeout(10_000),
+        });
+        if (freshOfferRes.ok) {
+          const freshOfferData = await freshOfferRes.json() as { data?: DuffelOfferDetail };
+          const freshPassengers = freshOfferData.data?.passengers ?? [];
+          const freshAmount     = freshOfferData.data?.total_amount ?? totalAmount;
+          const freshCurrency   = freshOfferData.data?.total_currency ?? totalCurrency;
+          const freshPassMap    = freshPassengers.map((offerPax) => {
+            const isChild = offerPax.type === 'child';
+            if (isChild) {
+              const child = childPassengers[0];
+              return { id: offerPax.id, born_on: child?.dateOfBirth ?? '2015-01-01', title: 'mr', gender: 'm', given_name: child?.firstName ?? 'Child', family_name: child?.lastName ?? 'Passenger' };
+            }
+            const adult = passengers[0];
+            return { id: offerPax.id, born_on: adult?.dateOfBirth, title: 'mr', gender: 'm', given_name: adult?.firstName, family_name: adult?.lastName, email: adult?.email, phone_number: adult?.phone };
+          });
+          const retryRes = await fetch('https://api.duffel.com/air/orders', {
+            method: 'POST', headers,
+            body: JSON.stringify({ data: { type: 'instant', selected_offers: [freshOfferId], passengers: freshPassMap, payments: [{ type: 'balance', amount: freshAmount, currency: freshCurrency }] } }),
+            signal: AbortSignal.timeout(30_000),
+          });
+          if (retryRes.ok) {
+            const retryOrder = await retryRes.json() as { data?: { booking_reference?: string; total_amount?: string; total_currency?: string } };
+            console.log('[booking-agent] retry with fresh offer succeeded:', retryOrder.data?.booking_reference);
+            return { success: true, bookingRef: retryOrder.data?.booking_reference, totalAmount: retryOrder.data?.total_amount ?? freshAmount, currency: retryOrder.data?.total_currency ?? freshCurrency, conditions };
+          }
+          const retryTxt = await retryRes.text().catch(() => '');
+          console.error('[booking-agent] retry also failed:', retryRes.status, retryTxt.slice(0, 200));
+        }
+      }
+    }
+
     return { success: false, error: `Flight booking failed (${orderRes.status}): ${msg}` };
   }
 
@@ -233,6 +323,14 @@ export const bookingAgent = {
             req.passengers,
             req.childPassengers,
             req.requestedPriceCents,
+            // Pass search params so we can auto-refresh on 422
+            req.flightOrigin && req.flightDestination && req.flightDepartureDate ? {
+              origin:        req.flightOrigin,
+              destination:   req.flightDestination,
+              departureDate: req.flightDepartureDate,
+              adults:        req.flightPassengers ?? req.passengers.length,
+              cabinClass:    req.flightCabinClass ?? 'economy',
+            } : undefined,
           );
           logger.flightBooking({
             api:        'duffel',

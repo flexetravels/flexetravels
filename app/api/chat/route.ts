@@ -53,7 +53,7 @@ PLATFORM: Flights=Duffel only (bookable). Hotels=LiteAPI (live rates). Fee=$20 f
 
 IATA: YYZ=Toronto YVR=Vancouver YUL=Montreal YYC=Calgary JFK/EWR=NYC LAX=LA ORD=Chicago MIA=Miami SFO=SF DEN=Denver BOS=Boston ATL=Atlanta DFW=Dallas DXB=Dubai BCN=Barcelona NRT=Tokyo DPS=Bali CDG=Paris LHR=London FCO=Rome LIS=Lisbon PUJ=PuntaCana CUN=Cancun.
 
-SEARCH: Once you have origin, destination, dates, party size → call searchFlights AND searchHotels AND getDestinationGuide in the SAME turn simultaneously (parallel tool calls). Never call them sequentially — always invoke all at once. cabinClass always 'economy' unless user says otherwise. "we/couple/us/partner" → adults=2.
+SEARCH: Once you have origin, destination, dates, party size → call searchFlights AND searchHotels AND searchExperiences AND getDestinationGuide in the SAME turn simultaneously (parallel tool calls). Never call them sequentially — always invoke all at once. cabinClass always 'economy' unless user says otherwise. "we/couple/us/partner" → adults=2.
 
 CHILDREN: If kids mentioned, ask ages. Then emit before results: [CHILDREN_INFO] {"count":<N>,"ages":[...]}
 
@@ -367,8 +367,24 @@ export async function POST(req: Request) {
         },
       }),
 
-      // ── OpenTripMap experiences & POI search ───────────────────────────────
-      // searchExperiences disabled — Foursquare/OpenTripMap providers not stable in current environment
+      // ── Foursquare experiences & POI search ────────────────────────────────
+      searchExperiences: tool({
+        description:
+          'Search for top things to do, attractions, restaurants, and experiences at the destination using Foursquare. Call in parallel with searchFlights/searchHotels.',
+        parameters: z.object({
+          destination: z.string().describe('City name e.g. "Cancun", "Tokyo", "Bali"'),
+          category:    z.string().optional().describe('cultural | natural | adventure | entertainment'),
+          limit:       z.number().optional().describe('Max results, default 6'),
+        }),
+        execute: async ({ destination, category, limit }) => {
+          const r = await aggregateExperiences({ destination, category, limit: limit ?? 6 });
+          return {
+            experiences: r.experiences,
+            count:        r.experiences.length,
+            sources:      r.sources,
+          };
+        },
+      }),
 
       // ── Book a Duffel flight offer ─────────────────────────────────────────
       bookFlight: tool({

@@ -566,6 +566,13 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
         body: JSON.stringify({
           sessionId:        sessionId,
           flightOfferId:    hasValidFlightId ? flightId : undefined,
+          // Pass flight search params so the server can do a fresh offer request
+          // if the stored offer ID has expired (Duffel offers expire quickly).
+          flightOrigin:       flight?.origin,
+          flightDestination:  flight?.destination,
+          flightDepartureDate: flight?.departure ? flight.departure.slice(0, 10) : undefined,
+          flightCabinClass:   flight?.cabinClass ?? 'economy',
+          flightPassengers:   flight?.passengers ?? adults,
           hotelRateId:      hasValidHotelToken ? hotelToken : undefined,
           hotelName:        hotel?.name,
           // Pass hotel metadata so the server re-fetches a live offerId at booking
