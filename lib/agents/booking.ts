@@ -256,6 +256,21 @@ async function bookDuffelFlight(
           const freshPassengers = freshOfferData.data?.passengers ?? [];
           const freshAmount     = freshOfferData.data?.total_amount ?? totalAmount;
           const freshCurrency   = freshOfferData.data?.total_currency ?? totalCurrency;
+
+          // Price-change guard: if the refreshed price is more than $1 higher than
+          // what was shown to the user, abort rather than silently overcharge.
+          if (requestedPriceCents) {
+            const freshCents = Math.round(parseFloat(freshAmount) * 100);
+            const delta = freshCents - requestedPriceCents;
+            if (delta > PRICE_CHANGE_TOLERANCE_CENTS) {
+              console.warn('[booking-agent] refresh price changed too much:', requestedPriceCents, '→', freshCents, 'delta:', delta);
+              return {
+                success: false,
+                error:   `PRICE_CHANGED:${freshAmount}:${freshCurrency}`,
+              };
+            }
+          }
+
           const freshPassMap    = freshPassengers.map((offerPax) => {
             const isChild = offerPax.type === 'child';
             if (isChild) {
