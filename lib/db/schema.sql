@@ -185,13 +185,14 @@ drop policy if exists payments_service_only      on payments;
 drop policy if exists search_logs_service_only   on search_logs;
 drop policy if exists user_sessions_service_only on user_sessions;
 
-create policy trips_service_only         on trips         for all using (false);
-create policy bookings_service_only      on bookings      for all using (false);
-create policy events_service_only        on events        for all using (false);
-create policy credits_service_only       on credits       for all using (false);
-create policy payments_service_only      on payments      for all using (false);
-create policy search_logs_service_only   on search_logs   for all using (false);
-create policy user_sessions_service_only on user_sessions for all using (false);
+-- service_role key bypasses RLS via PostgREST — allow it, deny everyone else
+create policy trips_service_only         on trips         for all to service_role using (true) with check (true);
+create policy bookings_service_only      on bookings      for all to service_role using (true) with check (true);
+create policy events_service_only        on events        for all to service_role using (true) with check (true);
+create policy credits_service_only       on credits       for all to service_role using (true) with check (true);
+create policy payments_service_only      on payments      for all to service_role using (true) with check (true);
+create policy search_logs_service_only   on search_logs   for all to service_role using (true) with check (true);
+create policy user_sessions_service_only on user_sessions for all to service_role using (true) with check (true);
 
 -- ─── Setup instructions ───────────────────────────────────────────────────────
 -- 1. Go to supabase.com → New project
