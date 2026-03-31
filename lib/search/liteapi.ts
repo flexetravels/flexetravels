@@ -21,13 +21,15 @@ const LITEAPI_BASE = 'https://api.liteapi.travel/v3.0';
 //   4 adults → [{ adults: 2 }, { adults: 2 }]
 //   5 adults → [{ adults: 2 }, { adults: 2 }, { adults: 1 }]
 // The price LiteAPI returns covers ALL rooms combined.
-function buildOccupancies(adults: number): Array<{ adults: number; children: never[] }> {
+function buildOccupancies(adults: number, childrenAges?: number[]): Array<{ adults: number; children: number[] }> {
   const n     = Math.max(1, adults);
   const rooms = Math.ceil(n / 2);
+  const kids  = childrenAges ?? [];
   return Array.from({ length: rooms }, (_, i) => {
     const isLast     = i === rooms - 1;
     const roomAdults = isLast && n % 2 === 1 ? 1 : 2;
-    return { adults: roomAdults, children: [] as never[] };
+    // Put all children in the first room (typical family travel pattern)
+    return { adults: roomAdults, children: i === 0 ? kids : [] };
   });
 }
 
@@ -239,18 +241,43 @@ function toTitleCase(str: string): string {
   return str.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
-// When a city name returns 0 hotels from LiteAPI /data/hotels, try these alternatives
-// in order. LiteAPI indexes by specific municipality names, not regions/islands.
+// When a city name returns 0 hotels from LiteAPI /data/hotels, try these alternatives.
+// LiteAPI indexes by specific municipality names, not regions/islands.
+// For REGION destinations (marked with __parallel: true), ALL cities are searched in
+// parallel and results are merged — not tried sequentially as fallbacks.
 const CITY_FALLBACKS: Record<string, string[]> = {
-  'bali':      ['Seminyak', 'Denpasar', 'Ubud', 'Nusa Dua'],
-  'kuta':      ['Seminyak', 'Denpasar', 'Ubud', 'Nusa Dua'],
-  'maldives':  ['Male', 'Hulhule'],
-  'phuket':    ['Patong', 'Kathu', 'Bang Tao'],
-  'santorini': ['Fira', 'Oia', 'Thira'],
-  'mykonos':   ['Mykonos Town', 'Mykonos'],
-  'ibiza':     ['Ibiza Town', 'Sant Antoni'],
-  'bora bora': ['Vaitape', 'Bora-Bora'],
+  'bali':          ['Seminyak', 'Denpasar', 'Ubud', 'Nusa Dua', 'Canggu', 'Kuta'],
+  'kuta':          ['Seminyak', 'Denpasar', 'Ubud', 'Nusa Dua'],
+  'canggu':        ['Seminyak', 'Denpasar', 'Ubud', 'Nusa Dua'],
+  'maldives':      ['Male', 'Hulhule', 'Maafushi', 'Addu City'],
+  'phuket':        ['Patong', 'Kathu', 'Bang Tao', 'Karon'],
+  'santorini':     ['Fira', 'Oia', 'Thira'],
+  'mykonos':       ['Mykonos Town', 'Mykonos'],
+  'ibiza':         ['Ibiza Town', 'Sant Antoni'],
+  'bora bora':     ['Vaitape', 'Bora-Bora'],
+  'goa':           ['Panjim', 'Calangute', 'Candolim', 'Margao'],
+  'amalfi':        ['Amalfi', 'Positano', 'Ravello', 'Sorrento'],
+  'algarve':       ['Faro', 'Albufeira', 'Lagos', 'Portimao'],
+  'tulum':         ['Tulum', 'Playa del Carmen', 'Akumal'],
+  'maui':          ['Lahaina', 'Kihei', 'Wailea', 'Kahului'],
+  'zanzibar':      ['Stone Town', 'Nungwi', 'Kendwa'],
+  'langkawi':      ['Kuah', 'Pantai Cenang'],
+  'koh samui':     ['Chaweng', 'Lamai', 'Bophut'],
+  // UAE — Dubai has sparse sandbox inventory; cast wide across all districts + Abu Dhabi
+  'dubai':         ['Dubai Marina', 'Deira', 'Downtown Dubai', 'Jumeirah', 'Abu Dhabi'],
+  'dubai marina':  ['Dubai', 'Deira', 'Downtown Dubai', 'Jumeirah'],
+  'deira':         ['Dubai', 'Dubai Marina', 'Downtown Dubai'],
+  'abu dhabi':     ['Dubai', 'Dubai Marina', 'Deira'],
 };
+
+// Region destinations where we ALWAYS search multiple cities in parallel
+// (even if the primary city returns some results) for maximum coverage.
+const PARALLEL_REGIONS = new Set([
+  'bali', 'maldives', 'phuket', 'goa', 'amalfi', 'algarve',
+  'tulum', 'maui', 'zanzibar', 'langkawi', 'koh samui',
+  // UAE — always fan out across districts for much better coverage
+  'dubai', 'dubai marina', 'deira', 'abu dhabi',
+]);
 
 export function resolveCityCountry(destination: string): { city: string; countryCode: string } {
   const upper = destination.toUpperCase().trim();
@@ -392,45 +419,99 @@ export class LiteApiProvider implements SearchProvider {
     );
 
     // ── Cache check ────────────────────────────────────────────────────────────
-    const cacheKey = `${city}::${countryCode}::${params.checkIn}::${params.checkOut}::${params.adults ?? 2}`;
+    const childrenKey = (params.childrenAges ?? []).sort().join(',');
+    const cacheKey = `${city}::${countryCode}::${params.checkIn}::${params.checkOut}::${params.adults ?? 2}::c${childrenKey}`;
     const cached = HOTEL_CACHE.get(cacheKey);
     if (cached && Date.now() - cached.ts < HOTEL_CACHE_TTL_MS) {
       console.log('[LiteAPI] hotel cache hit for', cacheKey);
       return cached.data;
     }
 
-    // ── Step 1: Fetch hotel list for the city ──────────────────────────────────
-    // limit=12 keeps the rates payload small → faster rates call.
-    // Some destinations are indexed by specific municipality names in LiteAPI
-    // (e.g. "Kuta" not "Bali"). Try the primary city, then CITY_FALLBACKS if 0 results.
-    const fetchHotelList = async (cityName: string): Promise<LiteHotelListItem[]> => {
+    // ── Step 1: Fetch hotel lists ───────────────────────────────────────────────
+    // For REGION destinations (Bali, Maldives, etc.), search ALL sub-cities in
+    // parallel and merge results. For single-city destinations, try primary city
+    // first, then fall back sequentially. This dramatically improves coverage.
+    const isRegion   = PARALLEL_REGIONS.has(city.toLowerCase());
+    const fallbacks  = CITY_FALLBACKS[city.toLowerCase()] ?? [];
+    const perCityLimit = isRegion ? 30 : 25;
+
+    const fetchHotelList = async (cityName: string): Promise<{ city: string; hotels: LiteHotelListItem[] }> => {
       const url =
         `${LITEAPI_BASE}/data/hotels?countryCode=${countryCode}` +
-        `&cityName=${encodeURIComponent(cityName)}&limit=12`;
-      const res = await fetch(url, {
-        headers: this.headers,
-        signal: AbortSignal.timeout(8_000),
-      });
-      if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(`LiteAPI hotels list ${res.status}: ${txt.slice(0, 200)}`);
+        `&cityName=${encodeURIComponent(cityName)}&limit=${perCityLimit}`;
+      try {
+        const res = await fetch(url, {
+          headers: this.headers,
+          signal: AbortSignal.timeout(8_000),
+        });
+        if (!res.ok) {
+          console.warn(`[LiteAPI] hotel list ${res.status} for "${cityName}"`);
+          return { city: cityName, hotels: [] };
+        }
+        const data = await res.json() as { data?: LiteHotelListItem[] };
+        return { city: cityName, hotels: data.data ?? [] };
+      } catch (err) {
+        console.warn(`[LiteAPI] hotel list error for "${cityName}":`, err);
+        return { city: cityName, hotels: [] };
       }
-      const data = await res.json() as { data?: LiteHotelListItem[] };
-      return data.data ?? [];
     };
 
-    let hotelList = await fetchHotelList(city);
-    let resolvedCity = city;
+    let hotelList: LiteHotelListItem[] = [];
+    let resolvedCities: string[] = [];
 
+    if (isRegion && fallbacks.length > 0) {
+      // ── PARALLEL multi-city search for region destinations ──────────────────
+      const citiesToSearch = [city, ...fallbacks];
+      console.log(`[LiteAPI] Region "${city}" — parallel search across: ${citiesToSearch.join(', ')}`);
+
+      // Race all city searches against a 12s wall-clock cap
+      const MULTI_CITY_TIMEOUT_MS = 12_000;
+      const allCitySearches = Promise.allSettled(citiesToSearch.map(c => fetchHotelList(c)));
+      const timeoutPromise = new Promise<null>(resolve => setTimeout(() => resolve(null), MULTI_CITY_TIMEOUT_MS));
+
+      const settled = await Promise.race([allCitySearches, timeoutPromise]);
+
+      if (settled && Array.isArray(settled)) {
+        // Normal completion — merge all results
+        for (const r of settled) {
+          if (r.status === 'fulfilled' && r.value.hotels.length > 0) {
+            hotelList.push(...r.value.hotels);
+            resolvedCities.push(r.value.city);
+          }
+        }
+      } else {
+        // Timeout — use whatever arrived. Re-run with short timeout.
+        console.warn(`[LiteAPI] Multi-city search hit ${MULTI_CITY_TIMEOUT_MS}ms cap — using partial results`);
+        // Fall through — hotelList stays empty, will try sequential below
+      }
+
+      // Deduplicate by hotel ID
+      const seen = new Set<string>();
+      hotelList = hotelList.filter(h => {
+        if (seen.has(h.id)) return false;
+        seen.add(h.id);
+        return true;
+      });
+
+      console.log(`[LiteAPI] Region "${city}" — ${hotelList.length} unique hotels from: ${resolvedCities.join(', ') || 'none'}`);
+    }
+
+    // ── Sequential fallback for non-region or if parallel returned 0 ──────────
     if (hotelList.length === 0) {
-      const alternatives = CITY_FALLBACKS[city.toLowerCase()] ?? [];
-      for (const alt of alternatives) {
-        console.log(`[LiteAPI] 0 hotels for "${city}" — trying fallback city: "${alt}"`);
-        hotelList = await fetchHotelList(alt);
-        if (hotelList.length > 0) {
-          resolvedCity = alt;
-          console.log(`[LiteAPI] Found ${hotelList.length} hotels with fallback city: "${alt}"`);
-          break;
+      const primaryResult = await fetchHotelList(city);
+      if (primaryResult.hotels.length > 0) {
+        hotelList = primaryResult.hotels;
+        resolvedCities = [city];
+      } else {
+        for (const alt of fallbacks) {
+          console.log(`[LiteAPI] 0 hotels for "${city}" — trying fallback city: "${alt}"`);
+          const altResult = await fetchHotelList(alt);
+          if (altResult.hotels.length > 0) {
+            hotelList = altResult.hotels;
+            resolvedCities = [alt];
+            console.log(`[LiteAPI] Found ${hotelList.length} hotels with fallback city: "${alt}"`);
+            break;
+          }
         }
       }
     }
@@ -439,35 +520,55 @@ export class LiteApiProvider implements SearchProvider {
       throw new Error(`No hotels found for ${city}, ${countryCode} in LiteAPI (tried all fallbacks)`);
     }
 
-    console.log(`[LiteAPI] Using city "${resolvedCity}" — ${hotelList.length} hotels found`);
+    const resolvedCity = resolvedCities.join(', ') || city;
+    console.log(`[LiteAPI] Using cities "${resolvedCity}" — ${hotelList.length} hotels found`);
 
     // Build a lookup map for hotel details by ID
     const hotelInfoMap = new Map(hotelList.map(h => [h.id, h]));
     const hotelIds = hotelList.map(h => h.id);
 
     // ── Step 2: Fetch live rates ────────────────────────────────────────────────
-    const ratesRes = await fetch(`${LITEAPI_BASE}/hotels/rates`, {
-      method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify({
-        hotelIds,
-        checkin:          params.checkIn,
-        checkout:         params.checkOut,
-        occupancies:      buildOccupancies(params.adults ?? 2),
-        currency:         'USD',
-        guestNationality: countryCode === 'CA' ? 'CA' : 'US',
-        roomMapping:      true,   // ensures offerId is included in each roomType object
-        timeout:          3,      // server-side timeout seconds per LiteAPI spec (3 s keeps total wall-clock under 12 s)
-      }),
-      signal: AbortSignal.timeout(20_000),
-    });
-
-    if (!ratesRes.ok) {
-      const txt = await ratesRes.text();
-      throw new Error(`LiteAPI rates ${ratesRes.status}: ${txt.slice(0, 200)}`);
+    // Batch hotel IDs into groups of 15 for better LiteAPI performance,
+    // then run batches in parallel.
+    const RATE_BATCH_SIZE = 15;
+    const hotelIdBatches: string[][] = [];
+    for (let i = 0; i < hotelIds.length; i += RATE_BATCH_SIZE) {
+      hotelIdBatches.push(hotelIds.slice(i, i + RATE_BATCH_SIZE));
     }
 
-    const ratesData = await ratesRes.json() as { data?: LiteRateHotel[] };
+    const fetchRatesBatch = async (batchIds: string[]): Promise<LiteRateHotel[]> => {
+      const res = await fetch(`${LITEAPI_BASE}/hotels/rates`, {
+        method: 'POST',
+        headers: this.headers,
+        body: JSON.stringify({
+          hotelIds: batchIds,
+          checkin:          params.checkIn,
+          checkout:         params.checkOut,
+          occupancies:      buildOccupancies(params.adults ?? 2, params.childrenAges),
+          currency:         'USD',
+          guestNationality: countryCode === 'CA' ? 'CA' : 'US',
+          roomMapping:      true,
+          timeout:          3,
+        }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        console.warn(`[LiteAPI] rates batch error ${res.status}: ${txt.slice(0, 200)}`);
+        return [];
+      }
+      const data = await res.json() as { data?: LiteRateHotel[] };
+      return data.data ?? [];
+    };
+
+    // Run rate batches in parallel
+    const rateBatchResults = await Promise.allSettled(hotelIdBatches.map(b => fetchRatesBatch(b)));
+    const allRateHotels: LiteRateHotel[] = [];
+    for (const r of rateBatchResults) {
+      if (r.status === 'fulfilled') allRateHotels.push(...r.value);
+    }
+
+    const ratesData = { data: allRateHotels };
     const normalized: NormalizedHotel[] = [];
 
     for (const rateHotel of ratesData.data ?? []) {
@@ -527,12 +628,15 @@ export class LiteApiProvider implements SearchProvider {
         })),
       }));
 
+      // Use the hotel's actual city from LiteAPI data if available, otherwise resolvedCity
+      const hotelCity = (info as { city?: string }).city || resolvedCity;
+
       normalized.push({
         id:            rateHotel.hotelId,
         provider:      'liteapi',
         name:          info.name,
-        location:      resolvedCity,
-        city:          resolvedCity,
+        location:      hotelCity,
+        city:          hotelCity,
         stars,
         pricePerNight: Math.round(pricePerNight * 100) / 100,
         totalPrice:    Math.round(totalPrice * 100) / 100,
@@ -568,7 +672,7 @@ export class LiteApiProvider implements SearchProvider {
 
     const results = normalized
       .sort((a, b) => a.pricePerNight - b.pricePerNight)
-      .slice(0, 6);
+      .slice(0, 20);
 
     // Write to cache (even empty, prevents hammering the API on retries)
     HOTEL_CACHE.set(cacheKey, { data: results, ts: Date.now() });
@@ -591,6 +695,7 @@ export async function liteApiGetFreshOfferId(
   adults:          number,
   guestNationality = 'CA',
   apiKey?:         string,
+  childrenAges?:   number[],
 ): Promise<string | null> {
   const key = apiKey ?? process.env.LITEAPI_KEY;
   if (!key || key.includes('PASTE')) return null;
@@ -609,7 +714,7 @@ export async function liteApiGetFreshOfferId(
         hotelIds:        [hotelId],
         checkin:         checkIn,
         checkout:        checkOut,
-        occupancies:     buildOccupancies(adults),
+        occupancies:     buildOccupancies(adults, childrenAges),
         currency:        'USD',
         guestNationality,
         roomMapping:     true,   // ensures offerId field is present on each roomType

@@ -3,11 +3,15 @@
 // ─── FlexeTravels — Shared Navigation ────────────────────────────────────────
 // Used across landing, about, partners, how-it-works pages.
 // Mobile: hamburger drawer. Desktop: inline links.
+// Auth: Google sign-in via Supabase. Shows avatar when signed in.
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Plane, Sparkles, Menu, X } from 'lucide-react';
+import Image from 'next/image';
+import { usePathname, useRouter } from 'next/navigation';
+import { Plane, Sparkles, Menu, X, LogOut, User } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 const NAV_LINKS = [
   { href: '/how-it-works', label: 'How It Works' },
@@ -18,7 +22,11 @@ const NAV_LINKS = [
 export function Nav() {
   const [scrolled,  setScrolled]  = useState(false);
   const [menuOpen,  setMenuOpen]  = useState(false);
+  const [user, setUser]           = useState<SupabaseUser | null>(null);
+  const [avatarOpen, setAvatarOpen] = useState(false);
+  const avatarRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
+  const router = useRouter();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -27,9 +35,45 @@ export function Nav() {
   }, []);
 
   // Close menu on route change
-  useEffect(() => { setMenuOpen(false); }, [pathname]);
+  useEffect(() => { setMenuOpen(false); setAvatarOpen(false); }, [pathname]);
+
+  // Load auth session
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Close avatar dropdown on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (avatarRef.current && !avatarRef.current.contains(e.target as Node)) {
+        setAvatarOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const handleSignOut = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    setUser(null);
+    setAvatarOpen(false);
+    router.refresh();
+  };
 
   const hasBg = scrolled || menuOpen;
+
+  const avatarUrl = user?.user_metadata?.avatar_url;
+  const userName  = user?.user_metadata?.full_name ?? user?.email?.split('@')[0] ?? 'User';
 
   return (
     <nav
@@ -89,6 +133,68 @@ export function Nav() {
             <span className="sm:hidden">Plan</span>
           </Link>
 
+          {/* Auth: Avatar or Sign In */}
+          {user ? (
+            <div ref={avatarRef} className="relative">
+              <button
+                onClick={() => setAvatarOpen(o => !o)}
+                className="w-9 h-9 rounded-full overflow-hidden border-2 border-white/20
+                           hover:border-teal-400 transition-colors flex-shrink-0"
+                aria-label="Account menu"
+              >
+                {avatarUrl ? (
+                  <Image
+                    src={avatarUrl}
+                    alt={userName}
+                    width={36}
+                    height={36}
+                    className="object-cover w-full h-full"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-teal-600 flex items-center justify-center text-white text-sm font-bold">
+                    {userName.charAt(0).toUpperCase()}
+                  </div>
+                )}
+              </button>
+
+              {/* Dropdown */}
+              {avatarOpen && (
+                <div className="absolute right-0 top-12 w-52 rounded-xl bg-[#0f1420] border border-white/10
+                                shadow-2xl shadow-black/50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 z-50">
+                  <div className="px-4 py-3 border-b border-white/[0.07]">
+                    <p className="text-sm font-semibold text-white truncate">{userName}</p>
+                    <p className="text-[11px] text-white/40 truncate">{user.email}</p>
+                  </div>
+                  <Link
+                    href="/profile"
+                    className="flex items-center gap-2.5 px-4 py-3 text-sm text-white/70
+                               hover:text-white hover:bg-white/[0.06] transition-colors"
+                  >
+                    <User className="w-4 h-4" />
+                    My Profile & Trips
+                  </Link>
+                  <button
+                    onClick={handleSignOut}
+                    className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white/70
+                               hover:text-rose-400 hover:bg-white/[0.06] transition-colors
+                               border-t border-white/[0.07]"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Sign Out
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <Link
+              href="/login"
+              className="hidden sm:flex items-center px-4 py-2 rounded-full text-sm font-medium
+                         text-white/60 hover:text-white hover:bg-white/[0.06] transition-colors"
+            >
+              Sign In
+            </Link>
+          )}
+
           {/* Hamburger — mobile only */}
           <button
             onClick={() => setMenuOpen(o => !o)}
@@ -109,7 +215,7 @@ export function Nav() {
       {/* ── Mobile drawer ── */}
       <div
         className={`md:hidden transition-all duration-300 overflow-hidden
-                    ${menuOpen ? 'max-h-64 opacity-100' : 'max-h-0 opacity-0'}`}
+                    ${menuOpen ? 'max-h-80 opacity-100' : 'max-h-0 opacity-0'}`}
         aria-hidden={!menuOpen}
       >
         <div className="border-t border-white/[0.07] px-5 py-3 bg-[#070b12]/98 space-y-1">
@@ -127,6 +233,17 @@ export function Nav() {
               {l.label}
             </Link>
           ))}
+          {/* Mobile sign-in link */}
+          {!user && (
+            <Link
+              href="/login"
+              className="flex items-center px-4 py-3.5 rounded-xl text-sm font-medium
+                         text-white/70 hover:text-white hover:bg-white/[0.06]
+                         transition-colors touch-manipulation"
+            >
+              Sign In
+            </Link>
+          )}
         </div>
       </div>
     </nav>

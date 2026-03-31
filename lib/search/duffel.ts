@@ -53,7 +53,7 @@ function fmtDuration(iso: string): string {
   return `${h}${min}`.trim() || iso;
 }
 
-function mapOffer(offer: DuffelOffer, cabinClass: string, adults: number): EnrichedFlight {
+function mapOffer(offer: DuffelOffer, cabinClass: string, totalPassengers: number): EnrichedFlight {
   const slice0 = offer.slices?.[0];
   const segs   = slice0?.segments ?? [];
   const first  = segs[0];
@@ -83,7 +83,7 @@ function mapOffer(offer: DuffelOffer, cabinClass: string, adults: number): Enric
     cabinClass,
     refundable:   flexObj.refundable,
     bookingToken: offer.id,
-    passengers:   adults,
+    passengers:   totalPassengers,
     segments:     segs.map(seg => ({
       origin:       seg.origin?.iata_code ?? '',
       destination:  seg.destination?.iata_code ?? '',
@@ -125,13 +125,28 @@ export class DuffelProvider implements SearchProvider {
       slices.push({ origin: params.destination, destination: params.origin, departure_date: params.returnDate });
     }
 
+    // Build mixed passenger array: adults + children (2-11) + lap infants (<2)
+    const childrenAges = params.childrenAges ?? [];
+    const infantCount  = Math.min(params.infants ?? 0, params.adults); // max 1 infant per adult
+    const passengers: Array<{ type: string; age?: number }> = [
+      ...Array.from({ length: params.adults }, () => ({ type: 'adult' as const })),
+      ...childrenAges.map(age => ({ type: 'child' as const, age })),
+      ...Array.from({ length: infantCount }, () => ({ type: 'infant_without_seat' as const })),
+    ];
+    const totalPassengers = passengers.length;
+
+    // Duffel max 9 passengers
+    if (totalPassengers > 9) {
+      throw new Error('Maximum 9 passengers allowed per booking');
+    }
+
     const res = await fetch(`${this.baseUrl}/air/offer_requests?return_offers=true`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({
         data: {
           slices,
-          passengers: Array.from({ length: params.adults }, () => ({ type: 'adult' })),
+          passengers,
           cabin_class: params.cabinClass,
         },
       }),
@@ -147,7 +162,7 @@ export class DuffelProvider implements SearchProvider {
     return (json.data?.offers ?? [])
       .sort((a, b) => parseFloat(a.total_amount) - parseFloat(b.total_amount))
       .slice(0, 10)  // Fetch more so ranking agent has options to sort
-      .map(o => mapOffer(o, params.cabinClass, params.adults));
+      .map(o => mapOffer(o, params.cabinClass, totalPassengers));
   }
 
   // Duffel doesn't have a hotel search API — return empty, Amadeus handles hotels

@@ -14,14 +14,28 @@ import {
 } from 'lucide-react';
 import { ChatMessage, TypingIndicator } from '@/components/ChatMessage';
 import { ItinerarySidebar } from '@/components/ItinerarySidebar';
+import { HotelDetailModal } from '@/components/HotelDetailModal';
 import { cn, generateSessionId, detectCommand } from '@/lib/utils';
+import { createClient } from '@/lib/supabase/client';
 import type { Itinerary, ItineraryDay, FlightResult, HotelResult } from '@/lib/types';
 
 // ─── Session ID ───────────────────────────────────────────────────────────
+// Uses Supabase user ID if authenticated, otherwise anonymous session ID.
 let _sid: string | null = null;
+let _sidResolved = false;
 function getSessionId() {
   if (!_sid) _sid = generateSessionId();
   return _sid;
+}
+function resolveAuthSession() {
+  if (_sidResolved) return;
+  _sidResolved = true;
+  const supabase = createClient();
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    if (session?.user?.id) {
+      _sid = `user_${session.user.id}`;
+    }
+  });
 }
 
 // ─── Hotkey hook ──────────────────────────────────────────────────────────
@@ -342,12 +356,16 @@ export default function ChatPage() {
   const [cartFlight,    setCartFlight]    = useState<FlightResult | null>(null);
   const [cartHotel,     setCartHotel]     = useState<HotelResult  | null>(null);
   const [cartChildren,  setCartChildren]  = useState<{ count: number; ages: number[] } | null>(null);
+  const [detailHotel,   setDetailHotel]   = useState<HotelResult  | null>(null);
 
   const messagesEndRef  = useRef<HTMLDivElement>(null);
   const chatAreaRef     = useRef<HTMLDivElement>(null);
   // true while the user has scrolled up — suppresses auto-scroll until they
   // return to the bottom or send a new message.
   const userScrolledUp  = useRef(false);
+
+  // Resolve auth session → use user ID as session ID if authenticated
+  useEffect(() => { resolveAuthSession(); }, []);
 
   // Ghost preference
   useEffect(() => {
@@ -632,6 +650,7 @@ export default function ChatPage() {
 
                         onSelectFlight={handleSelectFlight}
                         onSelectHotel={handleSelectHotel}
+                        onOpenHotelDetail={setDetailHotel}
                       />
                     );
                   }
@@ -711,6 +730,16 @@ export default function ChatPage() {
           />
         </div>
       </div>
+
+      {/* Hotel Detail Modal — portaled to page level for proper z-index */}
+      <HotelDetailModal
+        hotel={detailHotel}
+        onClose={() => setDetailHotel(null)}
+        onSelect={(h) => {
+          handleSelectHotel(h);
+          setDetailHotel(null);
+        }}
+      />
     </>
   );
 }

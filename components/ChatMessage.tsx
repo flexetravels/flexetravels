@@ -52,45 +52,80 @@ export function TypingIndicator() {
   );
 }
 
-// ─── Composing indicator — shown while AI is streaming ───────────────────────
-// Replaces the partial-rendered content during streaming to avoid flicker/
-// card pop-in from incremental JSON parsing. Shows live tool-status pills
-// (so user sees "Searching flights…" feedback) plus a stable composing state.
-function ComposingBlock({
+// ─── Progress stepper — shown while AI is searching & composing ──────────────
+// Multi-step vertical stepper with checkmarks for completed steps and
+// animated spinners for active steps. Much better UX than the old single-line
+// composing indicator — user can see exactly what's happening.
+function ProgressStepper({
   toolCalls,
 }: {
   toolCalls: Array<{ toolName: string; state: 'call' | 'result' }>;
 }) {
-  const activeTools = toolCalls.filter(tc => tc.state === 'call').map(tc => tc.toolName);
-  const toolsDone   = toolCalls.length > 0 && activeTools.length === 0;
+  const hasFlightTool = toolCalls.some(tc => tc.toolName === 'searchFlights' || tc.toolName === 'searchBookableFlights');
+  const hasHotelTool  = toolCalls.some(tc => tc.toolName === 'searchHotels' || tc.toolName === 'searchNearbyHotels');
+  const hasOtherTool  = toolCalls.some(tc => !['searchFlights', 'searchBookableFlights', 'searchHotels', 'searchNearbyHotels'].includes(tc.toolName));
 
-  const statusText = () => {
-    if (activeTools.length === 0) return toolsDone ? 'Composing your results…' : 'Thinking…';
-    if (activeTools.includes('searchFlights') && activeTools.includes('searchHotels'))
-      return 'Searching flights & hotels…';
-    if (activeTools.includes('searchFlights'))   return 'Searching flights across airlines…';
-    if (activeTools.includes('searchHotels'))    return 'Finding the best hotels…';
-    if (activeTools.includes('getDestinationGuide')) return 'Building your travel guide…';
-    if (activeTools.includes('searchExperiences'))   return 'Discovering experiences…';
-    if (activeTools.includes('bookFlight'))          return 'Booking your flight…';
-    if (activeTools.includes('preBookHotel'))        return 'Holding your room…';
-    return 'Searching across providers…';
-  };
+  const flightDone = toolCalls
+    .filter(tc => tc.toolName === 'searchFlights' || tc.toolName === 'searchBookableFlights')
+    .every(tc => tc.state === 'result');
+  const hotelDone = toolCalls
+    .filter(tc => tc.toolName === 'searchHotels' || tc.toolName === 'searchNearbyHotels')
+    .every(tc => tc.state === 'result');
+  const allToolsDone = toolCalls.length > 0 && toolCalls.every(tc => tc.state === 'result');
+
+  // If no search tools, just show thinking
+  if (!hasFlightTool && !hasHotelTool && !hasOtherTool) {
+    return (
+      <div className="bubble-bot">
+        <div className="flex items-center gap-2.5 py-0.5">
+          <div className="flex gap-1">
+            {[0, 1, 2].map(i => (
+              <span key={i} className="w-1.5 h-1.5 rounded-full bg-teal-500 dark:bg-teal-400 animate-bounce"
+                style={{ animationDelay: `${i * 120}ms`, animationDuration: '900ms' }} />
+            ))}
+          </div>
+          <span className="text-sm text-muted-foreground">Thinking...</span>
+        </div>
+      </div>
+    );
+  }
+
+  interface Step { label: string; active: boolean; done: boolean }
+  const steps: Step[] = [];
+  if (hasFlightTool) steps.push({ label: 'Searching flights across airlines', active: !flightDone, done: flightDone });
+  if (hasHotelTool)  steps.push({ label: 'Finding the best hotels', active: !hotelDone, done: hotelDone });
+  if (hasOtherTool)  {
+    const otherDone = toolCalls
+      .filter(tc => !['searchFlights', 'searchBookableFlights', 'searchHotels', 'searchNearbyHotels'].includes(tc.toolName))
+      .every(tc => tc.state === 'result');
+    steps.push({ label: 'Gathering travel info', active: !otherDone, done: otherDone });
+  }
+  if (steps.length > 0) steps.push({ label: 'Curating your picks', active: allToolsDone, done: false });
 
   return (
     <div className="bubble-bot">
-      <div className="flex items-center gap-2.5 py-0.5">
-        {/* Animated dots */}
-        <div className="flex gap-1">
-          {[0, 1, 2].map(i => (
-            <span
-              key={i}
-              className="w-1.5 h-1.5 rounded-full bg-teal-500 dark:bg-teal-400 animate-bounce"
-              style={{ animationDelay: `${i * 120}ms`, animationDuration: '900ms' }}
-            />
-          ))}
-        </div>
-        <span className="text-sm text-muted-foreground">{statusText()}</span>
+      <div className="flex flex-col gap-1.5 py-1">
+        {steps.map((step, i) => (
+          <div key={i} className="flex items-center gap-2.5">
+            {step.done ? (
+              <CheckCircle2 className="w-4 h-4 text-teal-500 flex-shrink-0" />
+            ) : step.active ? (
+              <div className="w-4 h-4 flex-shrink-0 flex items-center justify-center">
+                <span className="w-3 h-3 rounded-full border-2 border-teal-500 border-t-transparent animate-spin" />
+              </div>
+            ) : (
+              <div className="w-4 h-4 flex-shrink-0 flex items-center justify-center">
+                <span className="w-2 h-2 rounded-full bg-muted-foreground/30" />
+              </div>
+            )}
+            <span className={cn(
+              'text-sm transition-colors',
+              step.done ? 'text-teal-500' : step.active ? 'text-foreground' : 'text-muted-foreground/50'
+            )}>
+              {step.label}{step.active && !step.done ? '...' : ''}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -165,7 +200,9 @@ function FlightResultsPanel({
   const [selected,   setSelected]   = useState<string | null>(null);
   const [sort,       setSort]       = useState<FlightSort>('price');
   const [stopFilter, setStopFilter] = useState<StopFilter>('all');
+  const [showAll,    setShowAll]    = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const INITIAL_VISIBLE = 5;
 
   const filtered = flights.filter(f => {
     if (stopFilter === 'all') return true;
@@ -272,7 +309,7 @@ function FlightResultsPanel({
                        [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
             style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
           >
-            {sorted.map(f => (
+            {(showAll ? sorted : sorted.slice(0, INITIAL_VISIBLE)).map(f => (
               // w-[85vw] on mobile so user sees the edge of the next card (peek pattern)
               // sm:w-[300px] restores desktop size
               <div key={f.id} className="flex-none w-[min(85vw,300px)] sm:w-[300px] snap-start animate-fade-in-up">
@@ -287,6 +324,20 @@ function FlightResultsPanel({
                 />
               </div>
             ))}
+            {/* "See all" ghost card when more results exist */}
+            {!showAll && sorted.length > INITIAL_VISIBLE && (
+              <div className="flex-none w-[min(85vw,300px)] sm:w-[300px] snap-start">
+                <button
+                  onClick={() => setShowAll(true)}
+                  className="w-full h-full min-h-[180px] border-2 border-dashed border-teal-500/30 rounded-xl
+                             flex flex-col items-center justify-center gap-2 p-6
+                             hover:border-teal-500/60 hover:bg-teal-500/5 transition-all cursor-pointer"
+                >
+                  <span className="text-2xl font-bold text-teal-500">+{sorted.length - INITIAL_VISIBLE}</span>
+                  <span className="text-sm text-muted-foreground">See all options</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Next arrow */}
@@ -316,14 +367,18 @@ type StarFilter = 'all' | '3' | '4' | '5';
 function HotelResultsPanel({
   hotels,
   onSelect,
+  onOpenDetail,
 }: {
   hotels: HotelResult[];
   onSelect?: (h: HotelResult) => void;
+  onOpenDetail?: (h: HotelResult) => void;
 }) {
   const [selected,    setSelected]    = useState<string | null>(null);
   const [sort,        setSort]        = useState<HotelSort>('price');
   const [starFilter,  setStarFilter]  = useState<StarFilter>('all');
+  const [showAll,     setShowAll]     = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const INITIAL_VISIBLE = 5;
 
   const filtered = hotels.filter(h => {
     if (starFilter === 'all') return true;
@@ -422,7 +477,7 @@ function HotelResultsPanel({
                        [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
             style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
           >
-            {sorted.map(h => (
+            {(showAll ? sorted : sorted.slice(0, INITIAL_VISIBLE)).map(h => (
               <div key={h.id} className="flex-none w-[min(85vw,260px)] sm:w-[260px] snap-start animate-fade-in-up">
                 <HotelCard
                   hotel={h}
@@ -432,9 +487,24 @@ function HotelResultsPanel({
                     setSelected(ht.id);
                     onSelect?.(ht);
                   }}
+                  onOpenDetail={onOpenDetail}
                 />
               </div>
             ))}
+            {/* "See all" ghost card when more results exist */}
+            {!showAll && sorted.length > INITIAL_VISIBLE && (
+              <div className="flex-none w-[min(85vw,260px)] sm:w-[260px] snap-start">
+                <button
+                  onClick={() => setShowAll(true)}
+                  className="w-full h-full min-h-[240px] border-2 border-dashed border-teal-500/30 rounded-xl
+                             flex flex-col items-center justify-center gap-2 p-6
+                             hover:border-teal-500/60 hover:bg-teal-500/5 transition-all cursor-pointer"
+                >
+                  <span className="text-2xl font-bold text-teal-500">+{sorted.length - INITIAL_VISIBLE}</span>
+                  <span className="text-sm text-muted-foreground">See all options</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Next arrow */}
@@ -619,6 +689,7 @@ export function ToolCallStatus({ toolName, state }: ToolCallStatusProps) {
     searchFlights:          '✈ Searching flights...',
     searchBookableFlights:  '✈ Finding bookable flights...',
     searchHotels:           '🏨 Searching hotels...',
+    searchNearbyHotels:     '🏨 Searching nearby areas...',
     searchExperiences:      '🧭 Finding experiences...',
     bookFlight:             '📋 Booking flight...',
     preBookHotel:           '🏨 Holding hotel room...',
@@ -669,6 +740,7 @@ interface ChatMessageProps {
   toolCalls?: Array<{ toolName: string; state: 'call' | 'result' }>;
   onSelectFlight?: (f: FlightResult) => void;
   onSelectHotel?:  (h: HotelResult)  => void;
+  onOpenHotelDetail?: (h: HotelResult) => void;
 }
 
 export function ChatMessage({
@@ -678,6 +750,7 @@ export function ChatMessage({
   toolCalls,
   onSelectFlight,
   onSelectHotel,
+  onOpenHotelDetail,
 }: ChatMessageProps) {
 
   // ── User bubble ────────────────────────────────────────────────────────────
@@ -690,11 +763,26 @@ export function ChatMessage({
   }
 
   // ── Assistant bubble — STREAMING state ────────────────────────────────────
-  // Show tool status pills + streaming prose text immediately.
-  // Card JSON is stripped from the live text to avoid showing raw JSON.
-  // Cards themselves render only once streaming=false (complete JSON required).
+  // PROGRESSIVE RENDERING: Parse completed cards during streaming and render
+  // them immediately. Cards pop in one-by-one as Claude emits valid JSON,
+  // instead of waiting for the full response to complete. Skeleton cards show
+  // only for tool types that haven't produced parseable cards yet.
   if (streaming) {
     const streamingText = stripCardTags(content).trim();
+
+    // Parse any COMPLETE card JSON from the partial stream
+    // parseEmbeddedCards handles incomplete JSON gracefully (returns null → skips)
+    const streamCards    = parseEmbeddedCards(content);
+    const streamFlights  = streamCards.filter(c => c.type === 'flight').map(c => c.data as FlightResult);
+    const streamHotels   = streamCards.filter(c => c.type === 'hotel').map(c => c.data as HotelResult);
+    const streamExps     = streamCards.filter(c => c.type === 'experience').map(c => c.data as ExperienceResult);
+
+    const activeTools = (toolCalls ?? []).filter(tc => tc.state === 'call').map(tc => tc.toolName);
+    // Show skeletons only for tools still running AND where no cards have been parsed yet
+    const showFlightSkel = (activeTools.includes('searchFlights') || activeTools.includes('searchBookableFlights')) && streamFlights.length === 0;
+    const showHotelSkel  = (activeTools.includes('searchHotels') || activeTools.includes('searchNearbyHotels')) && streamHotels.length === 0;
+    const showExpSkel    = activeTools.includes('searchExperiences') && streamExps.length === 0;
+
     return (
       <div className="msg-row-bot">
         <div className="bot-avatar flex-shrink-0 self-start mt-0.5">
@@ -709,7 +797,8 @@ export function ChatMessage({
               ))}
             </div>
           )}
-          {/* Show streaming prose as it arrives, or composing indicator if no text yet */}
+
+          {/* Progress stepper or streaming text */}
           {streamingText ? (
             <div className="bubble-bot">
               <div className="prose-chat">
@@ -718,23 +807,28 @@ export function ChatMessage({
               <span className="inline-block w-2 h-4 bg-current opacity-70 animate-pulse ml-1 align-middle" />
             </div>
           ) : (
-            <ComposingBlock toolCalls={toolCalls ?? []} />
+            <ProgressStepper toolCalls={toolCalls ?? []} />
           )}
-          {/* Skeleton cards — shown immediately while tools are running */}
-          {(() => {
-            const activeTools = (toolCalls ?? []).filter(tc => tc.state === 'call').map(tc => tc.toolName);
-            const showFlightSkel = activeTools.includes('searchFlights') || activeTools.includes('searchBookableFlights');
-            const showHotelSkel  = activeTools.includes('searchHotels');
-            const showExpSkel    = activeTools.includes('searchExperiences');
-            if (!showFlightSkel && !showHotelSkel && !showExpSkel) return null;
-            return (
-              <div className="flex flex-col gap-2">
-                {showFlightSkel && [0,1,2].map(i => <SkeletonFlightCard key={i} />)}
-                {showHotelSkel  && [0,1,2].map(i => <SkeletonHotelCard  key={i} />)}
-                {showExpSkel    && [0,1].map(i   => <SkeletonExperienceCard key={i} />)}
-              </div>
-            );
-          })()}
+
+          {/* PROGRESSIVE CARDS — render completed cards immediately during streaming */}
+          {streamFlights.length > 0 && (
+            <FlightResultsPanel flights={streamFlights} onSelect={onSelectFlight} />
+          )}
+          {streamHotels.length > 0 && (
+            <HotelResultsPanel hotels={streamHotels} onSelect={onSelectHotel} onOpenDetail={onOpenHotelDetail} />
+          )}
+          {streamExps.length > 0 && (
+            <ExperienceResultsPanel experiences={streamExps} />
+          )}
+
+          {/* Skeleton cards — only for tools still running with no parsed results yet */}
+          {(showFlightSkel || showHotelSkel || showExpSkel) && (
+            <div className="flex flex-col gap-2">
+              {showFlightSkel && [0,1,2].map(i => <SkeletonFlightCard key={i} />)}
+              {showHotelSkel  && [0,1,2].map(i => <SkeletonHotelCard  key={i} />)}
+              {showExpSkel    && [0,1].map(i   => <SkeletonExperienceCard key={i} />)}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -808,7 +902,7 @@ export function ChatMessage({
 
         {/* Hotel results */}
         {hotelCards.length > 0 && (
-          <HotelResultsPanel hotels={hotelCards} onSelect={onSelectHotel} />
+          <HotelResultsPanel hotels={hotelCards} onSelect={onSelectHotel} onOpenDetail={onOpenHotelDetail} />
         )}
 
         {/* Experience results */}
