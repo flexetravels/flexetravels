@@ -67,8 +67,10 @@ async function rest<T>(
       return null;
     }
 
-    if (res.status === 204) return null;
-    return await res.json() as T;
+    if (res.status === 204 || res.status === 201) return null;
+    const text = await res.text();
+    if (!text) return null;
+    return JSON.parse(text) as T;
   } catch (e) {
     console.error(`[DB] ${method} ${table} exception:`, e);
     return null;

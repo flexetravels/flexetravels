@@ -279,7 +279,7 @@ export async function POST(req: Request) {
     model:     anthropic('claude-sonnet-4-6'),
     system:    buildSystem(),
     messages:  compressedMessages,
-    maxTokens: 8000,
+    maxTokens: 5000,
     maxSteps:  3,
 
     tools: {

@@ -249,7 +249,7 @@ export async function aggregateHotels(params: HotelSearchParams): Promise<HotelA
     .filter(h => !params.maxPrice || h.pricePerNight <= params.maxPrice)
     .filter(h => !params.stars || h.stars >= params.stars)
     .sort((a, b) => a.pricePerNight - b.pricePerNight)
-    .slice(0, 10);
+    .slice(0, 15);
 
   console.log(`[aggregateHotels] raw=${allHotels.length}, deduped=${deduped.length}, filtered=${filtered.length}, maxPrice=${params.maxPrice ?? 'none'}, stars=${params.stars ?? 'none'}`);
 

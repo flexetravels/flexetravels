@@ -273,23 +273,19 @@ export function HotelDetailModal({ hotel, onClose, onSelect }: HotelDetailModalP
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop + centering flex wrapper */}
       <div
-        className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm"
+        className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end sm:items-center sm:justify-center sm:p-4"
         onClick={onClose}
-      />
-
-      {/* Modal sheet — slides up from bottom, centered on desktop */}
+      >
+      {/* Modal sheet */}
       <div
         className={cn(
-          'fixed z-[110] bg-background shadow-2xl',
-          // Mobile: full screen slide-up sheet
-          'inset-x-0 bottom-0 rounded-t-2xl max-h-[95vh]',
-          // Desktop: centered modal
-          'sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2',
-          'sm:w-full sm:max-w-3xl sm:rounded-2xl sm:max-h-[92vh]',
-          'flex flex-col overflow-hidden',
-          'animate-slide-up',
+          'bg-background shadow-2xl w-full flex flex-col overflow-hidden animate-slide-up',
+          // Mobile: bottom sheet
+          'rounded-t-2xl max-h-[95vh]',
+          // Desktop: centered card
+          'sm:rounded-2xl sm:max-w-3xl sm:max-h-[92vh]',
         )}
         onClick={e => e.stopPropagation()}
       >
@@ -737,6 +733,7 @@ export function HotelDetailModal({ hotel, onClose, onSelect }: HotelDetailModalP
           </div>
         </div>
       </div>
+      </div>{/* end backdrop flex wrapper */}
 
       {/* Lightbox (z above modal) */}
       {lightbox !== null && allImages.length > 0 && (
