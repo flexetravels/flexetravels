@@ -246,23 +246,28 @@ function toTitleCase(str: string): string {
 // For REGION destinations (marked with __parallel: true), ALL cities are searched in
 // parallel and results are merged — not tried sequentially as fallbacks.
 const CITY_FALLBACKS: Record<string, string[]> = {
-  'bali':      ['Seminyak', 'Denpasar', 'Ubud', 'Nusa Dua', 'Canggu', 'Kuta'],
-  'kuta':      ['Seminyak', 'Denpasar', 'Ubud', 'Nusa Dua'],
-  'canggu':    ['Seminyak', 'Denpasar', 'Ubud', 'Nusa Dua'],
-  'maldives':  ['Male', 'Hulhule', 'Maafushi', 'Addu City'],
-  'phuket':    ['Patong', 'Kathu', 'Bang Tao', 'Karon'],
-  'santorini': ['Fira', 'Oia', 'Thira'],
-  'mykonos':   ['Mykonos Town', 'Mykonos'],
-  'ibiza':     ['Ibiza Town', 'Sant Antoni'],
-  'bora bora': ['Vaitape', 'Bora-Bora'],
-  'goa':       ['Panjim', 'Calangute', 'Candolim', 'Margao'],
-  'amalfi':    ['Amalfi', 'Positano', 'Ravello', 'Sorrento'],
-  'algarve':   ['Faro', 'Albufeira', 'Lagos', 'Portimao'],
-  'tulum':     ['Tulum', 'Playa del Carmen', 'Akumal'],
-  'maui':      ['Lahaina', 'Kihei', 'Wailea', 'Kahului'],
-  'zanzibar':  ['Stone Town', 'Nungwi', 'Kendwa'],
-  'langkawi':  ['Kuah', 'Pantai Cenang'],
-  'koh samui': ['Chaweng', 'Lamai', 'Bophut'],
+  'bali':          ['Seminyak', 'Denpasar', 'Ubud', 'Nusa Dua', 'Canggu', 'Kuta'],
+  'kuta':          ['Seminyak', 'Denpasar', 'Ubud', 'Nusa Dua'],
+  'canggu':        ['Seminyak', 'Denpasar', 'Ubud', 'Nusa Dua'],
+  'maldives':      ['Male', 'Hulhule', 'Maafushi', 'Addu City'],
+  'phuket':        ['Patong', 'Kathu', 'Bang Tao', 'Karon'],
+  'santorini':     ['Fira', 'Oia', 'Thira'],
+  'mykonos':       ['Mykonos Town', 'Mykonos'],
+  'ibiza':         ['Ibiza Town', 'Sant Antoni'],
+  'bora bora':     ['Vaitape', 'Bora-Bora'],
+  'goa':           ['Panjim', 'Calangute', 'Candolim', 'Margao'],
+  'amalfi':        ['Amalfi', 'Positano', 'Ravello', 'Sorrento'],
+  'algarve':       ['Faro', 'Albufeira', 'Lagos', 'Portimao'],
+  'tulum':         ['Tulum', 'Playa del Carmen', 'Akumal'],
+  'maui':          ['Lahaina', 'Kihei', 'Wailea', 'Kahului'],
+  'zanzibar':      ['Stone Town', 'Nungwi', 'Kendwa'],
+  'langkawi':      ['Kuah', 'Pantai Cenang'],
+  'koh samui':     ['Chaweng', 'Lamai', 'Bophut'],
+  // UAE — Dubai has sparse sandbox inventory; cast wide across all districts + Abu Dhabi
+  'dubai':         ['Dubai Marina', 'Deira', 'Downtown Dubai', 'Jumeirah', 'Abu Dhabi'],
+  'dubai marina':  ['Dubai', 'Deira', 'Downtown Dubai', 'Jumeirah'],
+  'deira':         ['Dubai', 'Dubai Marina', 'Downtown Dubai'],
+  'abu dhabi':     ['Dubai', 'Dubai Marina', 'Deira'],
 };
 
 // Region destinations where we ALWAYS search multiple cities in parallel
@@ -270,6 +275,8 @@ const CITY_FALLBACKS: Record<string, string[]> = {
 const PARALLEL_REGIONS = new Set([
   'bali', 'maldives', 'phuket', 'goa', 'amalfi', 'algarve',
   'tulum', 'maui', 'zanzibar', 'langkawi', 'koh samui',
+  // UAE — always fan out across districts for much better coverage
+  'dubai', 'dubai marina', 'deira', 'abu dhabi',
 ]);
 
 export function resolveCityCountry(destination: string): { city: string; countryCode: string } {
@@ -426,7 +433,7 @@ export class LiteApiProvider implements SearchProvider {
     // first, then fall back sequentially. This dramatically improves coverage.
     const isRegion   = PARALLEL_REGIONS.has(city.toLowerCase());
     const fallbacks  = CITY_FALLBACKS[city.toLowerCase()] ?? [];
-    const perCityLimit = isRegion ? 20 : 15;
+    const perCityLimit = isRegion ? 30 : 25;
 
     const fetchHotelList = async (cityName: string): Promise<{ city: string; hotels: LiteHotelListItem[] }> => {
       const url =
@@ -665,7 +672,7 @@ export class LiteApiProvider implements SearchProvider {
 
     const results = normalized
       .sort((a, b) => a.pricePerNight - b.pricePerNight)
-      .slice(0, 10);
+      .slice(0, 20);
 
     // Write to cache (even empty, prevents hammering the API on retries)
     HOTEL_CACHE.set(cacheKey, { data: results, ts: Date.now() });
