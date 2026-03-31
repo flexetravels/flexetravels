@@ -179,7 +179,7 @@ export async function aggregateFlights(params: FlightSearchParams): Promise<{
     if (r.error) errors.push(`${r.provider}: ${r.error}`);
   }
 
-  const deduped = dedupeFlights(allFlights).sort((a, b) => a.price - b.price).slice(0, 8);
+  const deduped = dedupeFlights(allFlights).sort((a, b) => a.price - b.price).slice(0, 12);
 
   return {
     flights: deduped,
@@ -249,7 +249,7 @@ export async function aggregateHotels(params: HotelSearchParams): Promise<HotelA
     .filter(h => !params.maxPrice || h.pricePerNight <= params.maxPrice)
     .filter(h => !params.stars || h.stars >= params.stars)
     .sort((a, b) => a.pricePerNight - b.pricePerNight)
-    .slice(0, 6);
+    .slice(0, 10);
 
   console.log(`[aggregateHotels] raw=${allHotels.length}, deduped=${deduped.length}, filtered=${filtered.length}, maxPrice=${params.maxPrice ?? 'none'}, stars=${params.stars ?? 'none'}`);
 
@@ -257,7 +257,7 @@ export async function aggregateHotels(params: HotelSearchParams): Promise<HotelA
   if (filtered.length === 0 && deduped.length > 0) {
     const relaxed = deduped
       .sort((a, b) => a.pricePerNight - b.pricePerNight)
-      .slice(0, 6);
+      .slice(0, 10);
     return {
       hotels: relaxed, sources, errors, isSample: false,
       latencyMs: Date.now() - start,

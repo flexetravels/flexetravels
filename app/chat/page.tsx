@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { ChatMessage, TypingIndicator } from '@/components/ChatMessage';
 import { ItinerarySidebar } from '@/components/ItinerarySidebar';
+import { HotelDetailModal } from '@/components/HotelDetailModal';
 import { cn, generateSessionId, detectCommand } from '@/lib/utils';
 import type { Itinerary, ItineraryDay, FlightResult, HotelResult } from '@/lib/types';
 
@@ -342,6 +343,7 @@ export default function ChatPage() {
   const [cartFlight,    setCartFlight]    = useState<FlightResult | null>(null);
   const [cartHotel,     setCartHotel]     = useState<HotelResult  | null>(null);
   const [cartChildren,  setCartChildren]  = useState<{ count: number; ages: number[] } | null>(null);
+  const [detailHotel,   setDetailHotel]   = useState<HotelResult  | null>(null);
 
   const messagesEndRef  = useRef<HTMLDivElement>(null);
   const chatAreaRef     = useRef<HTMLDivElement>(null);
@@ -632,6 +634,7 @@ export default function ChatPage() {
 
                         onSelectFlight={handleSelectFlight}
                         onSelectHotel={handleSelectHotel}
+                        onOpenHotelDetail={setDetailHotel}
                       />
                     );
                   }
@@ -711,6 +714,16 @@ export default function ChatPage() {
           />
         </div>
       </div>
+
+      {/* Hotel Detail Modal — portaled to page level for proper z-index */}
+      <HotelDetailModal
+        hotel={detailHotel}
+        onClose={() => setDetailHotel(null)}
+        onSelect={(h) => {
+          handleSelectHotel(h);
+          setDetailHotel(null);
+        }}
+      />
     </>
   );
 }

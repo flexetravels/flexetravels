@@ -83,7 +83,16 @@ CHILDREN: If kids mentioned, ask ages. Then emit before results: [CHILDREN_INFO]
 CARD FORMAT — copy ALL values EXACTLY from tool result:
 [FLIGHT_CARD] {"id":"<id>","airline":"<name>","origin":"<IATA>","destination":"<IATA>","departure":"<ISO>","arrival":"<ISO>","duration":"<Xh Ym>","stops":<N>,"stopAirports":[],"price":<n>,"currency":"<ISO>","cabinClass":"economy","refundable":<bool>,"airlineLogo":"<url>","provider":"duffel","bookingToken":"<exact token>","passengers":<n>,"segments":[],"flexibilityScore":<n>,"flexibilityLabel":"<label>","flexibilitySummary":"<text>"}
 [HOTEL_CARD] {"id":"<id>","name":"<name>","location":"<city>","city":"<city>","stars":<N>,"pricePerNight":<n>,"totalPrice":<n>,"currency":"USD","image":"<url>","images":["<url>"],"rating":<n>,"amenities":[],"checkIn":"<date>","checkOut":"<date>","cancellation":"<policy>","isSample":<bool>,"provider":"liteapi","bookingToken":"<exact token>"}
-Show top 3 flights price asc. Show top 3 hotels price asc — one [HOTEL_CARD] per hotel. Never show more than 3 of each.
+Show top 5 flights price asc. Show top 5 hotels price asc — one [HOTEL_CARD] per hotel. If more results available than you show, tell the user: "I found X total options — want to see more?"
+
+SMART SEARCH BEHAVIOR:
+- For region destinations (Bali, Maldives, Phuket, Goa, Santorini, Algarve, Amalfi Coast, Tulum, Maui), the system automatically searches across multiple areas. Tell the user: "I'm searching across multiple areas in [region] for the best options..."
+- If hotel results return fewer than 3 hotels, proactively call searchNearbyHotels with nearby cities. Known region→city mappings:
+  Bali→Seminyak,Ubud,Nusa Dua,Canggu,Denpasar | Maldives→Male,Hulhule,Maafushi | Phuket→Patong,Karon,Kata | Santorini→Fira,Oia | Goa→Panjim,Calangute,Candolim | Tulum→Playa del Carmen,Akumal | Maui→Lahaina,Kihei,Wailea
+- When user says "under $X" or "max $X/night" → pass maxPrice parameter. "5-star" or "luxury" → pass stars=5. "budget" or "cheap" → maxPrice=150. "mid-range" → maxPrice=300.
+- When user asks "any other options?" / "show me more" / "what else?" / "nearby?" → call searchNearbyHotels with different nearby cities you haven't tried yet.
+- When user says "higher price" / "premium" / "upscale" → omit maxPrice, set stars=4 or 5.
+- When user says "beachfront" / "near the beach" → mention you're searching coastal areas and prefer results in beachside sub-cities.
 
 HOTEL RULES:
 • count>0 + isSample=false → emit cards as-is.
@@ -232,8 +241,8 @@ export async function POST(req: Request) {
     model:     anthropic('claude-haiku-4-5-20251001'),
     system:    buildSystem(),
     messages:  compressedMessages,
-    maxTokens: 2500,
-    maxSteps:  2,
+    maxTokens: 4000,
+    maxSteps:  3,
 
     tools: {
 
@@ -276,11 +285,12 @@ export async function POST(req: Request) {
             }).catch(() => {});
           }
           return {
-            flights:   r.flights,
-            count:     r.flights.length,
-            sources:   r.sources,
-            errors:    r.errors.length > 0 ? r.errors : undefined,
-            latencyMs: r.latencyMs,
+            flights:        r.flights,
+            count:          r.flights.length,
+            totalAvailable: r.flights.length,
+            sources:        r.sources,
+            errors:         r.errors.length > 0 ? r.errors : undefined,
+            latencyMs:      r.latencyMs,
           };
         },
       }),
@@ -420,6 +430,103 @@ export async function POST(req: Request) {
             count:            hotels.length,
             isSample:         r.isSample,
             noResultsMessage: r.noResultsMessage,
+          };
+        },
+      }),
+
+      // ── Multi-city nearby hotel search ─────────────────────────────────────
+      searchNearbyHotels: tool({
+        description:
+          'Search hotels in multiple nearby cities/areas within a region. Use when user wants more options, asks "anything nearby?", "show me more", or when initial hotel results returned fewer than 3 hotels. Searches up to 4 cities in parallel and merges results.',
+        parameters: z.object({
+          cities:   z.array(z.string()).min(1).max(4).describe('City names to search e.g. ["Seminyak", "Ubud", "Nusa Dua"]'),
+          checkIn:  z.string().describe('Check-in date YYYY-MM-DD'),
+          checkOut: z.string().describe('Check-out date YYYY-MM-DD'),
+          adults:   z.number().int().min(1).max(9).default(2),
+          maxPrice: z.number().optional().describe('Max price per night in USD'),
+          stars:    z.number().int().min(1).max(5).optional().describe('Minimum star rating'),
+        }),
+        execute: async ({ cities, checkIn, checkOut, adults, maxPrice, stars }) => {
+          const NEARBY_TIMEOUT_MS = 15_000;
+
+          // Fire hotel search for each city in parallel
+          const searches = cities.map(city =>
+            aggregateHotels({ destination: city, checkIn, checkOut, adults, maxPrice, stars })
+              .catch(err => {
+                console.warn(`[searchNearbyHotels] Error for "${city}":`, err);
+                return null;
+              })
+          );
+
+          const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), NEARBY_TIMEOUT_MS));
+          const results = await Promise.race([Promise.all(searches), timeout]);
+
+          type HotelCard = {
+            id: string; name: string; location: string; city: string; stars: number;
+            pricePerNight: number; totalPrice: number; currency: string; image: string;
+            images: string[]; rating: number; amenities: string[]; checkIn: string;
+            checkOut: string; cancellation: string; isSample: boolean; provider: string; bookingToken: string;
+          };
+          const allHotels: HotelCard[] = [];
+          const searchedCities: string[] = [];
+          const allSources: string[] = [];
+          let anySample = false;
+
+          if (results) {
+            for (let i = 0; i < results.length; i++) {
+              const r = results[i];
+              if (!r) continue;
+              searchedCities.push(cities[i]);
+              allSources.push(...r.sources);
+              if (r.isSample) anySample = true;
+              for (const h of r.hotels) {
+                allHotels.push({
+                  id:           h.id,
+                  name:         h.name,
+                  location:     h.location ?? '',
+                  city:         h.city ?? '',
+                  stars:        h.stars,
+                  pricePerNight: h.pricePerNight,
+                  totalPrice:   h.totalPrice,
+                  currency:     h.currency ?? 'USD',
+                  image:        h.image ?? '',
+                  images:       h.image ? [h.image] : [],
+                  rating:       h.rating ?? 0,
+                  amenities:    h.amenities?.slice(0, 5) ?? [],
+                  checkIn:      h.checkIn ?? '',
+                  checkOut:     h.checkOut ?? '',
+                  cancellation: h.cancellation ?? '',
+                  isSample:     h.isSample ?? false,
+                  provider:     h.provider ?? 'liteapi',
+                  bookingToken: h.bookingToken ?? '',
+                });
+              }
+            }
+          }
+
+          // Deduplicate by hotel name (lowercase)
+          const seen = new Set<string>();
+          const hotels = allHotels.filter(h => {
+            const key = h.name.toLowerCase().trim();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          }).sort((a, b) => a.pricePerNight - b.pricePerNight).slice(0, 10);
+
+          logger.search({
+            event: 'hotel_search', api: 'liteapi',
+            sessionId: sessionId,
+            params: { cities, checkIn, checkOut, adults, maxPrice, stars } as Record<string, unknown>,
+            resultCount: hotels.length,
+            sources: [...new Set(allSources)],
+          });
+
+          return {
+            hotels,
+            count:           hotels.length,
+            cities_searched: searchedCities,
+            isSample:        anySample,
+            sources:         [...new Set(allSources)],
           };
         },
       }),

@@ -39,6 +39,7 @@ interface HotelDetailResponse {
 interface HotelCardProps {
   hotel: HotelResult;
   onSelect?: (hotel: HotelResult) => void;
+  onOpenDetail?: (hotel: HotelResult) => void;
   selected?: boolean;
   compact?: boolean;
   isBestDeal?: boolean;
@@ -279,7 +280,7 @@ function RoomCard({
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export function HotelCard({ hotel, onSelect, selected, compact, isBestDeal }: HotelCardProps) {
+export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, isBestDeal }: HotelCardProps) {
   const nights =
     hotel.checkIn && hotel.checkOut
       ? Math.round(
@@ -487,19 +488,32 @@ export function HotelCard({ hotel, onSelect, selected, compact, isBestDeal }: Ho
           </div>
         )}
 
-        {/* ── Details & Rooms toggle ─────────────────────────────────────── */}
-        <button
-          onClick={handleToggleExpand}
-          className="w-full flex items-center justify-between px-3 py-2 rounded-xl
-                     bg-muted/50 hover:bg-muted/80 text-xs font-medium text-muted-foreground
-                     transition-colors"
-        >
-          <span className="flex items-center gap-1.5">
-            {detailLoading && <Loader2 className="w-3 h-3 animate-spin" />}
-            {expanded ? 'Hide details' : `View details${allRoomTypes.length > 0 ? ` & ${allRoomTypes.length} room${allRoomTypes.length !== 1 ? 's' : ''}` : ''}`}
-          </span>
-          {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-        </button>
+        {/* ── Details & Rooms toggle row ──────────────────────────────────── */}
+        <div className="flex gap-2">
+          <button
+            onClick={handleToggleExpand}
+            className="flex-1 flex items-center justify-between px-3 py-2 rounded-xl
+                       bg-muted/50 hover:bg-muted/80 text-xs font-medium text-muted-foreground
+                       transition-colors"
+          >
+            <span className="flex items-center gap-1.5">
+              {detailLoading && <Loader2 className="w-3 h-3 animate-spin" />}
+              {expanded ? 'Hide details' : `View details${allRoomTypes.length > 0 ? ` & ${allRoomTypes.length} room${allRoomTypes.length !== 1 ? 's' : ''}` : ''}`}
+            </span>
+            {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+          {onOpenDetail && !hotel.isSample && (
+            <button
+              onClick={() => onOpenDetail(hotel)}
+              className="px-3 py-2 rounded-xl bg-teal-500/10 hover:bg-teal-500/20
+                         text-xs font-medium text-teal-600 dark:text-teal-400 transition-colors
+                         flex items-center gap-1 flex-shrink-0"
+              title="Full hotel details"
+            >
+              Full details
+            </button>
+          )}
+        </div>
 
         {/* ── Expanded detail panel ──────────────────────────────────────── */}
         {expanded && (
