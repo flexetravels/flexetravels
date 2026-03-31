@@ -114,14 +114,22 @@ DUBAI / UAE SPECIFIC:
 6. NEVER call tools after user selects a flight or hotel — frontend handles booking from there.
 7. Wrong IDs = failed booking. Verify every field before emitting a card.
 
+RESPONSE ORDER — ALWAYS follow this exact sequence:
+1. ONE warm sentence (max 15 words) introducing what you found
+2. ALL [FLIGHT_CARD] tags immediately — no text between them
+3. ONE sentence bridging to hotels (max 10 words)
+4. ALL [HOTEL_CARD] tags immediately — no text between them
+5. 1-2 sentences of commentary + closing question
+Cards MUST come before commentary. Never make the user wait through paragraphs of text before seeing results.
+
 CARD FORMAT — copy ALL values EXACTLY from tool result:
 [FLIGHT_CARD] {"id":"<id>","airline":"<name>","origin":"<IATA>","destination":"<IATA>","departure":"<ISO>","arrival":"<ISO>","duration":"<Xh Ym>","stops":<N>,"stopAirports":[],"price":<n>,"currency":"<ISO>","cabinClass":"economy","refundable":<bool>,"airlineLogo":"<url>","provider":"duffel","bookingToken":"<exact token>","passengers":<n>,"segments":[],"flexibilityScore":<n>,"flexibilityLabel":"<label>","flexibilitySummary":"<text>"}
 [HOTEL_CARD] {"id":"<id>","name":"<name>","location":"<city>","city":"<city>","stars":<N>,"pricePerNight":<n>,"totalPrice":<n>,"currency":"USD","image":"<url>","images":["<url>"],"rating":<n>,"amenities":[],"checkIn":"<date>","checkOut":"<date>","cancellation":"<policy>","isSample":<bool>,"provider":"liteapi","bookingToken":"<exact token>"}
 
 SHOWING RESULTS:
-• Flights: Show ALL results returned (up to 5), sorted price asc. Lead with the best-value pick and explain why briefly.
-• Hotels: Show ALL hotels returned — emit one [HOTEL_CARD] per hotel, no limit. Every hotel the API returns should be shown. If count > 10, tell user: "I found X options — here are all of them!"
-• After results: 1-2 warm sentences on standout picks + "Just a flat $20 service fee — no surprises. Which catches your eye?"
+• Flights: Emit ALL [FLIGHT_CARD] tags first, then brief commentary.
+• Hotels: Emit ALL [HOTEL_CARD] tags (every single one from the tool result) immediately after the bridge sentence. Never skip any.
+• After all cards: "Just a flat $20 service fee — no surprises. Which catches your eye?"
 
 SMART SEARCH BEHAVIOR:
 • Region destinations (Bali, Maldives, Phuket, Goa, Santorini, Dubai, etc.) → system already searches multiple districts. Tell user: "Searching across [region] areas for the widest selection..."
@@ -268,10 +276,10 @@ export async function POST(req: Request) {
   ) as Parameters<typeof streamText>[0]['messages'];
 
   const result = streamText({
-    model:     anthropic('claude-haiku-4-5-20251001'),
+    model:     anthropic('claude-sonnet-4-6'),
     system:    buildSystem(),
     messages:  compressedMessages,
-    maxTokens: 4000,
+    maxTokens: 8000,
     maxSteps:  3,
 
     tools: {
@@ -466,6 +474,7 @@ export async function POST(req: Request) {
             count:            hotels.length,
             isSample:         r.isSample,
             noResultsMessage: r.noResultsMessage,
+            IMPORTANT:        `You MUST emit exactly ${hotels.length} [HOTEL_CARD] tags — one per hotel in the list above. Do NOT skip, filter, or select a subset. Show every single hotel regardless of star rating. The user can filter themselves using the UI.`,
           };
         },
       }),
@@ -564,6 +573,7 @@ export async function POST(req: Request) {
             cities_searched: searchedCities,
             isSample:        anySample,
             sources:         [...new Set(allSources)],
+            IMPORTANT:       `You MUST emit exactly ${hotels.length} [HOTEL_CARD] tags — one per hotel. Do NOT skip any.`,
           };
         },
       }),
