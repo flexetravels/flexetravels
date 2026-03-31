@@ -8,9 +8,13 @@ import { NextResponse, type NextRequest } from 'next/server';
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
-  const url  = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key  = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return supabaseResponse; // Auth not configured — pass through
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
+
+  // Bail out immediately if Supabase is not configured — avoids SDK throwing
+  if (!url.startsWith('https://') || key.length < 10) {
+    return supabaseResponse;
+  }
 
   createServerClient(
     url,

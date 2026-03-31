@@ -1,7 +1,11 @@
+const path = require('path');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Standalone output — minimal Docker image for Railway (~50MB vs ~500MB)
   output: 'standalone',
+  // Fix workspace root detection in git worktrees
+  outputFileTracingRoot: path.join(__dirname, '../../..'),
 
   // Skip ESLint during production builds — lint is enforced in CI/pre-commit instead
   eslint: { ignoreDuringBuilds: true },
