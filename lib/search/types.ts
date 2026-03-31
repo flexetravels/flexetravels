@@ -7,6 +7,8 @@ export interface FlightSearchParams {
   departureDate: string;    // YYYY-MM-DD
   returnDate?: string;      // YYYY-MM-DD (omit for one-way)
   adults: number;
+  childrenAges?: number[];  // Ages of children (2-11), each gets own seat at child fare
+  infants?: number;         // Number of lap infants (under 2), no separate seat
   cabinClass: 'economy' | 'premium_economy' | 'business' | 'first';
 }
 
@@ -15,6 +17,7 @@ export interface HotelSearchParams {
   checkIn: string;          // YYYY-MM-DD
   checkOut: string;         // YYYY-MM-DD
   adults: number;
+  childrenAges?: number[];  // Ages of children sharing the room (0-17)
   maxPrice?: number;        // USD per night
   stars?: number;           // 1–5
 }

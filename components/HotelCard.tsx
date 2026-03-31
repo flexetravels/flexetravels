@@ -1,40 +1,20 @@
 'use client';
 
 /**
- * HotelCard — Magazine-cover style with expandable detail + room selector.
+ * HotelCard — Compact magazine-cover card.
  * Hero image fills the top, name + stars as bold overlay.
- * "Details & Rooms" button lazily fetches /api/hotel-detail and shows:
- *   - Richer image gallery from LiteAPI
- *   - HTML description (truncatable)
- *   - Real facilities/amenities list
- *   - Check-in/out times + board type
- *   - All room types with rates for selection
+ * "View details" opens the full-screen HotelDetailModal (no inline expansion).
+ * "Select" picks this hotel for booking.
  */
 
 import Image from 'next/image';
 import {
   MapPin, Wifi, Car, UtensilsCrossed, Waves,
-  ChevronLeft, ChevronRight, Check, ChevronDown, ChevronUp,
-  Clock, Users, Utensils, RefreshCw, Loader2, BedDouble,
+  ChevronLeft, ChevronRight, Check, BedDouble, Eye,
 } from 'lucide-react';
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { cn, formatPrice, formatDate } from '@/lib/utils';
 import type { HotelResult } from '@/lib/types';
-
-interface HotelDetailResponse {
-  id:           string;
-  name:         string;
-  starRating?:  number;
-  description?: string;   // HTML
-  images?:      Array<{ url: string; caption?: string; isDefault?: boolean }>;
-  amenities?:   string[];
-  checkinTime?:  string;
-  checkoutTime?: string;
-  address?:     string;
-  city?:        string;
-  countryCode?: string;
-  contact?:     { phone?: string; email?: string; website?: string };
-}
 
 interface HotelCardProps {
   hotel: HotelResult;
@@ -169,116 +149,6 @@ function HeroGallery({
   );
 }
 
-// ── Detail image strip ────────────────────────────────────────────────────────
-function DetailImageStrip({ images }: { images: Array<{ url: string; caption?: string }> }) {
-  if (!images || images.length === 0) return null;
-  return (
-    <div className="flex gap-1.5 overflow-x-auto pb-1 snap-x snap-mandatory scrollbar-hide">
-      {images.slice(0, 12).map((img, i) => (
-        <div key={i} className="relative w-24 h-16 flex-shrink-0 rounded-lg overflow-hidden bg-muted snap-start">
-          <Image
-            src={img.url}
-            alt={img.caption ?? `Photo ${i + 1}`}
-            fill
-            className="object-cover"
-            sizes="96px"
-            onError={e => { (e.target as HTMLImageElement).style.opacity = '0'; }}
-          />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ── Room type card ─────────────────────────────────────────────────────────────
-interface RoomType {
-  offerId?: string;
-  name?: string;
-  maxOccupancy?: number;
-  rates?: Array<{
-    rateId?: string;
-    name?: string;
-    boardType?: string;
-    boardName?: string;
-    price?: number;
-    currency?: string;
-    commission?: number;
-    refundable?: boolean;
-  }>;
-}
-
-function RoomCard({
-  room, isSelected, nights, currency, onSelect,
-}: {
-  room: RoomType;
-  isSelected: boolean;
-  nights: number;
-  currency: string;
-  onSelect: () => void;
-}) {
-  const cheapestRate = room.rates
-    ?.filter(r => r.price != null)
-    .sort((a, b) => (a.price ?? 0) - (b.price ?? 0))[0];
-
-  const pricePerNight = cheapestRate?.price
-    ? (nights > 1 ? cheapestRate.price / nights : cheapestRate.price)
-    : null;
-
-  const boardLabel = cheapestRate?.boardName
-    ?? (cheapestRate?.boardType ? BOARD_LABELS[cheapestRate.boardType] ?? cheapestRate.boardType : null);
-
-  const refundable = cheapestRate?.refundable ?? false;
-
-  return (
-    <div className={cn(
-      'rounded-xl border p-3 transition-all cursor-pointer',
-      isSelected
-        ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20 shadow-sm shadow-teal-500/20'
-        : 'border-border hover:border-teal-400 hover:bg-muted/40'
-    )} onClick={onSelect}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold truncate text-foreground">
-            {room.name ?? 'Standard Room'}
-          </p>
-          <div className="flex flex-wrap items-center gap-1.5 mt-1">
-            {room.maxOccupancy && (
-              <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground">
-                <Users className="w-2.5 h-2.5" /> {room.maxOccupancy}
-              </span>
-            )}
-            {boardLabel && (
-              <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium">
-                <Utensils className="w-2 h-2" /> {boardLabel}
-              </span>
-            )}
-            {refundable ? (
-              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">✓ Free cancel</span>
-            ) : (
-              <span className="text-[10px] text-rose-500 font-medium">Non-refundable</span>
-            )}
-          </div>
-        </div>
-        <div className="text-right flex-shrink-0">
-          {pricePerNight != null ? (
-            <>
-              <p className="text-sm font-black text-foreground">{formatPrice(pricePerNight, cheapestRate?.currency ?? currency)}</p>
-              <p className="text-[10px] text-muted-foreground">/night</p>
-            </>
-          ) : (
-            <p className="text-xs text-muted-foreground">—</p>
-          )}
-        </div>
-      </div>
-      {isSelected && (
-        <div className="mt-2 flex items-center gap-1 text-[10px] font-semibold text-teal-600 dark:text-teal-400">
-          <Check className="w-3 h-3" /> Selected
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── Main component ───────────────────────────────────────────────────────────
 export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, isBestDeal }: HotelCardProps) {
   const nights =
@@ -290,77 +160,11 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
 
   const galleryImages = hotel.images?.length ? hotel.images : hotel.image ? [hotel.image] : [];
 
-  // ── Detail panel state ──────────────────────────────────────────────────────
-  const [expanded, setExpanded]         = useState(false);
-  const [detail, setDetail]             = useState<HotelDetailResponse | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [showFullDesc, setShowFullDesc] = useState(false);
-  const [selectedRoomOfferId, setSelectedRoomOfferId] = useState<string | null>(null);
-
-  const fetchDetail = useCallback(async () => {
-    if (detail || detailLoading || !hotel.id) return;
-    setDetailLoading(true);
-    try {
-      const res = await fetch(`/api/hotel-detail?hotelId=${encodeURIComponent(hotel.id)}`);
-      if (res.ok) {
-        const data: HotelDetailResponse = await res.json();
-        setDetail(data);
-      }
-    } catch {
-      // non-fatal — detail panel degrades gracefully
-    } finally {
-      setDetailLoading(false);
-    }
-  }, [detail, detailLoading, hotel.id]);
-
-  const handleToggleExpand = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    setExpanded(prev => {
-      if (!prev) fetchDetail();
-      return !prev;
-    });
-  }, [fetchDetail]);
-
-  // When a room is selected, build a modified HotelResult with the chosen room's offerId
-  // and update pricing from the cheapest rate in that room type.
-  const handleRoomSelect = useCallback((room: RoomType) => {
-    const offerId = room.offerId;
-    setSelectedRoomOfferId(offerId ?? null);
-
-    // Build the modified hotel to pass up when user clicks "Select"
-    if (!offerId) return;
-    const cheapestRate = room.rates
-      ?.filter(r => r.price != null)
-      .sort((a, b) => (a.price ?? 0) - (b.price ?? 0))[0];
-
-    pendingHotelRef.current = {
-      ...hotel,
-      bookingToken:  offerId,
-      boardType:     cheapestRate?.boardType ?? hotel.boardType,
-      boardName:     cheapestRate?.boardName ?? hotel.boardName,
-      ...(cheapestRate?.price != null && nights > 0 ? {
-        pricePerNight: Math.round(cheapestRate.price / nights * 100) / 100,
-        totalPrice:    cheapestRate.price,
-      } : {}),
-    };
-  }, [hotel, nights]);
-
-  // Ref to hold the room-modified hotel until user clicks "Select"
-  const pendingHotelRef = useRef<HotelResult>(hotel);
-
   const handleSelect = useCallback(() => {
-    onSelect?.(selectedRoomOfferId ? pendingHotelRef.current : hotel);
-  }, [hotel, onSelect, selectedRoomOfferId]);
+    onSelect?.(hotel);
+  }, [hotel, onSelect]);
 
-  // Effective amenities: prefer detail API (real), fallback to search result
-  const amenities = (detail?.amenities?.length ? detail.amenities : hotel.amenities) ?? [];
-
-  // Detail images: prefer API images (sorted defaultImage first), fallback to hotel.images
-  const detailImages = detail?.images?.length
-    ? detail.images.sort((a, b) => (b.isDefault ? 1 : 0) - (a.isDefault ? 1 : 0))
-    : [];
-
-  const allRoomTypes = hotel.allRoomTypes ?? [];
+  const amenities = hotel.amenities ?? [];
 
   // Board label for the default rate
   const boardDisplay = hotel.boardName
@@ -389,11 +193,6 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
       </div>
     );
   }
-
-  // ── Plain description text (strip HTML tags) ───────────────────────────────
-  const plainDesc = detail?.description
-    ? detail.description.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
-    : null;
 
   return (
     <div className={cn(
@@ -462,7 +261,7 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
           <div className="flex items-center gap-1.5">
             <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full
                              bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">
-              <Utensils className="w-2.5 h-2.5" /> {boardDisplay}
+              <UtensilsCrossed className="w-2.5 h-2.5" /> {boardDisplay}
             </span>
           </div>
         )}
@@ -488,125 +287,17 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
           </div>
         )}
 
-        {/* ── Details & Rooms toggle row ──────────────────────────────────── */}
-        <div className="flex gap-2">
+        {/* ── View details button (opens modal) ──────────────────────────── */}
+        {onOpenDetail && !hotel.isSample && (
           <button
-            onClick={handleToggleExpand}
-            className="flex-1 flex items-center justify-between px-3 py-2 rounded-xl
+            onClick={() => onOpenDetail(hotel)}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl
                        bg-muted/50 hover:bg-muted/80 text-xs font-medium text-muted-foreground
                        transition-colors"
           >
-            <span className="flex items-center gap-1.5">
-              {detailLoading && <Loader2 className="w-3 h-3 animate-spin" />}
-              {expanded ? 'Hide details' : `View details${allRoomTypes.length > 0 ? ` & ${allRoomTypes.length} room${allRoomTypes.length !== 1 ? 's' : ''}` : ''}`}
-            </span>
-            {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            <Eye className="w-3.5 h-3.5" />
+            View details, photos & rooms
           </button>
-          {onOpenDetail && !hotel.isSample && (
-            <button
-              onClick={() => onOpenDetail(hotel)}
-              className="px-3 py-2 rounded-xl bg-teal-500/10 hover:bg-teal-500/20
-                         text-xs font-medium text-teal-600 dark:text-teal-400 transition-colors
-                         flex items-center gap-1 flex-shrink-0"
-              title="Full hotel details"
-            >
-              Full details
-            </button>
-          )}
-        </div>
-
-        {/* ── Expanded detail panel ──────────────────────────────────────── */}
-        {expanded && (
-          <div className="space-y-3 pt-1 border-t border-border/40">
-            {/* Detail image strip */}
-            {detailImages.length > 0 && (
-              <DetailImageStrip images={detailImages} />
-            )}
-
-            {/* Description */}
-            {plainDesc && (
-              <div>
-                <p className={cn(
-                  'text-[11px] text-muted-foreground leading-relaxed',
-                  !showFullDesc && 'line-clamp-3'
-                )}>
-                  {plainDesc}
-                </p>
-                {plainDesc.length > 200 && (
-                  <button
-                    onClick={e => { e.stopPropagation(); setShowFullDesc(s => !s); }}
-                    className="text-[10px] text-teal-600 dark:text-teal-400 font-medium mt-0.5 hover:underline"
-                  >
-                    {showFullDesc ? 'Show less' : 'Read more'}
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Check-in/out times */}
-            {(detail?.checkinTime || detail?.checkoutTime) && (
-              <div className="flex gap-3">
-                {detail.checkinTime && (
-                  <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                    <Clock className="w-3 h-3" />
-                    <span>Check-in: <span className="font-medium text-foreground">{detail.checkinTime}</span></span>
-                  </div>
-                )}
-                {detail.checkoutTime && (
-                  <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                    <Clock className="w-3 h-3" />
-                    <span>Check-out: <span className="font-medium text-foreground">{detail.checkoutTime}</span></span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Full amenities list (from detail API) */}
-            {detail?.amenities && detail.amenities.length > 5 && (
-              <div>
-                <p className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wide mb-1.5">Facilities</p>
-                <div className="flex flex-wrap gap-1">
-                  {detail.amenities.map(a => {
-                    const Icon = AMENITY_ICONS[a];
-                    return (
-                      <span key={a} className="inline-flex items-center gap-1 text-[10px] font-medium
-                                               px-2 py-0.5 rounded-full bg-muted/60 text-muted-foreground">
-                        {Icon && <Icon className="w-2.5 h-2.5" />}
-                        {a}
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Room type selector */}
-            {allRoomTypes.length > 0 && (
-              <div>
-                <p className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wide mb-1.5">
-                  Available Rooms
-                </p>
-                <div className="space-y-1.5">
-                  {allRoomTypes.map((room, i) => (
-                    <RoomCard
-                      key={room.offerId ?? i}
-                      room={room}
-                      isSelected={selectedRoomOfferId === room.offerId}
-                      nights={nights}
-                      currency={hotel.currency}
-                      onSelect={() => handleRoomSelect(room)}
-                    />
-                  ))}
-                </div>
-                {selectedRoomOfferId && (
-                  <p className="text-[10px] text-teal-600 dark:text-teal-400 mt-2 font-medium flex items-center gap-1">
-                    <RefreshCw className="w-2.5 h-2.5" />
-                    Room selected — click &ldquo;Select&rdquo; to book at the updated price
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
         )}
 
         {/* ── Price row + CTA ────────────────────────────────────────────── */}
@@ -659,7 +350,7 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
           )}
         </div>
 
-        {/* Indicative pricing notice — shown clearly before the user tries anything */}
+        {/* Indicative pricing notice */}
         {hotel.isSample && (
           <p className="text-[11px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20
                         border border-amber-200 dark:border-amber-800/50

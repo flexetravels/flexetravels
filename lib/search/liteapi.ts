@@ -21,13 +21,15 @@ const LITEAPI_BASE = 'https://api.liteapi.travel/v3.0';
 //   4 adults → [{ adults: 2 }, { adults: 2 }]
 //   5 adults → [{ adults: 2 }, { adults: 2 }, { adults: 1 }]
 // The price LiteAPI returns covers ALL rooms combined.
-function buildOccupancies(adults: number): Array<{ adults: number; children: never[] }> {
+function buildOccupancies(adults: number, childrenAges?: number[]): Array<{ adults: number; children: number[] }> {
   const n     = Math.max(1, adults);
   const rooms = Math.ceil(n / 2);
+  const kids  = childrenAges ?? [];
   return Array.from({ length: rooms }, (_, i) => {
     const isLast     = i === rooms - 1;
     const roomAdults = isLast && n % 2 === 1 ? 1 : 2;
-    return { adults: roomAdults, children: [] as never[] };
+    // Put all children in the first room (typical family travel pattern)
+    return { adults: roomAdults, children: i === 0 ? kids : [] };
   });
 }
 
@@ -410,7 +412,8 @@ export class LiteApiProvider implements SearchProvider {
     );
 
     // ── Cache check ────────────────────────────────────────────────────────────
-    const cacheKey = `${city}::${countryCode}::${params.checkIn}::${params.checkOut}::${params.adults ?? 2}`;
+    const childrenKey = (params.childrenAges ?? []).sort().join(',');
+    const cacheKey = `${city}::${countryCode}::${params.checkIn}::${params.checkOut}::${params.adults ?? 2}::c${childrenKey}`;
     const cached = HOTEL_CACHE.get(cacheKey);
     if (cached && Date.now() - cached.ts < HOTEL_CACHE_TTL_MS) {
       console.log('[LiteAPI] hotel cache hit for', cacheKey);
@@ -534,7 +537,7 @@ export class LiteApiProvider implements SearchProvider {
           hotelIds: batchIds,
           checkin:          params.checkIn,
           checkout:         params.checkOut,
-          occupancies:      buildOccupancies(params.adults ?? 2),
+          occupancies:      buildOccupancies(params.adults ?? 2, params.childrenAges),
           currency:         'USD',
           guestNationality: countryCode === 'CA' ? 'CA' : 'US',
           roomMapping:      true,
@@ -685,6 +688,7 @@ export async function liteApiGetFreshOfferId(
   adults:          number,
   guestNationality = 'CA',
   apiKey?:         string,
+  childrenAges?:   number[],
 ): Promise<string | null> {
   const key = apiKey ?? process.env.LITEAPI_KEY;
   if (!key || key.includes('PASTE')) return null;
@@ -703,7 +707,7 @@ export async function liteApiGetFreshOfferId(
         hotelIds:        [hotelId],
         checkin:         checkIn,
         checkout:        checkOut,
-        occupancies:     buildOccupancies(adults),
+        occupancies:     buildOccupancies(adults, childrenAges),
         currency:        'USD',
         guestNationality,
         roomMapping:     true,   // ensures offerId field is present on each roomType

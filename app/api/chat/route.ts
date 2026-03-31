@@ -69,7 +69,10 @@ SMART QUESTIONS — ask upfront to avoid wasted searches:
 
 SEARCH: Once you have origin, destination, dates, party size → call searchFlights AND searchHotels in the SAME turn simultaneously (parallel tool calls). Also call searchExperiences and getDestinationGuide in the SAME parallel batch. CRITICAL: all four tools MUST be called as one parallel batch — never sequentially. cabinClass always 'economy' unless user says otherwise.
 
-CHILDREN: If kids mentioned, ask ages. Then emit before results: [CHILDREN_INFO] {"count":<N>,"ages":[...]}
+CHILDREN: If kids mentioned, always ask their ages — this affects pricing and room types.
+• Ages 2-11 = child fare (separate seat on flights). Pass via childrenAges parameter on searchFlights AND searchHotels.
+• Under 2 = lap infant (no seat). Pass via infants parameter on searchFlights only.
+• Ages 12+ count as adults — add to adults count instead.
 
 ═══ CRITICAL GUARDRAILS — NEVER BREAK ═══
 1. NEVER fabricate flight IDs, hotel IDs, prices, booking tokens, or ANY card field.
@@ -256,6 +259,8 @@ export async function POST(req: Request) {
           departureDate: z.string().describe('Departure date YYYY-MM-DD'),
           returnDate:    z.string().optional().describe('Return date YYYY-MM-DD for round-trips'),
           adults:        z.number().int().min(1).max(9).default(1),
+          childrenAges:  z.array(z.number().int().min(2).max(11)).optional().describe('Ages of children (2-11). Each child gets a separate seat at child fare.'),
+          infants:       z.number().int().min(0).max(4).optional().default(0).describe('Number of lap infants (under 2). No separate seat.'),
           cabinClass:    z.enum(['economy', 'premium_economy', 'business', 'first']).default('economy'),
         }),
         execute: async (params) => {
@@ -279,6 +284,7 @@ export async function POST(req: Request) {
               depart_date:      params.departureDate,
               return_date:      params.returnDate ?? null,
               adults:           params.adults,
+              children:         (params.childrenAges?.length ?? 0) + (params.infants ?? 0),
               result_count:     r.flights.length,
               provider_sources: r.sources,
               latency_ms:       r.latencyMs,
@@ -305,6 +311,8 @@ export async function POST(req: Request) {
           departureDate: z.string().describe('Departure date YYYY-MM-DD'),
           returnDate:    z.string().optional(),
           adults:        z.number().int().min(1).max(9).default(1),
+          childrenAges:  z.array(z.number().int().min(2).max(11)).optional().describe('Ages of children (2-11)'),
+          infants:       z.number().int().min(0).max(4).optional().default(0).describe('Lap infants (under 2)'),
           cabinClass:    z.enum(['economy', 'premium_economy', 'business', 'first']).default('economy'),
         }),
         execute: async (params) => {
@@ -358,12 +366,13 @@ export async function POST(req: Request) {
         description:
           'Search hotels at destination with live rates from LiteAPI (1M+ properties). Falls back to sample data if unavailable. Returns real photos, amenities, and bookable rates.',
         parameters: z.object({
-          destination: z.string().describe('City name or IATA code e.g. "Cancun" or "CUN"'),
-          checkIn:     z.string().describe('Check-in date YYYY-MM-DD'),
-          checkOut:    z.string().describe('Check-out date YYYY-MM-DD'),
-          adults:      z.number().int().min(1).max(9).default(1),
-          maxPrice:    z.number().optional().describe('Max price per night in USD'),
-          stars:       z.number().int().min(1).max(5).optional().describe('Minimum star rating'),
+          destination:  z.string().describe('City name or IATA code e.g. "Cancun" or "CUN"'),
+          checkIn:      z.string().describe('Check-in date YYYY-MM-DD'),
+          checkOut:     z.string().describe('Check-out date YYYY-MM-DD'),
+          adults:       z.number().int().min(1).max(9).default(1),
+          childrenAges: z.array(z.number().int().min(0).max(17)).optional().describe('Ages of children sharing the room'),
+          maxPrice:     z.number().optional().describe('Max price per night in USD'),
+          stars:        z.number().int().min(1).max(5).optional().describe('Minimum star rating'),
         }),
         execute: async (params) => {
           // Hard 15 s wall-clock cap — ensures Claude can stream results promptly.
@@ -439,19 +448,20 @@ export async function POST(req: Request) {
         description:
           'Search hotels in multiple nearby cities/areas within a region. Use when user wants more options, asks "anything nearby?", "show me more", or when initial hotel results returned fewer than 3 hotels. Searches up to 4 cities in parallel and merges results.',
         parameters: z.object({
-          cities:   z.array(z.string()).min(1).max(4).describe('City names to search e.g. ["Seminyak", "Ubud", "Nusa Dua"]'),
-          checkIn:  z.string().describe('Check-in date YYYY-MM-DD'),
-          checkOut: z.string().describe('Check-out date YYYY-MM-DD'),
-          adults:   z.number().int().min(1).max(9).default(2),
-          maxPrice: z.number().optional().describe('Max price per night in USD'),
-          stars:    z.number().int().min(1).max(5).optional().describe('Minimum star rating'),
+          cities:       z.array(z.string()).min(1).max(4).describe('City names to search e.g. ["Seminyak", "Ubud", "Nusa Dua"]'),
+          checkIn:      z.string().describe('Check-in date YYYY-MM-DD'),
+          checkOut:     z.string().describe('Check-out date YYYY-MM-DD'),
+          adults:       z.number().int().min(1).max(9).default(2),
+          childrenAges: z.array(z.number().int().min(0).max(17)).optional().describe('Ages of children sharing the room'),
+          maxPrice:     z.number().optional().describe('Max price per night in USD'),
+          stars:        z.number().int().min(1).max(5).optional().describe('Minimum star rating'),
         }),
-        execute: async ({ cities, checkIn, checkOut, adults, maxPrice, stars }) => {
+        execute: async ({ cities, checkIn, checkOut, adults, childrenAges, maxPrice, stars }) => {
           const NEARBY_TIMEOUT_MS = 15_000;
 
           // Fire hotel search for each city in parallel
           const searches = cities.map(city =>
-            aggregateHotels({ destination: city, checkIn, checkOut, adults, maxPrice, stars })
+            aggregateHotels({ destination: city, checkIn, checkOut, adults, childrenAges, maxPrice, stars })
               .catch(err => {
                 console.warn(`[searchNearbyHotels] Error for "${city}":`, err);
                 return null;
