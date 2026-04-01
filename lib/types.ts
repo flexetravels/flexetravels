@@ -37,6 +37,9 @@ export interface FlightResult {
   flexibilitySummary?: string;        // Human-readable tooltip text
   changeable?:  boolean;              // can be changed before departure
   rankScore?:   number;               // 0–100 combined value score
+  // ── Child / infant fare transparency ──────────────────────────────────────
+  childFareNote?: string;             // Set when airline doesn't price children in search;
+                                      // adult fare shown — child seat confirmed at booking
 }
 
 export interface HotelResult {

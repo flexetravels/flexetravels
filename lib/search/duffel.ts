@@ -171,11 +171,22 @@ export class DuffelProvider implements SearchProvider {
     const offers = json.data?.offers ?? [];
 
     // If results came back with children/infants but returned 0 offers, some airlines
-    // don't price child/infant fares on certain routes via the API. Fall back to an
-    // adults-only search so we still show bookable fares. The child fare is negligible
-    // or zero on most routes and will be confirmed at order creation.
+    // don't price child/infant fares via the offer_requests API — this is a carrier-side
+    // limitation, not an API parameter error. The `child` / `infant_without_seat` params
+    // are correct. We fall back to an adults-only query so the route is still bookable,
+    // but we tag every returned offer with `childFareNote` so the UI and AI can surface a
+    // transparent disclosure: "Adult pricing shown — child seat confirmed at booking."
     if (offers.length === 0 && (childrenAges.length > 0 || infantCount > 0)) {
-      console.log('[duffel] 0 offers with children/infants — retrying adults-only for', params.origin, '→', params.destination);
+      const childDesc: string[] = [];
+      if (childrenAges.length > 0) {
+        childDesc.push(childrenAges.map(a => `age ${a}`).join(', '));
+      }
+      if (infantCount > 0) {
+        childDesc.push(infantCount === 1 ? '1 lap infant' : `${infantCount} lap infants`);
+      }
+      const note = `Adult pricing shown — this airline doesn't quote child fares (${childDesc.join('; ')}) in the search API. Child seat${childrenAges.length > 1 ? 's' : ''} confirmed at booking.`;
+
+      console.log('[duffel] 0 offers with children/infants — retrying adults-only (with disclosure) for', params.origin, '→', params.destination);
       const adultOnlyPassengers = Array.from({ length: params.adults }, () => ({ type: 'adult' as const }));
       try {
         const fallbackRes = await fetch(`${this.baseUrl}/air/offer_requests?return_offers=true`, {
@@ -190,11 +201,11 @@ export class DuffelProvider implements SearchProvider {
           const fallbackJson = await fallbackRes.json() as { data?: { offers?: DuffelOffer[] } };
           const fallbackOffers = fallbackJson.data?.offers ?? [];
           if (fallbackOffers.length > 0) {
-            console.log('[duffel] adults-only fallback returned', fallbackOffers.length, 'offers');
+            console.log('[duffel] adults-only fallback returned', fallbackOffers.length, 'offers — tagging with childFareNote');
             return fallbackOffers
               .sort((a, b) => parseFloat(a.total_amount) - parseFloat(b.total_amount))
               .slice(0, 10)
-              .map(o => mapOffer(o, params.cabinClass, params.adults));
+              .map(o => ({ ...mapOffer(o, params.cabinClass, params.adults), childFareNote: note }));
           }
         }
       } catch (err) {

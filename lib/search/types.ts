@@ -41,6 +41,8 @@ export interface NormalizedFlight {
   baggage?: string;
   bookingToken?: string;     // provider-specific token for booking step
   passengers?: number;       // number of adult passengers searched for
+  childFareNote?: string;    // Set when airline doesn't price children in search API;
+                             // adult fare shown — child seat confirmed at booking
   segments: Array<{
     origin: string;
     destination: string;
