@@ -13,7 +13,7 @@ const DUFFEL_BASE = 'https://api.duffel.com';
 
 type Passenger =
   | { type: 'adult' }
-  | { type: 'child'; age: number }
+  | { age: number }                  // Duffel v2 child: age only, no type field
   | { type: 'infant_without_seat' };
 
 interface TestCase {
@@ -38,7 +38,7 @@ interface TestResult {
 function passengerSummary(passengers: Passenger[]): string {
   const counts: Record<string, number> = {};
   for (const p of passengers) {
-    const key = p.type === 'child' ? `child(age ${p.age})` : p.type;
+    const key = 'age' in p ? `child(age ${p.age})` : p.type;
     counts[key] = (counts[key] ?? 0) + 1;
   }
   return Object.entries(counts).map(([k, v]) => `${v}×${k}`).join(', ');
@@ -67,7 +67,7 @@ async function testSearch(
   const start = Date.now();
   const passengerStr = passengerSummary(testCase.passengers);
   const hasChildOrInfant = testCase.passengers.some(
-    p => p.type === 'child' || p.type === 'infant_without_seat'
+    p => 'age' in p || ('type' in p && p.type === 'infant_without_seat')
   );
 
   try {
@@ -154,22 +154,23 @@ export async function GET(req: Request) {
   const testCases: TestCase[] = [
     // ── YYZ → CUN (Cancun — verified sandbox route) ──────────────────────────
     { label: 'YYZ→CUN — 2 adults only',               origin: 'YYZ', destination: 'CUN', passengers: [{ type: 'adult' }, { type: 'adult' }] },
-    { label: 'YYZ→CUN — 2 adults + child age 5',      origin: 'YYZ', destination: 'CUN', passengers: [{ type: 'adult' }, { type: 'adult' }, { type: 'child', age: 5 }] },
-    { label: 'YYZ→CUN — 2 adults + child age 2',      origin: 'YYZ', destination: 'CUN', passengers: [{ type: 'adult' }, { type: 'adult' }, { type: 'child', age: 2 }] },
-    { label: 'YYZ→CUN — 2 adults + infant (lap)',      origin: 'YYZ', destination: 'CUN', passengers: [{ type: 'adult' }, { type: 'adult' }, { type: 'infant_without_seat' }] },
-    { label: 'YYZ→CUN — 2 adults + child 5 + infant', origin: 'YYZ', destination: 'CUN', passengers: [{ type: 'adult' }, { type: 'adult' }, { type: 'child', age: 5 }, { type: 'infant_without_seat' }] },
-    { label: 'YYZ→CUN — 2 adults + toddler 2 + infant', origin: 'YYZ', destination: 'CUN', passengers: [{ type: 'adult' }, { type: 'adult' }, { type: 'child', age: 2 }, { type: 'infant_without_seat' }] },
+    // Duffel v2: children = { age: N } only — no type field
+    { label: 'YYZ→CUN — 2 adults + child age 5',        origin: 'YYZ', destination: 'CUN', passengers: [{ type: 'adult' }, { type: 'adult' }, { age: 5 }] },
+    { label: 'YYZ→CUN — 2 adults + toddler age 2',      origin: 'YYZ', destination: 'CUN', passengers: [{ type: 'adult' }, { type: 'adult' }, { age: 2 }] },
+    { label: 'YYZ→CUN — 2 adults + infant (lap)',        origin: 'YYZ', destination: 'CUN', passengers: [{ type: 'adult' }, { type: 'adult' }, { type: 'infant_without_seat' }] },
+    { label: 'YYZ→CUN — 2 adults + child 5 + infant',   origin: 'YYZ', destination: 'CUN', passengers: [{ type: 'adult' }, { type: 'adult' }, { age: 5 }, { type: 'infant_without_seat' }] },
+    { label: 'YYZ→CUN — 2 adults + toddler 2 + infant', origin: 'YYZ', destination: 'CUN', passengers: [{ type: 'adult' }, { type: 'adult' }, { age: 2 }, { type: 'infant_without_seat' }] },
 
-    // ── YYZ → JFK (New York — known sandbox route) ───────────────────────────
-    { label: 'YYZ→JFK — 2 adults only',               origin: 'YYZ', destination: 'JFK', passengers: [{ type: 'adult' }, { type: 'adult' }] },
-    { label: 'YYZ→JFK — 2 adults + child age 7',      origin: 'YYZ', destination: 'JFK', passengers: [{ type: 'adult' }, { type: 'adult' }, { type: 'child', age: 7 }] },
-    { label: 'YYZ→JFK — 2 adults + infant (lap)',      origin: 'YYZ', destination: 'JFK', passengers: [{ type: 'adult' }, { type: 'adult' }, { type: 'infant_without_seat' }] },
-    { label: 'YYZ→JFK — 2 adults + child 4 + infant', origin: 'YYZ', destination: 'JFK', passengers: [{ type: 'adult' }, { type: 'adult' }, { type: 'child', age: 4 }, { type: 'infant_without_seat' }] },
+    // ── YYZ → JFK (New York) ─────────────────────────────────────────────────
+    { label: 'YYZ→JFK — 2 adults only',                 origin: 'YYZ', destination: 'JFK', passengers: [{ type: 'adult' }, { type: 'adult' }] },
+    { label: 'YYZ→JFK — 2 adults + child age 7',        origin: 'YYZ', destination: 'JFK', passengers: [{ type: 'adult' }, { type: 'adult' }, { age: 7 }] },
+    { label: 'YYZ→JFK — 2 adults + infant (lap)',        origin: 'YYZ', destination: 'JFK', passengers: [{ type: 'adult' }, { type: 'adult' }, { type: 'infant_without_seat' }] },
+    { label: 'YYZ→JFK — 2 adults + child 4 + infant',   origin: 'YYZ', destination: 'JFK', passengers: [{ type: 'adult' }, { type: 'adult' }, { age: 4 }, { type: 'infant_without_seat' }] },
 
     // ── YYZ → PUJ (Punta Cana) ───────────────────────────────────────────────
-    { label: 'YYZ→PUJ — 2 adults only',               origin: 'YYZ', destination: 'PUJ', passengers: [{ type: 'adult' }, { type: 'adult' }] },
-    { label: 'YYZ→PUJ — 2 adults + child age 4',      origin: 'YYZ', destination: 'PUJ', passengers: [{ type: 'adult' }, { type: 'adult' }, { type: 'child', age: 4 }] },
-    { label: 'YYZ→PUJ — 2 adults + infant (lap)',      origin: 'YYZ', destination: 'PUJ', passengers: [{ type: 'adult' }, { type: 'adult' }, { type: 'infant_without_seat' }] },
+    { label: 'YYZ→PUJ — 2 adults only',                 origin: 'YYZ', destination: 'PUJ', passengers: [{ type: 'adult' }, { type: 'adult' }] },
+    { label: 'YYZ→PUJ — 2 adults + child age 4',        origin: 'YYZ', destination: 'PUJ', passengers: [{ type: 'adult' }, { type: 'adult' }, { age: 4 }] },
+    { label: 'YYZ→PUJ — 2 adults + infant (lap)',        origin: 'YYZ', destination: 'PUJ', passengers: [{ type: 'adult' }, { type: 'adult' }, { type: 'infant_without_seat' }] },
   ];
 
   // Run all tests — sequential to avoid hammering Duffel rate limits
