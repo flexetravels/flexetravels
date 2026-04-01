@@ -32,7 +32,7 @@ function buildSystem(): string {
   const todayLong = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const todayISO  = now.toISOString().split('T')[0];
   const yr        = now.getFullYear();
-  const mo        = now.getUTCMonth(); // 0-based, UTC to avoid server-timezone drift
+  const mo        = now.getMonth(); // 0-based
 
   const seasons: Record<number, string> = {
     0: 'winter', 1: 'winter', 2: 'spring', 3: 'spring', 4: 'spring',
@@ -261,7 +261,7 @@ export async function POST(req: Request) {
   // Track anonymous user session (non-blocking)
   if (DB_AVAILABLE) {
     const uaHash = req.headers.get('user-agent')?.slice(0, 100) ?? undefined;
-    db.userSessions.upsert(sessionId, uaHash).catch((e) => console.warn('[DB] userSessions upsert failed:', e));
+    db.userSessions.upsert(sessionId, uaHash).catch(() => {});
   }
 
   // Compress old messages to avoid re-sending large card JSON payloads.
@@ -323,7 +323,7 @@ export async function POST(req: Request) {
               result_count:     r.flights.length,
               provider_sources: r.sources,
               latency_ms:       r.latencyMs,
-            }).catch((e) => console.warn('[DB] flight search_logs insert failed:', e));
+            }).catch(() => {});
           }
           return {
             flights:        r.flights,
@@ -445,7 +445,7 @@ export async function POST(req: Request) {
               adults:           params.adults,
               result_count:     r.hotels.length,
               provider_sources: r.sources,
-            }).catch((e) => console.warn('[DB] hotel search_logs insert failed:', e));
+            }).catch(() => {});
           }
 
           // Return only fields needed for [HOTEL_CARD] — strip bulk LiteAPI internal data
@@ -625,10 +625,6 @@ export async function POST(req: Request) {
 
           const normalizePhone = (phone: string): string => {
             const digits = phone.replace(/\D/g, '');
-            if (digits.length < 7 || digits.length > 15) {
-              // Fallback: return as-is with + prefix; Duffel will validate further
-              return phone.startsWith('+') ? phone : `+${digits}`;
-            }
             if (digits.length === 10) return `+1${digits}`;
             if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
             return phone.startsWith('+') ? phone : `+${digits}`;

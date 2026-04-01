@@ -25,7 +25,8 @@ app/
     book-flight/        — Duffel order creation
     book-hotel/         — LiteAPI prebook + book
     complete-hotel-booking/ — LiteAPI 3DS completion
-    stripe/checkout/    — Creates $20 Stripe Payment Intent
+    stripe/checkout/    — Creates $20 Stripe Checkout Session (redirect flow — legacy)
+    stripe/prepare/     — Creates $20 Stripe PaymentIntent (embedded flow — used by new checkout)
     webhooks/stripe/    — Stripe webhook handler (persists to Supabase)
     health/             — GET /api/health — DB + env check
     admin/stats/        — Growth analytics (requires ?secret=ADMIN_SECRET)
@@ -35,7 +36,7 @@ components/
   ChatMessage.tsx       — Parses [FLIGHT_CARD] / [HOTEL_CARD] / [EXPERIENCE_CARD] tags → React cards
   FlightCard.tsx        — Boarding-pass style. isBestValue prop shows "Best value" badge
   HotelCard.tsx         — Hotel card. isBestDeal prop shows "Best deal" badge
-  CheckoutCard.tsx      — 3-step checkout: Review → Passengers → Stripe payment
+  CheckoutCard.tsx      — 4-step checkout: Review → Passengers → Invoice → Pay (payment-first flow)
   FlexibilityBadge.tsx  — Refundable / Changeable / Locked badge
 
 lib/
@@ -149,16 +150,26 @@ GEMINI_API_KEY=...                      ← for destination guides
 
 ---
 
-## Checkout Flow
+## Checkout Flow (Payment-First — CRITICAL)
 
-1. **Step 1 — Review:** Shows flight + hotel summary, itemized cost (flight + hotel + $20 fee = total)
+**Order:** Stripe $20 fee is charged BEFORE any flight or hotel is booked.
+This prevents real Duffel/LiteAPI bookings from firing if the user abandons or payment fails.
+
+1. **Step 1 — Review:** Trip summary, passenger count controls, per-item pricing
 2. **Step 2 — Passengers:** One form per adult + child (name, DOB, email, phone)
-3. **Step 3 — Payment:**
-   - Calls `POST /api/book-flight` → Duffel order created
-   - Calls `POST /api/book-hotel` → LiteAPI prebook + book
-   - Calls `POST /api/stripe/checkout` → Payment Intent created
-   - Stripe Elements mounted → user pays $20
-   - On success → `/booking?ref=XXX` → confirmation page with confetti
+3. **Step 3 — Invoice:** Full booking summary — flight details, hotel details, all passenger details (full), cost breakdown in each currency, "what happens next" blurb. "Edit passengers" back link. "Pay $20 →" button calls `/api/stripe/prepare`.
+4. **Step 4 — Pay:**
+   - `POST /api/stripe/prepare` → creates $20 USD PaymentIntent, returns `clientSecret` + `paymentIntentId`
+   - Stripe Elements mounted → user enters card → pays $20
+   - On `confirmPayment` success → `POST /api/book-trip` with `paymentIntentId`
+   - Server verifies PI `status === 'succeeded'` via Stripe API before any booking API calls
+   - Duffel flight order created, LiteAPI hotel prebook + book
+   - Success screen shows flight ref + hotel ref
+
+### Server-side payment guard (`/api/book-trip`)
+- If `STRIPE_SECRET_KEY` is set → `paymentIntentId` is **required**
+- Calls `GET /v1/payment_intents/:id` — rejects with 402 if status ≠ `succeeded`
+- Dev/sandbox: if no Stripe key, PI verification is skipped with a warning log
 
 ---
 

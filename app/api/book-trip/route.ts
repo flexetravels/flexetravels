@@ -5,6 +5,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { book } from '@/lib/orchestrator';
+import { getPaymentIntent } from '@/lib/stripe';
 
 // ─── Request schema ────────────────────────────────────────────────────────────
 
@@ -24,6 +25,7 @@ const ChildPassengerSchema = z.object({
 
 const BodySchema = z.object({
   sessionId:              z.string().optional(),
+  paymentIntentId:        z.string().optional(),  // Stripe PI — required when Stripe is configured
   flightOfferId:          z.string().optional(),
   requestedPriceCents:    z.number().optional(),  // price shown to user — for stale-rate detection
   // Flight search params for server-side offer refresh on 422
@@ -78,11 +80,50 @@ export async function POST(req: Request) {
   }
 
   const {
-    sessionId, flightOfferId, requestedPriceCents, hotelRateId, hotelName,
+    sessionId, paymentIntentId, flightOfferId, requestedPriceCents, hotelRateId, hotelName,
     hotelId, hotelCheckIn, hotelCheckOut,
     passengers, childPassengers, originAirport, guestNationality,
     flightOrigin, flightDestination, flightDepartureDate, flightCabinClass, flightPassengers,
   } = parsed.data;
+
+  // ── Payment verification — gate all bookings behind confirmed Stripe payment ──
+  // When STRIPE_SECRET_KEY is set (production), we REQUIRE a paid PaymentIntent
+  // before touching any booking API. This prevents real Duffel/LiteAPI charges
+  // from firing if the user hasn't paid the $20 service fee.
+  const stripeKey = process.env.STRIPE_SECRET_KEY?.trim();
+  if (stripeKey) {
+    if (!paymentIntentId) {
+      console.error('[book-trip] Stripe configured but no paymentIntentId provided — rejecting');
+      return NextResponse.json(
+        { success: false, error: 'Payment required before booking. Please complete the payment step.' },
+        { status: 402 },
+      );
+    }
+    try {
+      const pi = await getPaymentIntent(paymentIntentId);
+      if (pi.status !== 'succeeded') {
+        console.warn('[book-trip] PaymentIntent not succeeded:', paymentIntentId, 'status:', pi.status);
+        return NextResponse.json(
+          { success: false, error: `Payment has not been confirmed (status: ${pi.status}). Please complete payment first.` },
+          { status: 402 },
+        );
+      }
+      console.log('[book-trip] Payment verified ✓', paymentIntentId, `$${(pi.amount / 100).toFixed(2)} ${pi.currency.toUpperCase()}`);
+    } catch (verifyErr) {
+      console.error('[book-trip] Payment verification error:', verifyErr);
+      return NextResponse.json(
+        { success: false, error: 'Could not verify payment. Please try again or contact support.' },
+        { status: 502 },
+      );
+    }
+  } else {
+    // Stripe not configured — dev/sandbox mode, allow without PI
+    if (paymentIntentId) {
+      console.log('[book-trip] Stripe not configured — skipping PI verification for:', paymentIntentId);
+    } else {
+      console.warn('[book-trip] No Stripe key and no paymentIntentId — proceeding in dev/sandbox mode');
+    }
+  }
 
   // Clean up placeholder IDs emitted by the AI
   const resolvedFlight = isPlaceholder(flightOfferId) ? undefined : flightOfferId;

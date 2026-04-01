@@ -172,6 +172,28 @@ export async function createPaymentIntent(params: {
 }
 
 /**
+ * Retrieve a Stripe PaymentIntent and verify it has been paid.
+ * Used by /api/book-trip to gate bookings behind confirmed payment.
+ */
+export async function getPaymentIntent(id: string): Promise<{ id: string; status: string; amount: number; currency: string }> {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  if (!secretKey) throw new Error('Stripe not configured');
+
+  const res = await fetch(`${STRIPE_BASE}/payment_intents/${encodeURIComponent(id)}`, {
+    headers: { Authorization: `Bearer ${secretKey}` },
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!res.ok) {
+    const err = await res.json() as { error?: { message?: string } };
+    throw new Error(`Stripe PI lookup failed (${res.status}): ${err.error?.message ?? 'unknown'}`);
+  }
+
+  const pi = await res.json() as { id: string; status: string; amount: number; currency: string };
+  return pi;
+}
+
+/**
  * Retrieve a Stripe Checkout session to verify payment status.
  */
 export async function getCheckoutSession(sessionId: string): Promise<StripeCheckoutSession> {

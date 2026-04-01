@@ -4,8 +4,8 @@ const path = require('path');
 const nextConfig = {
   // Standalone output — minimal Docker image for Railway (~50MB vs ~500MB)
   output: 'standalone',
-  // Fix workspace root detection in git worktrees (use repo root, not 3 levels up)
-  outputFileTracingRoot: __dirname,
+  // Fix workspace root detection in git worktrees
+  outputFileTracingRoot: path.join(__dirname, '../../..'),
 
   // Skip ESLint during production builds — lint is enforced in CI/pre-commit instead
   eslint: { ignoreDuringBuilds: true },

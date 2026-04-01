@@ -89,18 +89,19 @@ interface CheckoutCardProps {
   sessionId?:       string;    // chat session ID — passed to API for DB persistence
 }
 
-type Phase = 'review' | 'passengers' | 'booking' | 'payment' | 'hotel-payment' | 'hotel-paying' | 'success' | 'error';
+type Phase = 'review' | 'passengers' | 'invoice' | 'booking' | 'payment' | 'hotel-payment' | 'hotel-paying' | 'success' | 'error';
 
 // ─── Step indicator ────────────────────────────────────────────────────────────
 
-const STEPS = ['Review', 'Passengers', 'Pay'] as const;
+const STEPS = ['Review', 'Passengers', 'Invoice', 'Pay'] as const;
 type StepLabel = typeof STEPS[number];
 
 function phaseToStep(phase: Phase): number {
-  if (phase === 'review')                                                    return 0;
-  if (phase === 'passengers')                                                return 1;
-  if (phase === 'booking' || phase === 'payment' || phase === 'hotel-payment' || phase === 'hotel-paying') return 2;
-  return 2;
+  if (phase === 'review')      return 0;
+  if (phase === 'passengers')  return 1;
+  if (phase === 'invoice')     return 2;
+  if (phase === 'booking' || phase === 'payment' || phase === 'hotel-payment' || phase === 'hotel-paying') return 3;
+  return 3;
 }
 
 function StepDots({ phase }: { phase: Phase }) {
@@ -260,9 +261,11 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
   const [error,        setError]        = useState('');
   const [flightRef,    setFlightRef]    = useState('');
   const [hotelRef,     setHotelRef]     = useState('');
-  const [clientSecret, setClientSecret] = useState('');
-  const [currency,     setCurrency]     = useState<'cad' | 'usd'>('cad');
-  const [payComplete,  setPayComplete]  = useState(false);
+  const [clientSecret,    setClientSecret]    = useState('');
+  const [paymentIntentId, setPaymentIntentId] = useState('');
+  const [preparing,       setPreparing]       = useState(false);   // true while /api/stripe/prepare is in-flight
+  const [currency,        setCurrency]        = useState<'cad' | 'usd'>('usd');
+  const [payComplete,     setPayComplete]     = useState(false);
   // Confirmation state when no flight is in cart (hotel-only booking)
   const [confirmFlightless, setConfirmFlightless] = useState(false);
 
@@ -355,9 +358,8 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
         if (existing) { resolve(); return; }
         const s = document.createElement('script');
         s.src = 'https://payment-wrapper.liteapi.travel/dist/liteAPIPayment.js?v=a1';
-        const timeout = setTimeout(() => reject(new Error('LiteAPI payment SDK load timeout (10s)')), 10_000);
-        s.onload  = () => { clearTimeout(timeout); resolve(); };
-        s.onerror = () => { clearTimeout(timeout); reject(new Error('LiteAPI payment SDK failed to load')); };
+        s.onload  = () => resolve();
+        s.onerror = () => reject(new Error('LiteAPI payment SDK failed to load'));
         document.head.appendChild(s);
       });
 
@@ -465,7 +467,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
       if (!p.lastName.trim())   return `Adult ${i + 1}: last name required`;
       if (!p.dateOfBirth.match(/^\d{4}-\d{2}-\d{2}$/))
         return `Adult ${i + 1}: date of birth required`;
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p.email.trim())) return `Adult ${i + 1}: valid email required`;
+      if (!p.email.includes('@')) return `Adult ${i + 1}: valid email required`;
       if (!p.phone.trim())      return `Adult ${i + 1}: phone required`;
     }
     for (let i = 0; i < childPassengers.length; i++) {
@@ -558,119 +560,45 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
     const err = validate();
     if (err) { setError(err); return; }
     setError('');
-    setPhase('booking');
+    // Validation passed — go to invoice review step (no API calls yet)
+    setPhase('invoice');
+  }, [passengers, adults, children, childPassengers, flight, hotel]);
 
+  // ── Proceed to payment (Invoice → Pay) ────────────────────────────────────────
+  // Called from the invoice step. Creates a $20 Stripe PaymentIntent (no bookings).
+  const handleProceedToPayment = useCallback(async () => {
+    setPreparing(true);
+    setError('');
     try {
-      const res = await fetch('/api/book-trip', {
+      const res  = await fetch('/api/stripe/prepare', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sessionId:        sessionId,
-          flightOfferId:    hasValidFlightId ? flightId : undefined,
-          // Send the price shown to the user so the server can detect any change.
-          requestedPriceCents: flight?.price ? Math.round(Number((flight.price * 100).toFixed(0))) : undefined,
-          // Pass flight search params so the server can do a fresh offer request
-          // if the stored offer ID has expired (Duffel offers expire quickly).
-          flightOrigin:       flight?.origin,
-          flightDestination:  flight?.destination,
-          flightDepartureDate: flight?.departure ? flight.departure.slice(0, 10) : undefined,
-          flightCabinClass:   flight?.cabinClass ?? 'economy',
-          flightPassengers:   flight?.passengers ?? adults,
-          hotelRateId:      hasValidHotelToken ? hotelToken : undefined,
-          hotelName:        hotel?.name,
-          // Pass hotel metadata so the server re-fetches a live offerId at booking
-          // time, bypassing the cached token which can expire within minutes.
-          hotelId:          hotel?.id,
-          hotelCheckIn:     hotel?.checkIn,
-          hotelCheckOut:    hotel?.checkOut,
-          passengers:       passengers.slice(0, adults),
-          childPassengers:  childPassengers.slice(0, children),
-          originAirport:    flight?.origin ?? '',
-          guestNationality: 'CA',
+          bookingReference: `pre_${Date.now()}`,
+          customerEmail:    passengers[0]?.email,
         }),
       });
-
-      const data = await res.json() as {
-        success:              boolean;
-        priceChanged?:        boolean;
-        newPriceCents?:       number;
-        flightRef?:           string;
-        hotelRef?:            string;
-        flightError?:         string;
-        hotelError?:          string;
-        clientSecret?:        string;
-        currency?:            'cad' | 'usd';
-        error?:               string;
-        // LiteAPI payment SDK fields (production)
-        requiresHotelPayment?: boolean;
-        hotelPrebookId?:       string;
-        hotelSecretKey?:       string;
-        hotelTransactionId?:   string;
-        isSandboxBooking?:     boolean;
-      };
-
-      // ── Price-change alert ────────────────────────────────────────────────────
-      // If the live Duffel price differs from what was shown, surface a clear
-      // banner so the user can confirm before we charge anything.
-      if (data.priceChanged && data.newPriceCents) {
-        const newPrice = (data.newPriceCents / 100).toFixed(2);
-        const oldPrice = flight?.price?.toFixed(2) ?? '?';
-        const cur      = (flight?.currency ?? 'USD').toUpperCase();
-        setError(
-          `⚠️ Price updated: this flight is now ${cur} $${newPrice} (was $${oldPrice}). ` +
-          `Please click "Book Trip" again to confirm the new price.`
-        );
-        setPhase('review');   // send back to review so user can consciously re-submit
-        return;
-      }
-
-      if (!res.ok || !data.success) {
-        setError(data.error ?? data.flightError ?? data.hotelError ?? 'Booking failed. Please try again.');
+      const data = await res.json() as { clientSecret?: string; paymentIntentId?: string; error?: string };
+      if (!res.ok || !data.clientSecret) {
+        setError(data.error ?? 'Payment setup failed. Please try again.');
         setPhase('error');
         return;
       }
-
-      if (data.flightRef) setFlightRef(data.flightRef);
-      if (data.hotelRef)  setHotelRef(data.hotelRef);
-      if (data.currency)  setCurrency(data.currency);
-
-      // ── Production hotel payment via LiteAPI SDK ─────────────────────────────
-      // If requiresHotelPayment, LiteAPI needs the customer to pay directly through
-      // their hosted payment widget. Show the SDK widget before proceeding.
-      if (data.requiresHotelPayment && data.hotelPrebookId && data.hotelSecretKey) {
-        setHotelPrebookId(data.hotelPrebookId);
-        setHotelSecretKey(data.hotelSecretKey);
-        setHotelTransactionId(data.hotelTransactionId ?? '');
-        setPhase('hotel-payment');
-        return;
-      }
-
-      // If hotel was expected but server silently skipped it (sandbox), surface the error.
-      if (hotel?.bookingToken && !data.hotelRef && !data.requiresHotelPayment) {
-        setError(
-          data.hotelError ??
-          `Hotel booking failed for ${hotel.name}. ` +
-          `Your flight (${data.flightRef ?? 'pending'}) was reserved — ` +
-          `please contact support or try again.`
-        );
-        setPhase('error');
-        return;
-      }
-
-      if (data.clientSecret) {
-        setClientSecret(data.clientSecret);
-        setPhase('payment');
-      } else {
-        setPhase('success');
-        onConfirmed?.(data.flightRef, data.hotelRef);
-      }
+      setClientSecret(data.clientSecret);
+      setPaymentIntentId(data.paymentIntentId ?? '');
+      setPhase('payment');
     } catch (e) {
       setError(`Network error: ${String(e)}`);
       setPhase('error');
+    } finally {
+      setPreparing(false);
     }
-  }, [passengers, adults, children, childPassengers, flight, hotel, onConfirmed]);
+  }, [passengers]);
 
-  // ── Pay ─────────────────────────────────────────────────────────────────────
+  // ── Pay → then Book ──────────────────────────────────────────────────────────
+  // 1. Confirm payment with Stripe
+  // 2. On success: call /api/book-trip with paymentIntentId as proof
+  // 3. Handle booking result (flight ref, hotel ref, LiteAPI SDK, etc.)
   const handlePay = useCallback(async () => {
     if (!stripeRef.current || !elementsRef.current) return;
     setError('');
@@ -680,20 +608,121 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
 
     const result = await stripeRef.current.confirmPayment({
       elements:      elementsRef.current,
-      confirmParams: { return_url: `${window.location.origin}/booking?ref=${flightRef || hotelRef}&fee_paid=true` },
+      confirmParams: { return_url: `${window.location.origin}/booking?fee_paid=true` },
       redirect:      'if_required',
     });
 
     if (result.error) {
       setError(result.error.message);
-    } else {
-      setPhase('success');
-      mountRef.current?.unmount();
-      onConfirmed?.(flightRef || undefined, hotelRef || undefined);
+      return;
     }
-  }, [flightRef, hotelRef, onConfirmed]);
 
-  const feeDisplay = formatPrice(20, currency.toUpperCase());
+    // ── Payment confirmed — now book the actual trip ───────────────────────────
+    mountRef.current?.unmount();
+    setPhase('booking');
+
+    const flightId   = flight?.id;
+    const hotelToken = hotel?.bookingToken ?? '';
+    const PH_RE      = /^(<.*>|N\/A|TBD|pending|unknown|loading|undefined|null|example|test|sample)$/i;
+    const hasValidFlightId = !!(
+      flightId && !flightId.startsWith('<') && flightId.length >= 6 && !PH_RE.test(flightId.trim())
+    );
+    const hasValidHotelToken = !!(
+      hotelToken && hotelToken.startsWith('liteapi_') &&
+      hotelToken.replace('liteapi_', '').length >= 6 &&
+      !PH_RE.test(hotelToken.replace('liteapi_', '').trim())
+    );
+
+    try {
+      const res = await fetch('/api/book-trip', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          paymentIntentId,                          // proof of payment — server verifies this
+          flightOfferId:       hasValidFlightId  ? flightId   : undefined,
+          requestedPriceCents: flight?.price ? Math.round(flight.price * 100) : undefined,
+          flightOrigin:        flight?.origin,
+          flightDestination:   flight?.destination,
+          flightDepartureDate: flight?.departure ? flight.departure.slice(0, 10) : undefined,
+          flightCabinClass:    flight?.cabinClass ?? 'economy',
+          flightPassengers:    flight?.passengers ?? adults,
+          hotelRateId:         hasValidHotelToken ? hotelToken : undefined,
+          hotelName:           hotel?.name,
+          hotelId:             hotel?.id,
+          hotelCheckIn:        hotel?.checkIn,
+          hotelCheckOut:       hotel?.checkOut,
+          passengers:          passengers.slice(0, adults),
+          childPassengers:     childPassengers.slice(0, children),
+          originAirport:       flight?.origin ?? '',
+          guestNationality:    'CA',
+        }),
+      });
+
+      const data = await res.json() as {
+        success:               boolean;
+        priceChanged?:         boolean;
+        newPriceCents?:        number;
+        flightRef?:            string;
+        hotelRef?:             string;
+        flightError?:          string;
+        hotelError?:           string;
+        currency?:             'cad' | 'usd';
+        error?:                string;
+        requiresHotelPayment?: boolean;
+        hotelPrebookId?:       string;
+        hotelSecretKey?:       string;
+        hotelTransactionId?:   string;
+        isSandboxBooking?:     boolean;
+      };
+
+      if (!res.ok || !data.success) {
+        // Payment succeeded but booking failed — IMPORTANT: tell user their $20 was charged
+        setError(
+          (data.error ?? data.flightError ?? data.hotelError ?? 'Booking failed.') +
+          ' Your $20 service fee was charged. Please contact support@flexetravels.com with your payment reference.',
+        );
+        setPhase('error');
+        return;
+      }
+
+      if (data.flightRef) setFlightRef(data.flightRef);
+      if (data.hotelRef)  setHotelRef(data.hotelRef);
+      if (data.currency)  setCurrency(data.currency);
+
+      // Production hotel payment via LiteAPI SDK
+      if (data.requiresHotelPayment && data.hotelPrebookId && data.hotelSecretKey) {
+        setHotelPrebookId(data.hotelPrebookId);
+        setHotelSecretKey(data.hotelSecretKey);
+        setHotelTransactionId(data.hotelTransactionId ?? '');
+        setPhase('hotel-payment');
+        return;
+      }
+
+      // Hotel expected but server skipped (sandbox limitation)
+      if (hotel?.bookingToken && !data.hotelRef && !data.requiresHotelPayment) {
+        setError(
+          (data.hotelError ?? `Hotel booking failed for ${hotel.name}.`) +
+          ` Your flight (${data.flightRef ?? 'ref pending'}) was reserved. ` +
+          `Contact support@flexetravels.com — your $20 fee was charged.`,
+        );
+        setPhase('error');
+        return;
+      }
+
+      setPhase('success');
+      onConfirmed?.(data.flightRef, data.hotelRef);
+    } catch (e) {
+      setError(
+        `Network error: ${String(e)}. ` +
+        `Your $20 service fee was charged — please contact support@flexetravels.com.`,
+      );
+      setPhase('error');
+    }
+  }, [paymentIntentId, sessionId, flight, hotel, passengers, adults, children, childPassengers, onConfirmed]);
+
+  // Service fee is always USD $20 — Stripe PaymentIntent is created in USD
+  const feeDisplay = formatPrice(20, 'USD');
 
   // ── Success ─────────────────────────────────────────────────────────────────
   if (phase === 'success') {
@@ -928,17 +957,17 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
               )}
             </div>
 
-            {/* Cost breakdown */}
+            {/* Cost overview — full breakdown shown on Invoice step */}
             <div className="border-t border-border/40 pt-3 space-y-1.5">
               {flight && (
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Flight</span>
+                  <span>Flight ({flight.origin} → {flight.destination})</span>
                   <span>{formatPrice(flight.price, flight.currency)}</span>
                 </div>
               )}
               {hotel && !hotel.isSample && (
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Hotel</span>
+                  <span>Hotel ({hotel.name})</span>
                   <span>{formatPrice(hotel.totalPrice, hotel.currency)}</span>
                 </div>
               )}
@@ -949,17 +978,6 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                 </div>
                 <span className="text-teal-700 dark:text-teal-300 font-bold">{feeDisplay}</span>
               </div>
-              {(flight || (hotel && !hotel.isSample)) && (
-                <div className="flex items-center justify-between text-sm font-black text-foreground border-t border-border/40 pt-1.5 mt-1">
-                  <span>Total</span>
-                  <span className="text-teal-700 dark:text-teal-300">
-                    {formatPrice(
-                      (flight?.price ?? 0) + (hotel && !hotel.isSample ? (hotel.totalPrice ?? 0) : 0) + 20,
-                      (flight?.currency ?? hotel?.currency ?? currency).toUpperCase(),
-                    )}
-                  </span>
-                </div>
-              )}
             </div>
 
             <button
@@ -975,7 +993,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
               Continue <ArrowRight className="w-4 h-4" />
             </button>
             <p className="text-center text-[10px] text-muted-foreground/50">
-              You won&apos;t be charged until you confirm · Secured by Stripe
+              Full invoice shown before payment · Secured by Stripe
             </p>
           </div>
         )}
@@ -1125,40 +1143,164 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                            text-white font-bold text-sm flex items-center justify-center gap-2
                            shadow-md shadow-teal-500/20 hover:shadow-lg hover:shadow-teal-500/30 transition-all duration-150"
               >
-                Book Trip <ArrowRight className="w-4 h-4" />
+                Review &amp; Pay <ArrowRight className="w-4 h-4" />
               </button>
             </div>
           </div>
         )}
 
-        {/* ── Step 3: Stripe payment ─────────────────────────────────────────── */}
+        {/* ── Step 3: Invoice (trip + passenger summary before payment) ───────── */}
+        {phase === 'invoice' && (
+          <div className="flex flex-col gap-0">
+            {/* Scrollable invoice area */}
+            <div className="space-y-4 overflow-y-auto max-h-[55vh] pr-1
+                            [scrollbar-width:thin] [scrollbar-color:theme(colors.border)_transparent]">
+
+              {/* ── Trip summary ─────────────────────────────────────────── */}
+              <TripRow flight={flight} hotel={hotel} />
+
+              {/* ── Passenger details (full, for verification) ──────────── */}
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  Passengers
+                </p>
+                {passengers.map((pax, i) => (
+                  <div key={`inv-adult-${i}`} className="p-3 rounded-xl bg-muted/30 border border-border/50 space-y-0.5">
+                    <p className="text-sm font-bold text-foreground">
+                      {pax.firstName} {pax.lastName}
+                      <span className="ml-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        {i === 0 ? 'Lead' : `Adult ${i + 1}`}
+                      </span>
+                    </p>
+                    <p className="text-xs text-muted-foreground">DOB: {pax.dateOfBirth}</p>
+                    <p className="text-xs text-muted-foreground">{pax.email} · {pax.phone}</p>
+                  </div>
+                ))}
+                {childPassengers.map((child, i) => (
+                  <div key={`inv-child-${i}`} className="p-3 rounded-xl bg-muted/30 border border-border/50 space-y-0.5">
+                    <p className="text-sm font-bold text-foreground">
+                      {child.firstName} {child.lastName}
+                      <span className="ml-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        Child {i + 1}
+                      </span>
+                    </p>
+                    <p className="text-xs text-muted-foreground">DOB: {child.dateOfBirth}</p>
+                    <ChildAgeBadge dob={child.dateOfBirth} />
+                  </div>
+                ))}
+              </div>
+
+              {/* ── Cost breakdown ───────────────────────────────────────── */}
+              <div className="border border-border/50 rounded-xl p-3 space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  Cost breakdown
+                </p>
+                {flight && (
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Flight · {flight.airline} · {flight.origin} → {flight.destination}</span>
+                    <span className="font-semibold text-foreground flex-shrink-0 ml-2">
+                      {formatPrice(flight.price, flight.currency)}
+                    </span>
+                  </div>
+                )}
+                {hotel && !hotel.isSample && (
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Hotel · {hotel.name} · {hotel.checkIn} → {hotel.checkOut}</span>
+                    <span className="font-semibold text-foreground flex-shrink-0 ml-2">
+                      {formatPrice(hotel.totalPrice, hotel.currency)}
+                    </span>
+                  </div>
+                )}
+                {(flight && hotel && !hotel.isSample &&
+                  (flight.currency ?? 'USD').toUpperCase() !== (hotel.currency ?? 'USD').toUpperCase()) && (
+                  <p className="text-[10px] text-amber-600 dark:text-amber-400">
+                    ⚠ Flight and hotel are priced in different currencies — totals shown separately above.
+                  </p>
+                )}
+                <div className="border-t border-border/40 pt-2 flex justify-between text-xs">
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
+                    <Lock className="w-3 h-3" /> FlexeTravels service fee (charged now via Stripe)
+                  </div>
+                  <span className="font-black text-teal-700 dark:text-teal-300 flex-shrink-0 ml-2">{feeDisplay}</span>
+                </div>
+              </div>
+
+              {/* ── What happens next ────────────────────────────────────── */}
+              <div className="rounded-xl bg-teal-50/60 dark:bg-teal-950/20 border border-teal-200/50 dark:border-teal-800/40 px-3 py-2.5 space-y-1">
+                <p className="text-xs font-semibold text-teal-800 dark:text-teal-300">
+                  What happens after payment
+                </p>
+                <p className="text-xs text-teal-700/80 dark:text-teal-400/70 leading-relaxed">
+                  Your {feeDisplay} service fee is charged immediately. We then instantly book your{' '}
+                  {flight && hotel ? 'flight and hotel' : flight ? 'flight' : 'hotel'}.
+                  Confirmation is sent to <strong>{passengers[0]?.email || 'your email'}</strong>.
+                </p>
+              </div>
+
+            </div>{/* end scrollable invoice area */}
+
+            {error && (
+              <div className="flex items-start gap-2 p-3 mt-3 rounded-xl bg-red-50 dark:bg-red-950/20 border border-red-200/60 dark:border-red-800/40">
+                <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-red-700 dark:text-red-300">{error}</p>
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-4 border-t border-border/30 mt-3">
+              <button
+                onClick={() => { setPhase('passengers'); setError(''); }}
+                className="flex items-center gap-1.5 px-4 py-3 rounded-2xl border border-border/80
+                           text-sm font-semibold text-muted-foreground hover:bg-muted transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" /> Edit
+              </button>
+              <button
+                onClick={() => void handleProceedToPayment()}
+                disabled={preparing}
+                className={cn(
+                  'flex-1 py-3.5 rounded-2xl text-white font-bold text-sm flex items-center justify-center gap-2 transition-all duration-150',
+                  preparing
+                    ? 'bg-teal-600/70 cursor-wait'
+                    : 'bg-teal-600 hover:bg-teal-700 active:scale-[0.98] shadow-md shadow-teal-500/20 hover:shadow-lg hover:shadow-teal-500/30'
+                )}
+              >
+                {preparing
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Setting up payment…</>
+                  : <><Lock className="w-4 h-4" /> Pay {feeDisplay} <ArrowRight className="w-4 h-4" /></>
+                }
+              </button>
+            </div>
+            <p className="text-center text-[10px] text-muted-foreground/50 mt-1">
+              Secured by Stripe · PCI-DSS compliant · We never store your card details
+            </p>
+          </div>
+        )}
+
+        {/* ── Step 4: Stripe payment form ────────────────────────────────────── */}
         {phase === 'payment' && (
           <div className="space-y-4">
-            {/* Booking confirmations */}
-            <div className="space-y-1.5">
-              {flightRef && (
-                <div className="flex items-center gap-2 text-xs text-teal-700 dark:text-teal-300
-                                bg-teal-50 dark:bg-teal-950/30 px-3 py-2 rounded-xl">
-                  <Plane className="w-3.5 h-3.5 flex-shrink-0" />
-                  Flight booked — ref: <code className="font-mono font-black">{flightRef}</code>
+            {/* Brief summary of what they're paying for */}
+            <div className="rounded-xl bg-muted/30 border border-border/50 p-3 space-y-1.5 text-xs text-muted-foreground">
+              {flight && (
+                <div className="flex justify-between">
+                  <span>Flight · {flight.origin} → {flight.destination}</span>
+                  <span className="font-semibold text-foreground">{formatPrice(flight.price, flight.currency)}</span>
                 </div>
               )}
-              {hotelRef && (
-                <div className="flex items-center gap-2 text-xs text-teal-700 dark:text-teal-300
-                                bg-teal-50 dark:bg-teal-950/30 px-3 py-2 rounded-xl">
-                  <Building2 className="w-3.5 h-3.5 flex-shrink-0" />
-                  Hotel booked — ID: <code className="font-mono font-black">{hotelRef}</code>
+              {hotel && !hotel.isSample && (
+                <div className="flex justify-between">
+                  <span>Hotel · {hotel.name}</span>
+                  <span className="font-semibold text-foreground">{formatPrice(hotel.totalPrice, hotel.currency)}</span>
                 </div>
               )}
-            </div>
-
-            <div className="flex items-center justify-between text-sm py-2 border-t border-border/50">
-              <span className="font-semibold text-foreground">Service fee</span>
-              <span className="font-black text-teal-700 dark:text-teal-300">{feeDisplay}</span>
+              <div className="flex justify-between border-t border-border/40 pt-1.5 mt-0.5">
+                <span className="flex items-center gap-1"><Lock className="w-3 h-3" /> Service fee charged now</span>
+                <span className="font-black text-teal-700 dark:text-teal-300">{feeDisplay}</span>
+              </div>
             </div>
 
             <p className="text-xs text-muted-foreground/70 text-center">
-              You won&apos;t be charged until you tap the button below. Your card is processed securely by Stripe — FlexeTravels never sees your card details.
+              Enter your card details below. We charge {feeDisplay} now, then instantly book your trip.
             </p>
 
             {/* Stripe mounts here */}

@@ -260,9 +260,26 @@ export function HotelDetailModal({ hotel, onClose, onSelect }: HotelDetailModalP
   const score = hotel.rating ?? 0;
   const { label: scoreText, color: scoreBg } = score > 0 ? scoreLabel(score) : { label: '', color: '' };
 
-  // Strip HTML for description
+  // Strip HTML tags and decode HTML entities for clean plain text description
   const descHtml = detail?.description ?? '';
-  const descPlain = descHtml.replace(/<[^>]+>/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  function decodeEntities(s: string): string {
+    return s
+      .replace(/&amp;/g,        '&')
+      .replace(/&lt;/g,         '<')
+      .replace(/&gt;/g,         '>')
+      .replace(/&quot;/g,       '"')
+      .replace(/&#39;|&apos;/g, "'")
+      .replace(/&nbsp;/g,       ' ')
+      .replace(/&rsquo;/g,      '\u2019')
+      .replace(/&lsquo;/g,      '\u2018')
+      .replace(/&rdquo;/g,      '\u201d')
+      .replace(/&ldquo;/g,      '\u201c')
+      .replace(/&mdash;/g,      '\u2014')
+      .replace(/&ndash;/g,      '\u2013')
+      .replace(/&#(\d+);/g, (_, n: string) => String.fromCharCode(Number(n)));
+  }
+  const descPlain = decodeEntities(descHtml.replace(/<[^>]+>/g, ' '))
+    .replace(/\s{2,}/g, ' ').trim();
 
   // Cancel policies
   const cancelPolicies = hotel.cancelPolicies ?? [];
@@ -299,7 +316,7 @@ export function HotelDetailModal({ hotel, onClose, onSelect }: HotelDetailModalP
         </button>
 
         {/* ── SCROLLABLE CONTENT ──────────────────────────────────────────────── */}
-        <div className="overflow-y-auto flex-1 [scrollbar-width:thin]">
+        <div className="overflow-y-auto flex-1 [scrollbar-width:thin] pb-safe pb-8">
 
           {/* ── A. HERO PHOTO GALLERY ───────────────────────────────────────── */}
           <div className="relative w-full aspect-video bg-muted overflow-hidden group">
