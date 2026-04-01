@@ -137,9 +137,13 @@ export class DuffelProvider implements SearchProvider {
       throw new Error('Number of infants cannot exceed number of adults');
     }
 
-    const passengers: Array<{ type: string; age?: number }> = [
+    // Duffel v2 passenger format:
+    //   Adults:  { type: 'adult' }
+    //   Children (2-11): { age: N }  ← age only, NO type field (v2 infers child from age)
+    //   Infants:  { type: 'infant_without_seat' }
+    const passengers: Array<{ type?: string; age?: number }> = [
       ...Array.from({ length: params.adults },    () => ({ type: 'adult'              as const })),
-      ...childrenAges.map(age                  => ({ type: 'child'              as const, age })),
+      ...childrenAges.map(age                  => ({ age })),
       ...Array.from({ length: infantCount },    () => ({ type: 'infant_without_seat' as const })),
     ];
     const totalPassengers = passengers.length;

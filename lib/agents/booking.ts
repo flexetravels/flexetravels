@@ -82,9 +82,10 @@ async function refreshDuffelOffer(
   infantCount?: number,      // number of lap infants (< 2)
 ): Promise<string | null> {
   try {
-    const passengerList: Array<{ type: string; age?: number }> = [
+    // Duffel v2: children = { age: N } only (no type field — inferred from age)
+    const passengerList: Array<{ type?: string; age?: number }> = [
       ...Array.from({ length: adults },             () => ({ type: 'adult'              as const })),
-      ...(childrenAges ?? []).map(age               => ({ type: 'child'              as const, age })),
+      ...(childrenAges ?? []).map(age               => ({ age })),
       ...Array.from({ length: infantCount ?? 0 }, () => ({ type: 'infant_without_seat' as const })),
     ];
     const sliceBody = {
