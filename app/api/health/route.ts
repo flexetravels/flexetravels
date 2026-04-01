@@ -55,7 +55,6 @@ export async function GET() {
     return NextResponse.json({
       ok:           true,
       db:           true,
-      supabase_url: supabaseUrl.slice(0, 40) + '…',
       trips_ping:   `${rows.length} row(s) sampled`,
     });
   } catch (e) {

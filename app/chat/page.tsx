@@ -31,7 +31,7 @@ function resolveAuthSession() {
   if (_sidResolved) return;
   _sidResolved = true;
   const supabase = createClient();
-  supabase.auth.getSession().then(({ data: { session } }) => {
+  supabase.auth.getSession().then(({ data: { session } }: { data: { session: { user?: { id: string } } | null } }) => {
     if (session?.user?.id) {
       _sid = `user_${session.user.id}`;
     }

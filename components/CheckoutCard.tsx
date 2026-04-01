@@ -355,8 +355,9 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
         if (existing) { resolve(); return; }
         const s = document.createElement('script');
         s.src = 'https://payment-wrapper.liteapi.travel/dist/liteAPIPayment.js?v=a1';
-        s.onload  = () => resolve();
-        s.onerror = () => reject(new Error('LiteAPI payment SDK failed to load'));
+        const timeout = setTimeout(() => reject(new Error('LiteAPI payment SDK load timeout (10s)')), 10_000);
+        s.onload  = () => { clearTimeout(timeout); resolve(); };
+        s.onerror = () => { clearTimeout(timeout); reject(new Error('LiteAPI payment SDK failed to load')); };
         document.head.appendChild(s);
       });
 
@@ -464,7 +465,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
       if (!p.lastName.trim())   return `Adult ${i + 1}: last name required`;
       if (!p.dateOfBirth.match(/^\d{4}-\d{2}-\d{2}$/))
         return `Adult ${i + 1}: date of birth required`;
-      if (!p.email.includes('@')) return `Adult ${i + 1}: valid email required`;
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p.email.trim())) return `Adult ${i + 1}: valid email required`;
       if (!p.phone.trim())      return `Adult ${i + 1}: phone required`;
     }
     for (let i = 0; i < childPassengers.length; i++) {
@@ -567,7 +568,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
           sessionId:        sessionId,
           flightOfferId:    hasValidFlightId ? flightId : undefined,
           // Send the price shown to the user so the server can detect any change.
-          requestedPriceCents: flight?.price ? Math.round(flight.price * 100) : undefined,
+          requestedPriceCents: flight?.price ? Math.round(Number((flight.price * 100).toFixed(0))) : undefined,
           // Pass flight search params so the server can do a fresh offer request
           // if the stored offer ID has expired (Duffel offers expire quickly).
           flightOrigin:       flight?.origin,

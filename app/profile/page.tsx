@@ -19,7 +19,7 @@ export default function ProfilePage() {
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session } }: { data: { session: { user: User } | null } }) => {
       if (!session) {
         router.replace('/login');
       } else {

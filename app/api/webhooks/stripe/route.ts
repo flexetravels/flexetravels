@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!secret) {
     console.error('[webhook/stripe] STRIPE_WEBHOOK_SECRET not set — rejecting all events');
-    return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 });
+    return NextResponse.json({ error: 'Webhook not configured' }, { status: 503 });
   }
 
   // Read raw body as text (needed for HMAC verification)

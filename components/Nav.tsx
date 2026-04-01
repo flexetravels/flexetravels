@@ -40,11 +40,11 @@ export function Nav() {
   // Load auth session
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session } }: { data: { session: { user?: SupabaseUser } | null } }) => {
       setUser(session?.user ?? null);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: string, session: { user?: SupabaseUser } | null) => {
       setUser(session?.user ?? null);
     });
 
