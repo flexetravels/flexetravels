@@ -92,10 +92,13 @@ CRITICAL: All four tools in a SINGLE parallel batch. Never sequential. cabinClas
 
 CHILDREN & INFANTS:
 • Ask ages if not provided — pricing depends on it.
-• Age 0-1 (under 2) = lap infant, no seat. infants parameter on searchFlights only.
-• Age 2-11 = child fare (own seat on flights). childrenAges=[age] on searchFlights AND searchHotels.
-• Age 12+ = adult. Add to adults count.
-• Infants cannot exceed number of adults.
+• Age 0-1 (under 2) = lap infant, no seat. Pass as infants= count in searchFlights. Infant fares are typically free or nominal; the search price covers adult+child seats only.
+• Age 2-11 = child fare (own seat). Add to childrenAges=[age] on searchFlights AND searchHotels.
+• Age 12-17 = treated as adult fare by most airlines. Add to adults count for searchFlights.
+• Age 18+ = adult. Add to adults count.
+• Infants cannot exceed number of adults (Duffel rule: one lap infant per accompanying adult).
+• If searchFlights returns 0 results or errors: show hotels normally, tell user flights couldn't be priced for that party and they can try adjusting dates/cabin class. NEVER call searchFlights more than once per response — no retry loops.
+• NEVER pass infants in childrenAges — infants travel on lap and use the infants= parameter only.
 
 DUBAI / UAE SPECIFIC:
 • Dubai has many distinct areas — always mention which district hotels are in.
@@ -109,7 +112,7 @@ DUBAI / UAE SPECIFIC:
 1. NEVER fabricate flight IDs, hotel IDs, prices, booking tokens, or ANY card field.
 2. ALWAYS copy ALL fields EXACTLY from tool results into card tags — zero modifications.
 3. If tool returns 0 results → say so honestly, suggest alternative dates or nearby areas.
-4. If tool errors → tell user and offer to retry: "Let me try that search again."
+4. If tool errors → tell user what happened and show whatever results ARE available. NEVER call any tool more than once per response — no retry loops. One parallel batch only.
 5. NEVER summarize hotels in prose only — always emit individual [HOTEL_CARD] tags for each hotel.
 6. NEVER call tools after user selects a flight or hotel — frontend handles booking from there.
 7. Wrong IDs = failed booking. Verify every field before emitting a card.
@@ -294,8 +297,8 @@ export async function POST(req: Request) {
           departureDate: z.string().describe('Departure date YYYY-MM-DD'),
           returnDate:    z.string().optional().describe('Return date YYYY-MM-DD for round-trips'),
           adults:        z.number().int().min(1).max(9).default(1),
-          childrenAges:  z.array(z.number().int().min(2).max(11)).optional().describe('Ages of children (2-11). Each child gets a separate seat at child fare.'),
-          infants:       z.number().int().min(0).max(4).optional().default(0).describe('Number of lap infants (under 2). No separate seat.'),
+          childrenAges:  z.array(z.number().int().min(2).max(11)).optional().describe('Ages of children 2-11 only. Each gets own seat at child fare. Do NOT include age 0-1 here — use infants= instead. Ages 12+ go in adults count.'),
+          infants:       z.number().int().min(0).max(4).optional().default(0).describe('Number of lap infants under age 2. No separate seat, rides on adult lap. Must not exceed adults count.'),
           cabinClass:    z.enum(['economy', 'premium_economy', 'business', 'first']).default('economy'),
         }),
         execute: async (params) => {
@@ -346,8 +349,8 @@ export async function POST(req: Request) {
           departureDate: z.string().describe('Departure date YYYY-MM-DD'),
           returnDate:    z.string().optional(),
           adults:        z.number().int().min(1).max(9).default(1),
-          childrenAges:  z.array(z.number().int().min(2).max(11)).optional().describe('Ages of children (2-11)'),
-          infants:       z.number().int().min(0).max(4).optional().default(0).describe('Lap infants (under 2)'),
+          childrenAges:  z.array(z.number().int().min(2).max(11)).optional().describe('Ages of children 2-11 only. Ages 12+ go in adults.'),
+          infants:       z.number().int().min(0).max(4).optional().default(0).describe('Lap infants under age 2. Must not exceed adults count.'),
           cabinClass:    z.enum(['economy', 'premium_economy', 'business', 'first']).default('economy'),
         }),
         execute: async (params) => {

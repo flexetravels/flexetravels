@@ -11,7 +11,6 @@ import type { BookingRequest, BookingResult, AgentResult } from '@/lib/orchestra
 import { scoreFlexibility } from '@/lib/scoring/flexibility';
 import type { DuffelConditions } from '@/lib/scoring/flexibility';
 import { liteApiPrebook, liteApiBook, liteApiGetFreshOfferId } from '@/lib/search/liteapi';
-import { createPaymentIntent } from '@/lib/stripe';
 import { logger } from '@/lib/logger';
 
 // ─── Duffel helper types ──────────────────────────────────────────────────────
@@ -21,6 +20,17 @@ interface DuffelOfferDetail {
   total_amount?:   string;
   total_currency?: string;
   conditions?:     DuffelConditions;
+}
+
+// ─── Passenger age from DOB ────────────────────────────────────────────────────
+// Used to separate infants (< 2) from children (≥ 2) in the childPassengers array.
+function ageYears(dob: string): number {
+  const born  = new Date(dob);
+  const today = new Date();
+  let age = today.getFullYear() - born.getFullYear();
+  const m = today.getMonth() - born.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < born.getDate())) age--;
+  return Math.max(0, age);
 }
 
 // ─── Normalise phone numbers to E.164 ─────────────────────────────────────────
@@ -68,12 +78,19 @@ async function refreshDuffelOffer(
   adults: number,
   cabinClass: string,
   headers: Record<string, string>,
+  childrenAges?: number[],   // ages of children (2+) for child-fare slots
+  infantCount?: number,      // number of lap infants (< 2)
 ): Promise<string | null> {
   try {
+    const passengerList: Array<{ type: string; age?: number }> = [
+      ...Array.from({ length: adults },             () => ({ type: 'adult'              as const })),
+      ...(childrenAges ?? []).map(age               => ({ type: 'child'              as const, age })),
+      ...Array.from({ length: infantCount ?? 0 }, () => ({ type: 'infant_without_seat' as const })),
+    ];
     const sliceBody = {
       data: {
         slices: [{ origin, destination, departure_date: departureDate }],
-        passengers: Array.from({ length: adults }, () => ({ type: 'adult' })),
+        passengers: passengerList,
         cabin_class: cabinClass || 'economy',
       },
     };
@@ -105,6 +122,8 @@ async function bookDuffelFlight(
   refreshParams?: {
     origin: string; destination: string; departureDate: string;
     adults: number; cabinClass: string;
+    childrenAges?: number[];   // for correct slot count on 422 retry
+    infantCount?: number;      // lap infants for 422 retry
   },
 ): Promise<{
   success: boolean;
@@ -178,13 +197,20 @@ async function bookDuffelFlight(
     }
   }
 
-  // Map Duffel passenger slots to our passenger data
-  let adultIdx = 0;
-  let childIdx = 0;
+  // Separate childPassengers into true children (age ≥ 2) and lap infants (age < 2).
+  // Both are submitted through the same checkout form field but need different Duffel
+  // passenger types (child vs infant_without_seat) at the order-creation stage.
+  const infantList = childPassengers.filter(c => ageYears(c.dateOfBirth) < 2);
+  const childList  = childPassengers.filter(c => ageYears(c.dateOfBirth) >= 2);
+
+  let adultIdx  = 0;
+  let childIdx  = 0;
+  let infantIdx = 0;
+
   const passengerMap = offerPassengers.map((offerPax) => {
-    const isChild = offerPax.type === 'child';
-    if (isChild && childIdx < childPassengers.length) {
-      const c = childPassengers[childIdx++];
+    // ── Child seat (age 2+) ──────────────────────────────────────────────────
+    if (offerPax.type === 'child' && childIdx < childList.length) {
+      const c = childList[childIdx++];
       return {
         id:           offerPax.id,
         title:        'mr' as const,
@@ -195,19 +221,52 @@ async function bookDuffelFlight(
         email:        passengers[0].email,
         phone_number: normalisePhone(passengers[0].phone),
       };
-    } else {
-      const p = passengers[Math.min(adultIdx++, passengers.length - 1)];
+    }
+
+    // ── Lap infant (age < 2) ─────────────────────────────────────────────────
+    if (offerPax.type === 'infant_without_seat') {
+      const infant = infantList[infantIdx++];
+      if (infant) {
+        return {
+          id:           offerPax.id,
+          title:        'mr' as const,
+          gender:       'm'  as const,
+          given_name:   infant.firstName,
+          family_name:  infant.lastName,
+          born_on:      infant.dateOfBirth,
+          email:        passengers[0].email,
+          phone_number: normalisePhone(passengers[0].phone),
+        };
+      }
+      // Fallback: infant form not filled in — use lead adult's last name + estimated 6-mo DOB
+      const lead   = passengers[0];
+      const estDob = new Date();
+      estDob.setMonth(estDob.getMonth() - 6);
+      console.warn('[booking-agent] No infant form data — using estimated DOB for infant slot');
       return {
         id:           offerPax.id,
         title:        'mr' as const,
         gender:       'm'  as const,
-        given_name:   p.firstName,
-        family_name:  p.lastName,
-        born_on:      p.dateOfBirth,
-        email:        p.email,
-        phone_number: normalisePhone(p.phone),
+        given_name:   'Infant',
+        family_name:  lead.lastName,
+        born_on:      estDob.toISOString().split('T')[0],
+        email:        lead.email,
+        phone_number: normalisePhone(lead.phone),
       };
     }
+
+    // ── Adult ────────────────────────────────────────────────────────────────
+    const p = passengers[Math.min(adultIdx++, passengers.length - 1)];
+    return {
+      id:           offerPax.id,
+      title:        'mr' as const,
+      gender:       'm'  as const,
+      given_name:   p.firstName,
+      family_name:  p.lastName,
+      born_on:      p.dateOfBirth,
+      email:        p.email,
+      phone_number: normalisePhone(p.phone),
+    };
   });
 
   // Step 2: create order
@@ -245,6 +304,8 @@ async function bookDuffelFlight(
         refreshParams.adults,
         refreshParams.cabinClass,
         headers,
+        refreshParams.childrenAges,
+        refreshParams.infantCount,
       );
       if (freshOfferId) {
         // Re-fetch fresh offer details for passenger mapping
@@ -271,14 +332,26 @@ async function bookDuffelFlight(
             }
           }
 
-          const freshPassMap    = freshPassengers.map((offerPax) => {
-            const isChild = offerPax.type === 'child';
-            if (isChild) {
-              const child = childPassengers[0];
-              return { id: offerPax.id, born_on: child?.dateOfBirth ?? '2015-01-01', title: 'mr', gender: 'm', given_name: child?.firstName ?? 'Child', family_name: child?.lastName ?? 'Passenger' };
+          // Re-use the same infant/child separation for the retry passenger map
+          const freshInfantList = childPassengers.filter(c => ageYears(c.dateOfBirth) < 2);
+          const freshChildList  = childPassengers.filter(c => ageYears(c.dateOfBirth) >= 2);
+          let freshAdultIdx = 0, freshChildIdx = 0, freshInfantIdx = 0;
+          const freshPassMap = freshPassengers.map((offerPax) => {
+            if (offerPax.type === 'child' && freshChildIdx < freshChildList.length) {
+              const c = freshChildList[freshChildIdx++];
+              return { id: offerPax.id, title: 'mr', gender: 'm', given_name: c.firstName, family_name: c.lastName, born_on: c.dateOfBirth, email: passengers[0].email, phone_number: normalisePhone(passengers[0].phone) };
             }
-            const adult = passengers[0];
-            return { id: offerPax.id, born_on: adult?.dateOfBirth, title: 'mr', gender: 'm', given_name: adult?.firstName, family_name: adult?.lastName, email: adult?.email, phone_number: adult?.phone };
+            if (offerPax.type === 'infant_without_seat') {
+              const infant = freshInfantList[freshInfantIdx++];
+              if (infant) {
+                return { id: offerPax.id, title: 'mr', gender: 'm', given_name: infant.firstName, family_name: infant.lastName, born_on: infant.dateOfBirth, email: passengers[0].email, phone_number: normalisePhone(passengers[0].phone) };
+              }
+              const lead = passengers[0];
+              const estDob = new Date(); estDob.setMonth(estDob.getMonth() - 6);
+              return { id: offerPax.id, title: 'mr', gender: 'm', given_name: 'Infant', family_name: lead.lastName, born_on: estDob.toISOString().split('T')[0], email: lead.email, phone_number: normalisePhone(lead.phone) };
+            }
+            const adult = passengers[Math.min(freshAdultIdx++, passengers.length - 1)];
+            return { id: offerPax.id, born_on: adult?.dateOfBirth, title: 'mr', gender: 'm', given_name: adult?.firstName, family_name: adult?.lastName, email: adult?.email, phone_number: normalisePhone(adult?.phone ?? '') };
           });
           const retryRes = await fetch('https://api.duffel.com/air/orders', {
             method: 'POST', headers,
@@ -338,13 +411,18 @@ export const bookingAgent = {
             req.passengers,
             req.childPassengers,
             req.requestedPriceCents,
-            // Pass search params so we can auto-refresh on 422
+            // Pass search params so we can auto-refresh on 422 (expired offer)
             req.flightOrigin && req.flightDestination && req.flightDepartureDate ? {
               origin:        req.flightOrigin,
               destination:   req.flightDestination,
               departureDate: req.flightDepartureDate,
-              adults:        req.flightPassengers ?? req.passengers.length,
+              adults:        req.passengers.length,  // adult count only (not total pax)
               cabinClass:    req.flightCabinClass ?? 'economy',
+              // Derive child ages + infant count from childPassengers DOBs for correct slot count
+              childrenAges: req.childPassengers
+                .filter(c => ageYears(c.dateOfBirth) >= 2)
+                .map(c => ageYears(c.dateOfBirth)),
+              infantCount: req.childPassengers.filter(c => ageYears(c.dateOfBirth) < 2).length,
             } : undefined,
           );
           logger.flightBooking({
@@ -465,6 +543,8 @@ export const bookingAgent = {
           // Don't call liteApiBook here — will be called by /api/complete-hotel-booking
           // after customer completes payment in the SDK widget.
           // NOTE: hotelRef stays undefined; returned fields signal frontend to show widget.
+          // Stripe payment (flight fare + $20 fee) was already collected before this point
+          // via /api/stripe/prepare → /api/book-trip. No new PI needed here.
           return {
             ok: true,
             data: {
@@ -478,19 +558,8 @@ export const bookingAgent = {
               hotelSecretKey:       prebook.secretKey,
               hotelTransactionId:   prebook.transactionId,
               isSandboxBooking:     false,
-              // Still create Stripe intent for $20 service fee (flight may already be booked)
-              ...(await (async () => {
-                const origin   = (req.originAirport ?? '').toUpperCase();
-                const currency = origin.startsWith('Y') ? 'cad' : 'usd';
-                const bookingRef = flightRef ?? `FT-${Date.now()}`;
-                try {
-                  const pi = await createPaymentIntent({ bookingReference: bookingRef, bookingType: flightRef ? 'flight' : 'hotel', customerEmail: lead.email, amount: 2000, currency });
-                  return { clientSecret: pi.clientSecret, paymentIntentId: pi.paymentIntentId, currency, serviceFeeCents: 2000 };
-                } catch (e) {
-                  console.error('[booking-agent] Stripe error (non-fatal):', e);
-                  return { currency, serviceFeeCents: 2000 };
-                }
-              })()),
+              currency:             'usd',
+              serviceFeeCents:      2000,
             },
             durationMs: Date.now() - t0,
           };
@@ -548,32 +617,9 @@ export const bookingAgent = {
       };
     }
 
-    // ── 3. Stripe service fee ─────────────────────────────────────────────────
-    const origin   = (req.originAirport ?? '').toUpperCase();
-    const currency = origin.startsWith('Y') ? 'cad' : 'usd';
-    const bookingRef = flightRef ?? hotelRef ?? `FT-${Date.now()}`;
-
-    let clientSecret:   string | undefined;
-    let paymentIntentId: string | undefined;
-
-    try {
-      const pi = await createPaymentIntent({
-        bookingReference: bookingRef,
-        bookingType:      flightRef ? 'flight' : 'hotel',
-        customerEmail:    lead.email,
-        amount:           2000,
-        currency,
-      });
-      clientSecret    = pi.clientSecret;
-      paymentIntentId = pi.paymentIntentId;
-      logger.stripePayment({
-        bookingRef, amount: 2000, currency,
-        success: true, intentId: pi.paymentIntentId,
-      });
-    } catch (e) {
-      console.error('[booking-agent] Stripe error (non-fatal):', e);
-      logger.stripePayment({ bookingRef, amount: 2000, currency, success: false, error: String(e) });
-    }
+    // NOTE: Stripe payment (flight fare + $20 service fee) was already collected
+    // BEFORE this booking agent ran — via /api/stripe/prepare → /api/book-trip.
+    // We do NOT create another PaymentIntent here; that was the old post-booking flow.
 
     return {
       ok: true,
@@ -586,9 +632,7 @@ export const bookingAgent = {
         hotelConfirmedTotal,
         flightError,
         hotelError,
-        clientSecret,
-        paymentIntentId,
-        currency,
+        currency:         'usd',
         serviceFeeCents:  2000,
         flexibilityScore,
         isSandboxBooking: !!(process.env.LITEAPI_KEY?.startsWith('sand_')),

@@ -125,13 +125,22 @@ export class DuffelProvider implements SearchProvider {
       slices.push({ origin: params.destination, destination: params.origin, departure_date: params.returnDate });
     }
 
-    // Build mixed passenger array: adults + children (2-11) + lap infants (<2)
+    // Build passenger array: adults + children (2-11) + lap infants (under 2).
+    // Duffel live API fully supports infant_without_seat — included here so the offer
+    // contains the correct passenger slots for accurate order creation at booking time.
+    // Infant fares are typically free or nominal; the price shown covers adult + child seats.
     const childrenAges = params.childrenAges ?? [];
-    const infantCount  = Math.min(params.infants ?? 0, params.adults); // max 1 infant per adult
+    const infantCount  = params.infants ?? 0;
+
+    // Validate infant count: Duffel requires at least one adult per infant
+    if (infantCount > params.adults) {
+      throw new Error('Number of infants cannot exceed number of adults');
+    }
+
     const passengers: Array<{ type: string; age?: number }> = [
-      ...Array.from({ length: params.adults }, () => ({ type: 'adult' as const })),
-      ...childrenAges.map(age => ({ type: 'child' as const, age })),
-      ...Array.from({ length: infantCount }, () => ({ type: 'infant_without_seat' as const })),
+      ...Array.from({ length: params.adults },    () => ({ type: 'adult'              as const })),
+      ...childrenAges.map(age                  => ({ type: 'child'              as const, age })),
+      ...Array.from({ length: infantCount },    () => ({ type: 'infant_without_seat' as const })),
     ];
     const totalPassengers = passengers.length;
 

@@ -114,8 +114,10 @@ export async function createPaymentIntent(params: {
   bookingReference: string;
   bookingType:      'flight' | 'hotel';
   customerEmail?:   string;
-  amount?:          number;   // cents — defaults to 2000 ($20.00)
-  currency?:        string;   // defaults to 'usd'
+  amount?:          number;              // cents — defaults to 2000 ($20.00)
+  currency?:        string;              // defaults to 'usd'
+  description?:     string;             // override the default description
+  metadata?:        Record<string, string>; // merged into default metadata
 }): Promise<PaymentIntentResult> {
   const secretKey = process.env.STRIPE_SECRET_KEY;
   if (!secretKey || secretKey.trim() === '') {
@@ -129,11 +131,12 @@ export async function createPaymentIntent(params: {
     amount,
     currency,
     automatic_payment_methods: { enabled: true },
-    description: `FlexeTravels service fee — ${params.bookingType} booking (ref: ${params.bookingReference})`,
+    description: params.description ?? `FlexeTravels service fee — ${params.bookingType} booking (ref: ${params.bookingReference})`,
     metadata: {
       booking_reference: params.bookingReference,
       booking_type:      params.bookingType,
-      service:           'flexetravels_booking_fee',
+      service:           'flexetravels',
+      ...(params.metadata ?? {}),
     },
   };
 
