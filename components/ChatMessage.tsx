@@ -402,6 +402,15 @@ function HotelResultsPanel({
     price: 'Price', rating: 'Rating', stars: 'Stars',
   };
 
+  // Only show star filter chips that are actually useful given the current hotel list.
+  // A chip is useful if it would show ≥1 hotel AND fewer hotels than "All" (i.e. it narrows results).
+  const usefulStarFilters: StarFilter[] = (
+    (['3', '4', '5'] as const).filter(level => {
+      const count = hotels.filter(h => h.stars >= parseInt(level)).length;
+      return count > 0 && count < hotels.length;
+    })
+  );
+
   const scroll = (dir: -1 | 1) => {
     scrollRef.current?.scrollBy({ left: dir * 280, behavior: 'smooth' });
   };
@@ -415,23 +424,25 @@ function HotelResultsPanel({
           {hotels.length} hotel{hotels.length !== 1 ? 's' : ''}
         </div>
 
-        {/* Star filter chips */}
-        <div className="flex gap-1 ml-auto">
-          {(['all', '3', '4', '5'] as StarFilter[]).map(v => (
-            <button
-              key={v}
-              onClick={() => setStarFilter(v)}
-              className={cn(
-                'px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors',
-                starFilter === v
-                  ? 'bg-teal-600 text-white'
-                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
-              )}
-            >
-              {starLabels[v]}
-            </button>
-          ))}
-        </div>
+        {/* Star filter chips — only shown when they actually narrow results */}
+        {usefulStarFilters.length > 0 && (
+          <div className="flex gap-1 ml-auto">
+            {(['all', ...usefulStarFilters] as StarFilter[]).map(v => (
+              <button
+                key={v}
+                onClick={() => setStarFilter(v)}
+                className={cn(
+                  'px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors',
+                  starFilter === v
+                    ? 'bg-teal-600 text-white'
+                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                )}
+              >
+                {starLabels[v]}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Sort dropdown */}
         <div className="relative">

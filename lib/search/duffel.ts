@@ -168,7 +168,41 @@ export class DuffelProvider implements SearchProvider {
     }
 
     const json = await res.json() as { data?: { offers?: DuffelOffer[] } };
-    return (json.data?.offers ?? [])
+    const offers = json.data?.offers ?? [];
+
+    // If results came back with children/infants but returned 0 offers, some airlines
+    // don't price child/infant fares on certain routes via the API. Fall back to an
+    // adults-only search so we still show bookable fares. The child fare is negligible
+    // or zero on most routes and will be confirmed at order creation.
+    if (offers.length === 0 && (childrenAges.length > 0 || infantCount > 0)) {
+      console.log('[duffel] 0 offers with children/infants — retrying adults-only for', params.origin, '→', params.destination);
+      const adultOnlyPassengers = Array.from({ length: params.adults }, () => ({ type: 'adult' as const }));
+      try {
+        const fallbackRes = await fetch(`${this.baseUrl}/air/offer_requests?return_offers=true`, {
+          method: 'POST',
+          headers: this.headers,
+          body: JSON.stringify({
+            data: { slices, passengers: adultOnlyPassengers, cabin_class: params.cabinClass },
+          }),
+          signal: AbortSignal.timeout(12_000),
+        });
+        if (fallbackRes.ok) {
+          const fallbackJson = await fallbackRes.json() as { data?: { offers?: DuffelOffer[] } };
+          const fallbackOffers = fallbackJson.data?.offers ?? [];
+          if (fallbackOffers.length > 0) {
+            console.log('[duffel] adults-only fallback returned', fallbackOffers.length, 'offers');
+            return fallbackOffers
+              .sort((a, b) => parseFloat(a.total_amount) - parseFloat(b.total_amount))
+              .slice(0, 10)
+              .map(o => mapOffer(o, params.cabinClass, params.adults));
+          }
+        }
+      } catch (err) {
+        console.warn('[duffel] adults-only fallback also failed:', String(err));
+      }
+    }
+
+    return offers
       .sort((a, b) => parseFloat(a.total_amount) - parseFloat(b.total_amount))
       .slice(0, 10)  // Fetch more so ranking agent has options to sort
       .map(o => mapOffer(o, params.cabinClass, totalPassengers));
