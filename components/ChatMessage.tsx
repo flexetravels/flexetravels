@@ -774,30 +774,25 @@ export function ChatMessage({
   }
 
   // ── Assistant bubble — STREAMING state ────────────────────────────────────
-  // ALL-AT-ONCE REVEAL: During streaming we show the ProgressStepper + animated
-  // skeletons. Cards are intentionally NOT rendered one-by-one. Instead they burst
-  // in simultaneously the moment streaming ends (streaming → false below).
-  // This eliminates the "card pop-in" jitter and creates a clean reveal moment.
-  // The skeleton count mirrors the expected result count so the layout doesn't jump.
+  // PROGRESSIVE RENDERING: Parse completed cards during streaming and render
+  // them immediately. Cards pop in one-by-one as Claude emits valid JSON,
+  // instead of waiting for the full response to complete. Skeleton cards show
+  // only for tool types that haven't produced parseable cards yet.
   if (streaming) {
     const streamingText = stripCardTags(content).trim();
 
-    // Detect which search tools were called (any state — call or result)
-    // so we can show the right skeleton placeholders throughout streaming.
-    const calledTools    = (toolCalls ?? []).map(tc => tc.toolName);
-    const hadFlightTool  = calledTools.some(t => t === 'searchFlights' || t === 'searchBookableFlights');
-    const hadHotelTool   = calledTools.some(t => t === 'searchHotels'  || t === 'searchNearbyHotels');
-    const hadExpTool     = calledTools.some(t => t === 'searchExperiences');
+    // Parse any COMPLETE card JSON from the partial stream
+    // parseEmbeddedCards handles incomplete JSON gracefully (returns null → skips)
+    const streamCards    = parseEmbeddedCards(content);
+    const streamFlights  = streamCards.filter(c => c.type === 'flight').map(c => c.data as FlightResult);
+    const streamHotels   = streamCards.filter(c => c.type === 'hotel').map(c => c.data as HotelResult);
+    const streamExps     = streamCards.filter(c => c.type === 'experience').map(c => c.data as ExperienceResult);
 
-    // Tools still actively running (not yet returned results)
-    const activeTools    = (toolCalls ?? []).filter(tc => tc.state === 'call').map(tc => tc.toolName);
-    const toolsRunning   = activeTools.length > 0;
-
-    // Show skeletons whenever the corresponding tool was called AND we're still streaming
-    // (they stay visible until the full burst-reveal replaces them on streaming=false)
-    const showFlightSkel = hadFlightTool;
-    const showHotelSkel  = hadHotelTool;
-    const showExpSkel    = hadExpTool;
+    const activeTools = (toolCalls ?? []).filter(tc => tc.state === 'call').map(tc => tc.toolName);
+    // Show skeletons only for tools still running AND where no cards have been parsed yet
+    const showFlightSkel = (activeTools.includes('searchFlights') || activeTools.includes('searchBookableFlights')) && streamFlights.length === 0;
+    const showHotelSkel  = (activeTools.includes('searchHotels') || activeTools.includes('searchNearbyHotels')) && streamHotels.length === 0;
+    const showExpSkel    = activeTools.includes('searchExperiences') && streamExps.length === 0;
 
     return (
       <div className="msg-row-bot">
@@ -814,8 +809,8 @@ export function ChatMessage({
             </div>
           )}
 
-          {/* Progress stepper (tools running) or text bubble (Claude composing) */}
-          {streamingText && !toolsRunning ? (
+          {/* Progress stepper or streaming text */}
+          {streamingText ? (
             <div className="bubble-bot">
               <div className="prose-chat">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingText}</ReactMarkdown>
@@ -826,42 +821,23 @@ export function ChatMessage({
             <ProgressStepper toolCalls={toolCalls ?? []} />
           )}
 
-          {/* Skeleton placeholders — stay visible during entire streaming phase.
-              On streaming=false the complete block below replaces these with real cards
-              all at once, creating the burst-reveal effect. */}
+          {/* PROGRESSIVE CARDS — render completed cards immediately during streaming */}
+          {streamFlights.length > 0 && (
+            <FlightResultsPanel flights={streamFlights} onSelect={onSelectFlight} />
+          )}
+          {streamHotels.length > 0 && (
+            <HotelResultsPanel hotels={streamHotels} onSelect={onSelectHotel} onOpenDetail={onOpenHotelDetail} />
+          )}
+          {streamExps.length > 0 && (
+            <ExperienceResultsPanel experiences={streamExps} />
+          )}
+
+          {/* Skeleton cards — only for tools still running with no parsed results yet */}
           {(showFlightSkel || showHotelSkel || showExpSkel) && (
-            <div className="flex flex-col gap-3">
-              {showFlightSkel && (
-                <div>
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-semibold mb-2">
-                    <Plane className="w-3 h-3" />
-                    <span className="animate-pulse">Finding best flights…</span>
-                  </div>
-                  <div className="flex gap-3 overflow-x-hidden">
-                    {[0,1,2].map(i => (
-                      <div key={i} className="flex-none w-[min(85vw,300px)] sm:w-[300px]">
-                        <SkeletonFlightCard />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {showHotelSkel && (
-                <div>
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-semibold mb-2">
-                    <Building2 className="w-3 h-3" />
-                    <span className="animate-pulse">Searching hotels…</span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {[0,1,2].map(i => <SkeletonHotelCard key={i} />)}
-                  </div>
-                </div>
-              )}
-              {showExpSkel && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {[0,1].map(i => <SkeletonExperienceCard key={i} />)}
-                </div>
-              )}
+            <div className="flex flex-col gap-2">
+              {showFlightSkel && [0,1,2].map(i => <SkeletonFlightCard key={i} />)}
+              {showHotelSkel  && [0,1,2].map(i => <SkeletonHotelCard  key={i} />)}
+              {showExpSkel    && [0,1].map(i   => <SkeletonExperienceCard key={i} />)}
             </div>
           )}
         </div>
@@ -881,14 +857,6 @@ export function ChatMessage({
   const hotelBookingCards = cards.filter(c => c.type === 'hotel_booking_confirmed').map(c => ({ data: c.data as BookingConfirmation, type: 'hotel_booking_confirmed' }));
   const allBookingCards   = [...bookingCards, ...hotelBookingCards];
   const paymentCards      = cards.filter(c => c.type === 'payment_required').map(c => c.data as PaymentRequiredData);
-
-  // ── BURST-REVEAL: cards animate in simultaneously when streaming ends ─────────
-  // We check if this is a "fresh reveal" (transition from streaming) by looking
-  // at whether any search tool was called. If yes, apply the burst-reveal class
-  // which triggers a CSS keyframe animation on all card containers at once.
-  const hadSearchTools = (toolCalls ?? []).some(tc =>
-    ['searchFlights','searchBookableFlights','searchHotels','searchNearbyHotels','searchExperiences'].includes(tc.toolName)
-  );
 
   return (
     <div className="msg-row-bot group animate-fade-in-up">
@@ -938,25 +906,19 @@ export function ChatMessage({
           </div>
         )}
 
-        {/* Flight results — burst reveal: animate-card-burst applied when coming from search */}
+        {/* Flight results */}
         {flightCards.length > 0 && (
-          <div className={hadSearchTools ? 'animate-card-burst' : ''}>
-            <FlightResultsPanel flights={flightCards} onSelect={onSelectFlight} />
-          </div>
+          <FlightResultsPanel flights={flightCards} onSelect={onSelectFlight} />
         )}
 
-        {/* Hotel results — burst reveal */}
+        {/* Hotel results */}
         {hotelCards.length > 0 && (
-          <div className={hadSearchTools ? 'animate-card-burst' : ''}>
-            <HotelResultsPanel hotels={hotelCards} onSelect={onSelectHotel} onOpenDetail={onOpenHotelDetail} />
-          </div>
+          <HotelResultsPanel hotels={hotelCards} onSelect={onSelectHotel} onOpenDetail={onOpenHotelDetail} />
         )}
 
-        {/* Experience results — burst reveal */}
+        {/* Experience results */}
         {experienceCards.length > 0 && (
-          <div className={hadSearchTools ? 'animate-card-burst' : ''} style={{ animationDelay: hadSearchTools ? '80ms' : '0ms' }}>
-            <ExperienceResultsPanel experiences={experienceCards} />
-          </div>
+          <ExperienceResultsPanel experiences={experienceCards} />
         )}
 
         {/* Booking confirmations */}

@@ -7,7 +7,7 @@
 
 import Image from 'next/image';
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Check, Clock } from 'lucide-react';
+import { ChevronDown, ChevronUp, Check } from 'lucide-react';
 import { cn, formatPrice, formatTime, formatDate, airlineLogo } from '@/lib/utils';
 import type { FlightResult } from '@/lib/types';
 import { FlexibilityBadge } from '@/components/FlexibilityBadge';
@@ -19,20 +19,6 @@ interface FlightCardProps {
   selected?: boolean;
   compact?: boolean;
   isBestValue?: boolean;
-}
-
-/** Compute layover duration between two ISO datetime strings → "2h 35m" or null */
-function calcLayover(arrivalIso: string, departureIso: string): string | null {
-  try {
-    const diff = new Date(departureIso).getTime() - new Date(arrivalIso).getTime();
-    if (diff <= 0 || isNaN(diff)) return null;
-    const totalMin = Math.round(diff / 60000);
-    const h = Math.floor(totalMin / 60);
-    const m = totalMin % 60;
-    return h > 0 ? `${h}h ${m}m` : `${m}m`;
-  } catch {
-    return null;
-  }
 }
 
 // ── Airline logo — avs.io CDN with initials fallback ──────────────────────────
@@ -87,18 +73,6 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
     : flight.stops === 1 ? 'bg-amber-50 dark:bg-amber-900/20'
     : 'bg-red-50 dark:bg-red-900/20';
 
-  // Build per-layover labels for the route path (uses segments if available)
-  const segs = flight.segments ?? [];
-  const layovers: Array<{ airport: string; duration: string | null }> = segs.length > 1
-    ? segs.slice(0, -1).map((seg, i) => ({
-        airport:  seg.destination,
-        duration: calcLayover(seg.arrival, segs[i + 1].departure),
-      }))
-    : (flight.stopAirports ?? []).map(ap => ({ airport: ap, duration: null }));
-
-  const hasSegments = segs.length > 0;
-  const hasDetails  = hasSegments || layovers.length > 0;
-
   if (compact) {
     return (
       <div className={cn(
@@ -129,17 +103,11 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
           />
           <div>
             <p className="text-[13px] font-semibold text-foreground leading-none">{flight.airline}</p>
-            {/* Show first-leg flight number if available, else provider */}
-            {segs[0]?.flightNumber ? (
-              <p className="text-[10px] text-muted-foreground/60 mt-0.5 font-mono tracking-wide">
-                {segs[0].flightNumber}
-                {segs.length > 1 && <span className="ml-1 not-mono opacity-70">+{segs.length - 1} more</span>}
-              </p>
-            ) : flight.provider ? (
+            {flight.provider && (
               <p className="text-[10px] text-muted-foreground/60 mt-0.5 uppercase tracking-wide">
                 via {flight.provider}
               </p>
-            ) : null}
+            )}
           </div>
         </div>
 
@@ -205,19 +173,13 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
                   <path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 00-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>
                 </svg>
               ) : (
-                <div className="flex items-center gap-1.5 flex-wrap justify-center">
-                  {layovers.map((lv, i) => (
-                    <div key={i} className="flex flex-col items-center relative z-10">
-                      <span className="text-[9px] bg-amber-100 dark:bg-amber-900/30
-                                       text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded-full font-bold">
-                        {lv.airport}
-                      </span>
-                      {lv.duration && (
-                        <span className="text-[8px] text-muted-foreground/70 mt-0.5 whitespace-nowrap">
-                          {lv.duration}
-                        </span>
-                      )}
-                    </div>
+                <div className="flex items-center gap-2">
+                  {flight.stopAirports?.slice(0, 2).map((ap, i) => (
+                    <span key={i}
+                      className="text-[9px] bg-amber-100 dark:bg-amber-900/30
+                                 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded-full font-bold relative z-10">
+                      {ap}
+                    </span>
                   ))}
                 </div>
               )}
@@ -283,7 +245,7 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
       </div>
 
       {/* ── Expandable segment details ────────────────────────────────────── */}
-      {hasDetails && (
+      {flight.segments && flight.segments.length > 0 && (
         <>
           <button
             onClick={() => setExpanded(!expanded)}
@@ -293,82 +255,27 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
           >
             {expanded
               ? <><ChevronUp className="w-3 h-3" /> Hide flight details</>
-              : <><ChevronDown className="w-3 h-3" /> Flight details · {segs.length} leg{segs.length !== 1 ? 's' : ''}</>}
+              : <><ChevronDown className="w-3 h-3" /> Flight details</>}
           </button>
 
           {expanded && (
-            <div className="bg-muted/15 border-t border-border/40">
-              {hasSegments ? (
-                <div className="px-3 sm:px-4 py-2.5 sm:py-3 space-y-0">
-                  {segs.map((seg, i) => {
-                    const layover = i < segs.length - 1
-                      ? calcLayover(seg.arrival, segs[i + 1].departure)
-                      : null;
-                    return (
-                      <div key={i}>
-                        {/* Segment row */}
-                        <div className="flex items-start gap-2 sm:gap-3 text-xs py-2">
-                          {/* Timeline dot + line */}
-                          <div className="flex flex-col items-center pt-1 gap-0 flex-shrink-0">
-                            <div className="w-2 h-2 rounded-full bg-teal-500 ring-2 ring-teal-200 dark:ring-teal-700" />
-                            {(layover || i < segs.length - 1) && (
-                              <div className="w-px flex-1 min-h-[32px] bg-teal-500/30 mt-1" />
-                            )}
-                          </div>
-                          {/* Segment info */}
-                          <div className="flex-1 pb-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="font-bold text-foreground text-[12px]">
-                                {seg.origin} → {seg.destination}
-                              </p>
-                              <span className="font-mono text-[10px] text-muted-foreground/80 bg-muted px-1.5 py-0.5 rounded">
-                                {seg.flightNumber || seg.carrier}
-                              </span>
-                            </div>
-                            <p className="text-muted-foreground mt-0.5">
-                              {formatDate(seg.departure)} · {formatTime(seg.departure)} – {formatTime(seg.arrival)}
-                            </p>
-                            <p className="text-muted-foreground/60 text-[10px] mt-0.5 flex items-center gap-1">
-                              <Clock className="w-3 h-3 inline flex-shrink-0" />
-                              Flight time: {seg.duration}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Layover pill between segments */}
-                        {layover && (
-                          <div className="flex items-center gap-2 ml-5 mb-1">
-                            <div className="flex items-center gap-1.5 bg-amber-50 dark:bg-amber-900/20
-                                            border border-amber-200 dark:border-amber-700/50
-                                            text-amber-700 dark:text-amber-400
-                                            px-2.5 py-1 rounded-full text-[10px] font-semibold">
-                              <Clock className="w-2.5 h-2.5 flex-shrink-0" />
-                              Layover in {seg.destination}: {layover}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {/* Terminal destination dot */}
-                  <div className="flex items-center gap-2 ml-0 pt-0.5 pb-1">
-                    <div className="w-2 h-2 rounded-full bg-teal-600 ring-2 ring-teal-200 dark:ring-teal-700 flex-shrink-0" />
-                    <p className="text-[11px] font-semibold text-foreground ml-1">
-                      {segs[segs.length - 1]?.destination} — {formatTime(flight.arrival)}, {formatDate(flight.arrival)}
+            <div className="px-3 sm:px-4 py-2.5 sm:py-3 space-y-2.5 sm:space-y-3 bg-muted/15 border-t border-border/40">
+              {flight.segments.map((seg, i) => (
+                <div key={i} className="flex items-center gap-2 sm:gap-3 text-xs">
+                  <div className="w-1 self-stretch rounded-full bg-teal-500/40 flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="font-semibold text-foreground">
+                      {seg.origin} {'\u2192'} {seg.destination}
+                    </p>
+                    <p className="text-muted-foreground mt-0.5">
+                      {formatDate(seg.departure)} · {formatTime(seg.departure)} {'\u2013'} {formatTime(seg.arrival)}
+                    </p>
+                    <p className="text-muted-foreground/70">
+                      {seg.flightNumber} · {seg.duration}
                     </p>
                   </div>
                 </div>
-              ) : (
-                /* Fallback: just stopAirports with no times */
-                <div className="px-4 py-3 space-y-1">
-                  {layovers.map((lv, i) => (
-                    <div key={i} className="text-xs text-muted-foreground flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0" />
-                      Stopover: {lv.airport}
-                    </div>
-                  ))}
-                </div>
-              )}
+              ))}
             </div>
           )}
         </>
