@@ -133,7 +133,8 @@ RESPONSE ORDER — ALWAYS follow this exact sequence:
 Cards MUST come before commentary. Never make the user wait through paragraphs of text before seeing results.
 
 CARD FORMAT — copy ALL values EXACTLY from tool result:
-[FLIGHT_CARD] {"id":"<id>","airline":"<name>","origin":"<IATA>","destination":"<IATA>","departure":"<ISO>","arrival":"<ISO>","duration":"<Xh Ym>","stops":<N>,"stopAirports":[],"price":<n>,"currency":"<ISO>","cabinClass":"economy","refundable":<bool>,"airlineLogo":"<url>","provider":"duffel","bookingToken":"<exact token>","passengers":<n>,"segments":[],"flexibilityScore":<n>,"flexibilityLabel":"<label>","flexibilitySummary":"<text>"}
+[FLIGHT_CARD] {"id":"<id>","airline":"<name>","origin":"<IATA>","destination":"<IATA>","departure":"<ISO>","arrival":"<ISO>","duration":"<Xh Ym>","stops":<N>,"stopAirports":["<IATA>"],"price":<n>,"currency":"<ISO>","cabinClass":"economy","refundable":<bool>,"airlineLogo":"<url>","provider":"duffel","bookingToken":"<exact token>","passengers":<n>,"segments":[{"origin":"<IATA>","destination":"<IATA>","departure":"<ISO>","arrival":"<ISO>","duration":"<Xh Ym>","carrier":"<2-letter>","flightNumber":"<e.g. AC123>"}],"flexibilityScore":<n>,"flexibilityLabel":"<label>","flexibilitySummary":"<text>"}
+CRITICAL: Copy the FULL segments array from the tool result exactly — each segment must include origin, destination, departure, arrival, duration, carrier, flightNumber. NEVER emit segments:[] — the user needs flight numbers and layover details.
 [HOTEL_CARD] {"id":"<id>","name":"<name>","location":"<city>","city":"<city>","stars":<N>,"pricePerNight":<n>,"totalPrice":<n>,"currency":"USD","image":"<url>","images":["<url>"],"rating":<n>,"amenities":[],"checkIn":"<date>","checkOut":"<date>","cancellation":"<policy>","isSample":<bool>,"provider":"liteapi","bookingToken":"<exact token>"}
 
 SHOWING RESULTS:
@@ -147,7 +148,9 @@ SMART SEARCH BEHAVIOR:
 • Region → nearby city mappings: Bali→Seminyak,Ubud,Nusa Dua,Canggu | Maldives→Male,Hulhule,Maafushi | Phuket→Patong,Karon,Kata | Santorini→Fira,Oia | Goa→Panjim,Calangute,Candolim | Tulum→Playa del Carmen,Akumal | Maui→Lahaina,Kihei,Wailea | Dubai→Dubai Marina,Deira,Downtown Dubai,Jumeirah,Abu Dhabi
 
 COMPLEX ROUTING INTELLIGENCE:
-• "via the pacific" / "pacific route" → COK-YVR, COK-LAX, BOM-YVR etc. naturally route via the Pacific (only logical westbound route). Confirm this to the user: "All flights from [origin] to [destination] route via the Pacific — you're covered!"
+• "via the pacific" / "pacific route" → FILTER RESULTS: only show flights whose stopAirports contains at least one Pacific/Asian hub: SIN, BKK, NRT, HKG, ICN, PVG, TPE, KUL, MNL, CGK. HIDE any flight that routes via DEL, BOM, CCU, DXB, DOH, AUH, LHR, CDG, AMS, FRA, IST. Tell user: "Showing only Pacific-routed options via Asian hubs — routes via Delhi or the Middle East are excluded."
+• If zero Pacific-routed flights remain after filtering → say so honestly: "No Pacific-hub routes found in current results (Duffel sandbox may not have this routing). Try a date closer to today or ask for any routing and I'll show what's available."
+• "via Bangkok" / "via Japan" / "via Singapore" / "via China" → same Pacific filter. Additionally surface flights whose stopAirports contains the named city's IATA: Bangkok=BKK, Japan=NRT/KIX/HND, Singapore=SIN, China=PVG/PEK/CAN.
 • "via Europe" / "via the Atlantic" → prefer flights with European hub layovers (LHR, CDG, AMS, FRA, IST). Mention: "I'll look for routes through European hubs like London or Amsterdam."
 • "via the Middle East" → prefer DXB, DOH, AUH layovers. Note to user.
 • "direct" / "non-stop only" → pass stopFilter hint in your response and set sort to stops in commentary so user can apply the filter themselves: "Use the Non-stop filter above to narrow to direct flights."
@@ -421,7 +424,15 @@ export async function POST(req: Request) {
                 provider:         e.provider,
                 bookingToken:     e.bookingToken,
                 passengers:       e.passengers,
-                segments:         [],
+                segments:         (e.segments ?? []).map(s => ({
+                  origin:       s.origin,
+                  destination:  s.destination,
+                  departure:    s.departure,
+                  arrival:      s.arrival,
+                  duration:     s.duration,
+                  carrier:      s.carrier,
+                  flightNumber: s.flightNumber,
+                })),
                 ...(e._flexObj ? {
                   flexibilityScore:   e._flexObj.score,
                   flexibilityLabel:   e._flexObj.label,
