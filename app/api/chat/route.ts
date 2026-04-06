@@ -146,6 +146,38 @@ SMART SEARCH BEHAVIOR:
 • Fewer than 4 hotels returned → immediately call searchNearbyHotels. Don't wait for user to ask.
 • Region → nearby city mappings: Bali→Seminyak,Ubud,Nusa Dua,Canggu | Maldives→Male,Hulhule,Maafushi | Phuket→Patong,Karon,Kata | Santorini→Fira,Oia | Goa→Panjim,Calangute,Candolim | Tulum→Playa del Carmen,Akumal | Maui→Lahaina,Kihei,Wailea | Dubai→Dubai Marina,Deira,Downtown Dubai,Jumeirah,Abu Dhabi
 
+COMPLEX ROUTING INTELLIGENCE:
+• "via the pacific" / "pacific route" → COK-YVR, COK-LAX, BOM-YVR etc. naturally route via the Pacific (only logical westbound route). Confirm this to the user: "All flights from [origin] to [destination] route via the Pacific — you're covered!"
+• "via Europe" / "via the Atlantic" → prefer flights with European hub layovers (LHR, CDG, AMS, FRA, IST). Mention: "I'll look for routes through European hubs like London or Amsterdam."
+• "via the Middle East" → prefer DXB, DOH, AUH layovers. Note to user.
+• "direct" / "non-stop only" → pass stopFilter hint in your response and set sort to stops in commentary so user can apply the filter themselves: "Use the Non-stop filter above to narrow to direct flights."
+• Multi-city: "NYC then Paris then London" → explain you can search each leg, ask which dates per city.
+
+COMPOUND SORTING & FILTERING:
+• "fastest and cheapest" / "best value" → sort by price, tell user: "Sorted by price — you can also sort by duration using the filters above."
+• "least time" / "fastest" / "quickest" → sort by duration. Mention the Duration sort button.
+• "order by [X] and [Y]" → primary sort by X, note the UI lets them re-sort: "I've prioritised [X] — use the Sort control to switch to [Y]."
+• "under $X for everything" / "total budget $X" → estimate split: ~45% flights, ~50% hotel, ~5% fees. Calculate max flight budget and hotel/night budget. Example: "$5000 total for 7 nights = ~$2250 flights + ~$2750 hotels ≈ $390/night max."
+• "economy only" / "business class" / "premium" → pass correct cabinClass to searchFlights.
+• "refundable only" → mention the Flexible badge in results and filter by refundable=true in commentary.
+
+DESTINATION DISCOVERY (no specific city given):
+When user describes criteria but no destination (e.g. "warm for kids under $5000", "beautiful beach under 10h"):
+1. Immediately propose 3 specific destination picks with one-line pitch: "Here are 3 options that match perfectly:"
+2. Ask user: "Which destination sounds best? I'll search real flights + hotels once you pick!"
+3. Once confirmed: run parallel search for that destination.
+• "warm for kids" → Cancún, Punta Cana, Bali, Phuket, Costa Rica
+• "romantic / honeymoon" → Santorini, Maldives, Bora Bora, Amalfi Coast, Bali
+• "cultural" → Kyoto, Lisbon, Istanbul, Marrakech, Prague
+• "adventure" → Costa Rica, New Zealand, Iceland, Patagonia, Nepal
+• Budget guidance: Under $2000 = short-haul (< 4h). $2000-5000 = medium (4-8h, 3-4★). $5000+ = long-haul, 4-5★ options.
+
+COK (Kochi, India) SPECIFIC:
+• COK to North America (YVR, YYZ, JFK, LAX): always Pacific route via Asian hubs (SIN, BKK, NRT, HKG, ICN). Flight time ~20-24h total.
+• COK to Europe: via DXB, DOH, AUH or direct to LHR. ~10-14h.
+• COK to Middle East: direct or 1-stop. ~3-5h.
+• COK to Southeast Asia: direct or 1-stop. ~4-6h.
+
 HOTEL RESULT RULES:
 • count>0 + isSample=false → emit all cards.
 • count>0 + isSample=true → emit cards, note "indicative pricing, confirm at checkout".
@@ -420,8 +452,9 @@ export async function POST(req: Request) {
           stars:        z.number().int().min(1).max(5).optional().describe('Minimum star rating'),
         }),
         execute: async (params) => {
-          // Hard 15 s wall-clock cap — ensures Claude can stream results promptly.
-          const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 25_000));
+          // Hard 12 s wall-clock cap — LiteAPI typically responds in 3-8s.
+          // Reduced from 25s → 12s to improve Time To First Card significantly.
+          const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 12_000));
           const search  = aggregateHotels(params);
           const r       = await Promise.race([search, timeout]);
 

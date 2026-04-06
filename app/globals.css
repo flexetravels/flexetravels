@@ -660,3 +660,21 @@
 .animate-slide-up {
   animation: slideUp .35s cubic-bezier(.22,1,.36,1) both;
 }
+
+/* ── Card burst-reveal: all cards animate in simultaneously ─────────────── */
+/* Applied to the wrapper when streaming ends so skeletons → real cards      */
+/* feel like a single reveal moment rather than a progressive drip.          */
+@keyframes cardBurst {
+  from { opacity: 0; transform: translateY(20px) scale(.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);   }
+}
+.animate-card-burst {
+  animation: cardBurst .45s cubic-bezier(.22,1,.36,1) both;
+}
+/* Hotel cards inside the burst wrapper stagger slightly for visual richness */
+.animate-card-burst > * > * { animation: cardBurst .45s cubic-bezier(.22,1,.36,1) both; }
+.animate-card-burst > * > *:nth-child(1) { animation-delay:  0ms; }
+.animate-card-burst > * > *:nth-child(2) { animation-delay: 60ms; }
+.animate-card-burst > * > *:nth-child(3) { animation-delay:120ms; }
+.animate-card-burst > * > *:nth-child(4) { animation-delay:180ms; }
+.animate-card-burst > * > *:nth-child(5) { animation-delay:240ms; }

@@ -12,10 +12,20 @@ import {
   Plane, Sparkles, ArrowRight, MapPin, Calendar,
   RefreshCw, Music2, Compass, CheckCircle2,
   Zap, CreditCard, Shield, Users, TrendingUp,
-  ChevronRight, Star, Clock,
+  ChevronRight, Star, Clock, Navigation,
 } from 'lucide-react';
 import { Nav } from '@/components/Nav';
 import type { DiscoverCard, DiscoverData } from './api/discover/route';
+
+// ─── Geo recommendations type ────────────────────────────────────────────────
+interface GeoPackage {
+  id: string; destination: string; country: string; tag: string; tagColor: string;
+  flightHrs: string; bestFor: string; img: string; teaser: string; prompt: string;
+}
+interface GeoData {
+  city: string; country: string; iata: string; season: string;
+  packages: GeoPackage[];
+}
 
 // ─── Badge colour map ─────────────────────────────────────────────────────────
 const BADGE_COLORS: Record<string, string> = {
@@ -565,6 +575,130 @@ function Testimonials() {
   );
 }
 
+// ─── Geo-personalised recommendations section ─────────────────────────────────
+// Fetches /api/geo-recommendations to detect user's origin city and show
+// curated seasonal packages "Popular from [Your City]".
+function GeoRecommendations({ onPrompt }: { onPrompt: (p: string) => void }) {
+  const [geo, setGeo]   = useState<GeoData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const loadedRef = useRef(false);
+
+  useEffect(() => {
+    if (loadedRef.current) return;
+    loadedRef.current = true;
+    fetch('/api/geo-recommendations')
+      .then(r => r.ok ? r.json() as Promise<GeoData> : Promise.reject())
+      .then(d => { setGeo(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  // Don't render section while loading or if geo lookup failed with no data
+  if (!loading && !geo) return null;
+
+  const seasonLabels: Record<string, string> = {
+    winter: 'Escape Winter', spring: 'Spring Getaways',
+    summer: 'Summer Adventures', fall: 'Fall Escapes',
+  };
+  const seasonLabel = geo ? (seasonLabels[geo.season] ?? 'Perfect Right Now') : '';
+
+  return (
+    <section className="relative z-10 py-20 px-5 sm:px-8 border-t border-white/[0.05]">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-10">
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Navigation className="w-4 h-4 text-teal-400" />
+              <span className="text-teal-400 text-xs font-bold uppercase tracking-[0.18em]">
+                {loading ? 'Personalised for you' : `Popular from ${geo?.city ?? 'your city'}`}
+              </span>
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white leading-tight">
+              {loading ? (
+                <span className="block h-9 w-72 bg-white/[0.07] rounded-lg animate-pulse" />
+              ) : (
+                <>{seasonLabel}
+                  <span className="text-white/30"> · Flights from {geo?.city}</span>
+                </>
+              )}
+            </h2>
+            <p className="text-white/40 text-sm mt-2">
+              Curated for your location and the current season — real flights, live hotel rates.
+            </p>
+          </div>
+          <Link href="/chat"
+            className="flex-shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold
+                       border border-white/15 text-white/65 hover:text-white hover:border-white/30
+                       bg-white/[0.04] hover:bg-white/[0.07] transition-all duration-200">
+            See all destinations <ChevronRight className="w-4 h-4" />
+          </Link>
+        </div>
+
+        {/* Package cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {loading ? (
+            Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="rounded-2xl bg-white/[0.04] animate-pulse" style={{ aspectRatio: '4/5' }} />
+            ))
+          ) : (
+            (geo?.packages ?? []).slice(0, 4).map((pkg) => (
+              <button
+                key={pkg.id}
+                type="button"
+                onClick={() => onPrompt(pkg.prompt)}
+                className="group relative rounded-2xl overflow-hidden cursor-pointer bg-black
+                           shadow-[0_8px_32px_rgba(0,0,0,0.3)] transition-all duration-500 ease-out
+                           hover:-translate-y-2 hover:shadow-[0_28px_64px_rgba(0,0,0,0.5)]
+                           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
+                style={{ aspectRatio: '4/5' }}
+              >
+                <Image
+                  src={pkg.img} alt={pkg.destination} fill unoptimized
+                  sizes="(max-width:640px) 100vw,(max-width:1024px) 50vw,25vw"
+                  className="object-cover transition-transform duration-700 group-hover:scale-105"
+                />
+                {/* Gradient overlay */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/92 via-black/35 to-transparent" />
+
+                {/* Season tag */}
+                <div className="absolute top-3 left-3 right-3 flex items-start justify-between">
+                  <span className={`${pkg.tagColor} text-white text-[10px] font-bold px-2.5 py-1 rounded-full shadow-md`}>
+                    {pkg.tag}
+                  </span>
+                  <span className="bg-black/55 backdrop-blur-sm text-white/90 text-[10px] font-medium
+                                   px-2 py-1 rounded-full flex items-center gap-1">
+                    <Plane className="w-2.5 h-2.5" />{pkg.flightHrs}
+                  </span>
+                </div>
+
+                {/* Bottom info */}
+                <div className="absolute bottom-0 left-0 right-0 p-4">
+                  <p className="flex items-center gap-1 text-white/55 text-[10px] mb-1">
+                    <MapPin className="w-2.5 h-2.5" />{pkg.destination}, {pkg.country}
+                  </p>
+                  <h3 className="text-white font-bold text-base leading-snug line-clamp-1 mb-1">
+                    {pkg.destination}
+                  </h3>
+                  <p className="text-white/55 text-[11px] line-clamp-2 mb-3">{pkg.teaser}</p>
+                  <p className="text-white/40 text-[10px] line-clamp-1">{pkg.bestFor}</p>
+
+                  {/* CTA — appears on hover */}
+                  <div className="mt-3 flex items-center gap-1.5 text-teal-300 text-xs font-semibold
+                                  opacity-0 group-hover:opacity-100 translate-y-1 group-hover:translate-y-0
+                                  transition-all duration-300">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Search flights &amp; hotels <ArrowRight className="w-3 h-3" />
+                  </div>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ─── Verified destinations ─────────────────────────────────────────────────────
 function VerifiedDestinations({ onPrompt }: { onPrompt: (p: string) => void }) {
   return (
@@ -706,6 +840,8 @@ export default function LandingPage() {
       <Nav />
       <Hero onPrompt={handlePrompt} />
       <StatsRibbon />
+      {/* Geo-personalised picks — shown before static destinations so first view is personalised */}
+      <GeoRecommendations onPrompt={handlePrompt} />
       <HowItWorks />
       <WhyDifferent />
       <Testimonials />
