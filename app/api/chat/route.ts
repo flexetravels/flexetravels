@@ -16,7 +16,7 @@ const anthropic = createAnthropic({
 import { z } from 'zod';
 import { aggregateFlights, aggregateHotels, aggregateExperiences } from '@/lib/search/aggregator';
 import { DuffelProvider } from '@/lib/search/duffel';
-import { liteApiPrebook, liteApiBook } from '@/lib/search/liteapi';
+// liteApiPrebook / liteApiBook removed — hotel booking goes through /api/book-trip only
 import { grokPriceInsight } from '@/lib/ai/grok';
 import { geminiDestinationGuide, geminiAlternatives } from '@/lib/ai/gemini';
 import { compressMessageHistory } from '@/lib/utils';
@@ -133,7 +133,8 @@ RESPONSE ORDER — ALWAYS follow this exact sequence:
 Cards MUST come before commentary. Never make the user wait through paragraphs of text before seeing results.
 
 CARD FORMAT — copy ALL values EXACTLY from tool result:
-[FLIGHT_CARD] {"id":"<id>","airline":"<name>","origin":"<IATA>","destination":"<IATA>","departure":"<ISO>","arrival":"<ISO>","duration":"<Xh Ym>","stops":<N>,"stopAirports":[],"price":<n>,"currency":"<ISO>","cabinClass":"economy","refundable":<bool>,"airlineLogo":"<url>","provider":"duffel","bookingToken":"<exact token>","passengers":<n>,"segments":[],"flexibilityScore":<n>,"flexibilityLabel":"<label>","flexibilitySummary":"<text>"}
+[FLIGHT_CARD] {"id":"<id>","airline":"<name>","origin":"<IATA>","destination":"<IATA>","departure":"<ISO>","arrival":"<ISO>","duration":"<Xh Ym>","stops":<N>,"stopAirports":["<IATA>"],"price":<n>,"currency":"<ISO>","cabinClass":"economy","refundable":<bool>,"airlineLogo":"<url>","provider":"duffel","bookingToken":"<exact token>","passengers":<n>,"segments":[{"origin":"<IATA>","destination":"<IATA>","departure":"<ISO>","arrival":"<ISO>","duration":"<Xh Ym>","carrier":"<2-letter>","flightNumber":"<e.g. AC123>"}],"flexibilityScore":<n>,"flexibilityLabel":"<label>","flexibilitySummary":"<text>"}
+CRITICAL: Copy the FULL segments array from the tool result exactly — each segment must include origin, destination, departure, arrival, duration, carrier, flightNumber. NEVER emit segments:[] — the user needs flight numbers and layover details.
 [HOTEL_CARD] {"id":"<id>","name":"<name>","location":"<city>","city":"<city>","stars":<N>,"pricePerNight":<n>,"totalPrice":<n>,"currency":"USD","image":"<url>","images":["<url>"],"rating":<n>,"amenities":[],"checkIn":"<date>","checkOut":"<date>","cancellation":"<policy>","isSample":<bool>,"provider":"liteapi","bookingToken":"<exact token>"}
 
 SHOWING RESULTS:
@@ -146,6 +147,40 @@ SMART SEARCH BEHAVIOR:
 • Fewer than 4 hotels returned → immediately call searchNearbyHotels. Don't wait for user to ask.
 • Region → nearby city mappings: Bali→Seminyak,Ubud,Nusa Dua,Canggu | Maldives→Male,Hulhule,Maafushi | Phuket→Patong,Karon,Kata | Santorini→Fira,Oia | Goa→Panjim,Calangute,Candolim | Tulum→Playa del Carmen,Akumal | Maui→Lahaina,Kihei,Wailea | Dubai→Dubai Marina,Deira,Downtown Dubai,Jumeirah,Abu Dhabi
 
+COMPLEX ROUTING INTELLIGENCE:
+• "via the pacific" / "pacific route" → FILTER RESULTS: only show flights whose stopAirports contains at least one Pacific/Asian hub: SIN, BKK, NRT, HKG, ICN, PVG, TPE, KUL, MNL, CGK. HIDE any flight that routes via DEL, BOM, CCU, DXB, DOH, AUH, LHR, CDG, AMS, FRA, IST. Tell user: "Showing only Pacific-routed options via Asian hubs — routes via Delhi or the Middle East are excluded."
+• If zero Pacific-routed flights remain after filtering → say so honestly: "No Pacific-hub routes found in current results (Duffel sandbox may not have this routing). Try a date closer to today or ask for any routing and I'll show what's available."
+• "via Bangkok" / "via Japan" / "via Singapore" / "via China" → same Pacific filter. Additionally surface flights whose stopAirports contains the named city's IATA: Bangkok=BKK, Japan=NRT/KIX/HND, Singapore=SIN, China=PVG/PEK/CAN.
+• "via Europe" / "via the Atlantic" → prefer flights with European hub layovers (LHR, CDG, AMS, FRA, IST). Mention: "I'll look for routes through European hubs like London or Amsterdam."
+• "via the Middle East" → prefer DXB, DOH, AUH layovers. Note to user.
+• "direct" / "non-stop only" → pass stopFilter hint in your response and set sort to stops in commentary so user can apply the filter themselves: "Use the Non-stop filter above to narrow to direct flights."
+• Multi-city: "NYC then Paris then London" → explain you can search each leg, ask which dates per city.
+
+COMPOUND SORTING & FILTERING:
+• "fastest and cheapest" / "best value" → sort by price, tell user: "Sorted by price — you can also sort by duration using the filters above."
+• "least time" / "fastest" / "quickest" → sort by duration. Mention the Duration sort button.
+• "order by [X] and [Y]" → primary sort by X, note the UI lets them re-sort: "I've prioritised [X] — use the Sort control to switch to [Y]."
+• "under $X for everything" / "total budget $X" → estimate split: ~45% flights, ~50% hotel, ~5% fees. Calculate max flight budget and hotel/night budget. Example: "$5000 total for 7 nights = ~$2250 flights + ~$2750 hotels ≈ $390/night max."
+• "economy only" / "business class" / "premium" → pass correct cabinClass to searchFlights.
+• "refundable only" → mention the Flexible badge in results and filter by refundable=true in commentary.
+
+DESTINATION DISCOVERY (no specific city given):
+When user describes criteria but no destination (e.g. "warm for kids under $5000", "beautiful beach under 10h"):
+1. Immediately propose 3 specific destination picks with one-line pitch: "Here are 3 options that match perfectly:"
+2. Ask user: "Which destination sounds best? I'll search real flights + hotels once you pick!"
+3. Once confirmed: run parallel search for that destination.
+• "warm for kids" → Cancún, Punta Cana, Bali, Phuket, Costa Rica
+• "romantic / honeymoon" → Santorini, Maldives, Bora Bora, Amalfi Coast, Bali
+• "cultural" → Kyoto, Lisbon, Istanbul, Marrakech, Prague
+• "adventure" → Costa Rica, New Zealand, Iceland, Patagonia, Nepal
+• Budget guidance: Under $2000 = short-haul (< 4h). $2000-5000 = medium (4-8h, 3-4★). $5000+ = long-haul, 4-5★ options.
+
+COK (Kochi, India) SPECIFIC:
+• COK to North America (YVR, YYZ, JFK, LAX): always Pacific route via Asian hubs (SIN, BKK, NRT, HKG, ICN). Flight time ~20-24h total.
+• COK to Europe: via DXB, DOH, AUH or direct to LHR. ~10-14h.
+• COK to Middle East: direct or 1-stop. ~3-5h.
+• COK to Southeast Asia: direct or 1-stop. ~4-6h.
+
 HOTEL RESULT RULES:
 • count>0 + isSample=false → emit all cards.
 • count>0 + isSample=true → emit cards, note "indicative pricing, confirm at checkout".
@@ -155,8 +190,14 @@ HOTEL RESULT RULES:
 STATE MACHINE:
 [BROWSING] Show all results. End with warm question: "Which catches your eye?" or "Want me to filter by price, stars, or vibe?" STOP.
 [FLIGHT_CHOSEN] (triggered by [FLIGHT_SELECTED]) → ONE short excited sentence (e.g. "Perfect choice — that gets you there in great time!"). Then: "Your hotel options are just above — scroll up and pick one to lock in your trip!" STOP. Zero tools. Do NOT re-list hotels.
-[HOTEL_CHOSEN] (triggered by [HOTEL_SELECTED]) → one warm line, zero tools, done.
-Never call tools after selection. Checkout form handles all passenger details.
+[HOTEL_CHOSEN] (triggered by [HOTEL_SELECTED]) → one warm line, zero tools, done. Tell them: "Tap the 'Proceed to Checkout' button below to complete your booking — the secure form will collect your passenger details and payment there."
+
+BOOKING HANDOFF — ABSOLUTE RULES (never break):
+• NEVER ask for passenger details (name, date of birth, email, phone, passport) in this chat. The checkout form collects all of that securely.
+• NEVER attempt to book a flight or hotel from within this conversation. You have no booking tools. All booking happens via the checkout UI.
+• If a user types their name, DOB, email, or any personal details into chat, respond: "I can see you're ready to book! Please tap 'Proceed to Checkout' — that's where you'll enter your passenger details securely. I don't collect personal information in chat."
+• If a user asks "how do I book?" or "what do I do next?" after selecting → direct them to the Checkout button. Do NOT prompt for details here.
+• The offer ID and live rate are locked into the checkout card — the price shown is the price charged. No re-quoting needed.
 
 REMEMBER: You're not just booking travel — you're helping people create memories. Every question you answer, every option you surface, every warning you give about non-refundable rates makes their trip more successful. Be the travel expert they wish they'd had all along.`;
 }
@@ -389,7 +430,15 @@ export async function POST(req: Request) {
                 provider:         e.provider,
                 bookingToken:     e.bookingToken,
                 passengers:       e.passengers,
-                segments:         [],
+                segments:         (e.segments ?? []).map(s => ({
+                  origin:       s.origin,
+                  destination:  s.destination,
+                  departure:    s.departure,
+                  arrival:      s.arrival,
+                  duration:     s.duration,
+                  carrier:      s.carrier,
+                  flightNumber: s.flightNumber,
+                })),
                 ...(e._flexObj ? {
                   flexibilityScore:   e._flexObj.score,
                   flexibilityLabel:   e._flexObj.label,
@@ -420,8 +469,9 @@ export async function POST(req: Request) {
           stars:        z.number().int().min(1).max(5).optional().describe('Minimum star rating'),
         }),
         execute: async (params) => {
-          // Hard 15 s wall-clock cap — ensures Claude can stream results promptly.
-          const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 25_000));
+          // Hard 12 s wall-clock cap — LiteAPI typically responds in 3-8s.
+          // Reduced from 25s → 12s to improve Time To First Card significantly.
+          const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 12_000));
           const search  = aggregateHotels(params);
           const r       = await Promise.race([search, timeout]);
 
@@ -604,238 +654,6 @@ export async function POST(req: Request) {
             count:        r.experiences.length,
             sources:      r.sources,
           };
-        },
-      }),
-
-      // ── Book a Duffel flight offer ─────────────────────────────────────────
-      bookFlight: tool({
-        description:
-          'Book a confirmed DUFFEL flight after user has approved the price and provided all passenger details. DO NOT call with Amadeus offer IDs (starting with "amadeus_") — use searchBookableFlights instead.',
-        parameters: z.object({
-          offerId:    z.string().describe('Duffel flight offer ID from searchFlights or searchBookableFlights'),
-          passengers: z.array(z.object({
-            firstName:   z.string().describe('Given name exactly as on passport/ID'),
-            lastName:    z.string().describe('Family name exactly as on passport/ID'),
-            dateOfBirth: z.string().describe('YYYY-MM-DD'),
-            email:       z.string().email().describe('Contact email'),
-            phone:       z.string().describe('E.164 format e.g. +14165551234'),
-          })).min(1).describe('ONE entry per adult — MUST match adults count used in searchFlights'),
-        }),
-        execute: async ({ offerId, passengers }) => {
-          if (offerId.startsWith('amadeus_')) {
-            return {
-              success: false,
-              error:   'This is an Amadeus price reference and cannot be booked directly. Call searchBookableFlights to find the equivalent Duffel offer.',
-              action:  'call_searchBookableFlights',
-            };
-          }
-
-          const token = process.env.DUFFEL_ACCESS_TOKEN;
-          if (!token) return { error: 'Duffel not configured', success: false };
-
-          const normalizePhone = (phone: string): string => {
-            const digits = phone.replace(/\D/g, '');
-            if (digits.length === 10) return `+1${digits}`;
-            if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
-            return phone.startsWith('+') ? phone : `+${digits}`;
-          };
-
-          try {
-            const duffelHeaders = {
-              Authorization:    `Bearer ${token}`,
-              'Duffel-Version': 'v2',
-              'Content-Type':   'application/json',
-              Accept:           'application/json',
-            };
-
-            // Step 1: Fetch live offer to get passenger slot IDs + confirmed total
-            const offerRes = await fetch(
-              `https://api.duffel.com/air/offers/${offerId}`,
-              { headers: duffelHeaders, signal: AbortSignal.timeout(10_000) }
-            );
-
-            if (!offerRes.ok) {
-              const txt  = await offerRes.text();
-              const bdy  = (() => { try { return JSON.parse(txt); } catch { return {}; } })();
-              const code = bdy?.errors?.[0]?.code ?? '';
-              const msg  = bdy?.errors?.[0]?.message ?? txt.slice(0, 200);
-              const gone = offerRes.status === 404 || code.includes('not_found') || code.includes('no_longer_available');
-              return {
-                success:    false,
-                expired:    gone,
-                duffelCode: code,
-                error:      gone
-                  ? 'This flight offer has expired. Please search for flights again to get a fresh offer.'
-                  : `Could not retrieve offer — Duffel ${offerRes.status} [${code}]: ${msg}`,
-              };
-            }
-
-            const offerData = await offerRes.json() as {
-              data?: {
-                passengers?:     Array<{ id: string; type?: string }>;
-                total_amount?:   string;
-                total_currency?: string;
-              };
-            };
-
-            const offerPassengers = offerData.data?.passengers ?? [];
-            const totalAmount     = offerData.data?.total_amount ?? '0';
-            const totalCurrency   = offerData.data?.total_currency ?? 'USD';
-
-            if (offerPassengers.length === 0) {
-              return { success: false, error: 'Offer returned no passenger slots. Please search again.' };
-            }
-            if (passengers.length < offerPassengers.length) {
-              return {
-                success:          false,
-                missingPassengers: offerPassengers.length - passengers.length,
-                error: `This offer has ${offerPassengers.length} passenger slot(s) but you only supplied ${passengers.length}. ` +
-                  `Please collect complete details (firstName, lastName, dateOfBirth, email, phone) for all ${offerPassengers.length} ` +
-                  `travellers, then call bookFlight again with all ${offerPassengers.length} entries.`,
-              };
-            }
-
-            // Step 2: Create the Duffel order
-            const res = await fetch('https://api.duffel.com/air/orders', {
-              method: 'POST',
-              headers: duffelHeaders,
-              body: JSON.stringify({
-                data: {
-                  type:            'instant',
-                  selected_offers: [offerId],
-                  passengers: offerPassengers.map((offerPax, i) => {
-                    const p = passengers[i];
-                    return {
-                      id:           offerPax.id,
-                      title:        'mr',
-                      gender:       'm',
-                      given_name:   p.firstName,
-                      family_name:  p.lastName,
-                      born_on:      p.dateOfBirth,
-                      email:        p.email,
-                      phone_number: normalizePhone(p.phone),
-                    };
-                  }),
-                  payments: [{
-                    type:     'balance',
-                    amount:   totalAmount,
-                    currency: totalCurrency,
-                  }],
-                },
-              }),
-              signal: AbortSignal.timeout(30_000),
-            });
-
-            if (!res.ok) {
-              const err     = await res.text();
-              const errBody = (() => { try { return JSON.parse(err); } catch { return {}; } })();
-              const code    = errBody?.errors?.[0]?.code    ?? '';
-              const msg     = errBody?.errors?.[0]?.message ?? err.slice(0, 300);
-              const title   = errBody?.errors?.[0]?.title   ?? '';
-
-              if (code === 'offer_no_longer_available') {
-                return { success: false, expired: true, duffelCode: code,
-                  error: 'This flight offer expired during checkout. Please search for flights again — test mode offers are valid for ~15 minutes.' };
-              }
-              if (code === 'insufficient_balance' || msg.toLowerCase().includes('balance')) {
-                const errMsg = 'Your Duffel test account has insufficient balance. Go to app.duffel.com → Settings → Test balance → click "Top up", then try again.';
-                logger.flightBooking({ api: 'duffel', sessionId, offerId, success: false, httpStatus: res.status, errorCode: code, error: errMsg });
-                return { success: false, duffelCode: code, error: errMsg };
-              }
-              if (code === 'validation_error' || res.status === 422) {
-                const errMsg = `Booking validation error [${code}]: ${title ? title + ' — ' : ''}${msg}`;
-                logger.flightBooking({ api: 'duffel', sessionId, offerId, success: false, httpStatus: res.status, errorCode: code, error: errMsg });
-                return { success: false, duffelCode: code, error: errMsg };
-              }
-              const errMsg = `Booking failed [${res.status}${code ? ' ' + code : ''}]: ${msg}`;
-              logger.flightBooking({ api: 'duffel', sessionId, offerId, success: false, httpStatus: res.status, errorCode: code, error: errMsg });
-              return {
-                success:    false,
-                duffelCode: code,
-                httpStatus: res.status,
-                error:      errMsg,
-              };
-            }
-
-            const data = await res.json() as {
-              data?: { id: string; booking_reference: string; total_amount: string; total_currency: string }
-            };
-            logger.flightBooking({
-              api: 'duffel', sessionId, offerId,
-              success: true,
-              bookingRef: data.data?.booking_reference,
-              orderId:    data.data?.id,
-              amount:     parseFloat(data.data?.total_amount ?? '0'),
-              currency:   data.data?.total_currency ?? 'USD',
-            });
-            return {
-              success:          true,
-              orderId:          data.data?.id,
-              bookingReference: data.data?.booking_reference,
-              totalAmount:      data.data?.total_amount,
-              currency:         data.data?.total_currency ?? 'USD',
-              serviceFee:       { amount: 20, currency: 'USD', note: 'FlexeTravels service fee — charged separately' },
-            };
-          } catch (err) {
-            logger.flightBooking({ api: 'duffel', sessionId, offerId, success: false, error: String(err) });
-            return { error: `Booking error: ${String(err)}`, success: false };
-          }
-        },
-      }),
-
-      // ── Hotel pre-booking — LiteAPI (holds room for ~15 min) ──────────────
-      preBookHotel: tool({
-        description:
-          'Hold a hotel room with LiteAPI for ~15 minutes to lock in the rate. Call this after user confirms hotel selection. Requires the bookingToken (rateId) from the searchHotels result.',
-        parameters: z.object({
-          rateId:           z.string().describe('The bookingToken (rateId) from the chosen hotel in searchHotels results'),
-          guestNationality: z.string().length(2).default('US').describe('2-letter country code of main guest e.g. US, CA'),
-        }),
-        execute: async ({ rateId, guestNationality }) => {
-          if (!rateId || rateId === 'undefined') {
-            return { success: false, error: 'No rateId available — this hotel may be from sample data and cannot be booked directly.' };
-          }
-          const t0Prebook = Date.now();
-          const result = await liteApiPrebook(rateId, guestNationality);
-          logger.hotelPrebook({
-            api: 'liteapi', sessionId,
-            offerId: rateId,
-            success: result.success,
-            prebookId: result.prebookId,
-            confirmedTotal: result.confirmedTotal,
-            currency: result.currency,
-            error: result.error,
-            durationMs: Date.now() - t0Prebook,
-          });
-          return result;
-        },
-      }),
-
-      // ── Hotel booking confirmation — LiteAPI ──────────────────────────────
-      confirmHotelBooking: tool({
-        description:
-          'Finalize a hotel booking with LiteAPI after the room has been held via preBookHotel. Requires the prebookId from preBookHotel, and the main guest name + email.',
-        parameters: z.object({
-          prebookId:      z.string().describe('The prebookId returned by preBookHotel'),
-          guestFirstName: z.string().describe('Main guest first name'),
-          guestLastName:  z.string().describe('Main guest last name'),
-          guestEmail:     z.string().email().describe('Main guest email address'),
-        }),
-        execute: async ({ prebookId, guestFirstName, guestLastName, guestEmail }) => {
-          const t0Book = Date.now();
-          const result = await liteApiBook({ prebookId, guestFirstName, guestLastName, guestEmail });
-          logger.hotelBooking({
-            api: 'liteapi', sessionId,
-            prebookId,
-            success:   result.success,
-            bookingId: result.bookingId,
-            hotelName: result.hotelName,
-            amount:    result.totalAmount,
-            currency:  result.currency,
-            error:     result.error,
-            durationMs: Date.now() - t0Book,
-          });
-          return result;
         },
       }),
 

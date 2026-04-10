@@ -147,10 +147,10 @@ export async function aggregateFlights(params: FlightSearchParams): Promise<{
     return { flights: [], sources: [], errors: ['No flight providers configured'], latencyMs: 0 };
   }
 
-  // ── Hard 18 s wall-clock cap — don't make users wait longer than necessary ──
-  // Each provider races against the cap. Whoever responds first wins; providers
-  // that are still in-flight at 18 s resolve as empty and are dropped silently.
-  const FLIGHT_WALL_CLOCK_MS = 16_000;
+  // ── Hard 8 s wall-clock cap — Duffel typically responds in 2-6s.
+  // Cutting from 16s → 8s shaves ~8s off the worst-case TTFC (Time To First Card).
+  // Providers still in-flight at 8s resolve as empty and are dropped silently.
+  const FLIGHT_WALL_CLOCK_MS = 8_000;
 
   const withCap = (p: Promise<SearchResult<NormalizedFlight>>, provider: string): Promise<SearchResult<NormalizedFlight>> =>
     new Promise(resolve => {
@@ -179,7 +179,10 @@ export async function aggregateFlights(params: FlightSearchParams): Promise<{
     if (r.error) errors.push(`${r.provider}: ${r.error}`);
   }
 
-  const deduped = dedupeFlights(allFlights).sort((a, b) => a.price - b.price).slice(0, 12);
+  // No hard cap on results — return all deduped flights sorted by price.
+  // The frontend FlightResultsPanel paginates with "See all" + filters,
+  // so users get every option without cognitive overload.
+  const deduped = dedupeFlights(allFlights).sort((a, b) => a.price - b.price);
 
   return {
     flights: deduped,
@@ -217,15 +220,23 @@ export async function aggregateHotels(params: HotelSearchParams): Promise<HotelA
     };
   }
 
+  // Per-provider 10s cap inside the aggregator (outer route-level cap is 12s).
+  // Prevents a single slow provider from blocking the whole hotel search.
+  const HOTEL_WALL_CLOCK_MS = 10_000;
+  const withHotelCap = (p: Promise<SearchResult<NormalizedHotel>>, providerName: string): Promise<SearchResult<NormalizedHotel>> =>
+    new Promise(resolve => {
+      const timer = setTimeout(() => resolve({ provider: '__timeout__', results: [], latencyMs: HOTEL_WALL_CLOCK_MS }), HOTEL_WALL_CLOCK_MS);
+      p.then(v => { clearTimeout(timer); resolve(v); })
+       .catch(() => { clearTimeout(timer); resolve({ provider: providerName, results: [], latencyMs: HOTEL_WALL_CLOCK_MS, error: 'timed out' }); });
+    });
+
   const results = await Promise.allSettled(
     providers.map(async (p): Promise<SearchResult<NormalizedHotel>> => {
       const t0 = Date.now();
-      try {
-        const results = await p.searchHotels(params);
-        return { provider: p.name, results, latencyMs: Date.now() - t0 };
-      } catch (err) {
-        return { provider: p.name, results: [], latencyMs: Date.now() - t0, error: String(err) };
-      }
+      const inner = p.searchHotels(params)
+        .then(results => ({ provider: p.name, results, latencyMs: Date.now() - t0 }))
+        .catch(err => ({ provider: p.name, results: [] as NormalizedHotel[], latencyMs: Date.now() - t0, error: String(err) }));
+      return withHotelCap(inner, p.name);
     })
   );
 
@@ -235,6 +246,7 @@ export async function aggregateHotels(params: HotelSearchParams): Promise<HotelA
 
   for (const r of results) {
     if (r.status === 'fulfilled') {
+      if (r.value.provider === '__timeout__') continue; // skip timed-out providers
       allHotels.push(...r.value.results);
       if (r.value.results.length > 0) sources.push(r.value.provider);
       if (r.value.error) errors.push(`${r.value.provider}: ${r.value.error}`);
@@ -245,11 +257,12 @@ export async function aggregateHotels(params: HotelSearchParams): Promise<HotelA
 
   const deduped = dedupeHotels(allHotels);
 
+  // No hard cap on hotel results — return everything that matches filters.
+  // The HotelResultsPanel handles display with grid layout + sort controls.
   const filtered = deduped
     .filter(h => !params.maxPrice || h.pricePerNight <= params.maxPrice)
     .filter(h => !params.stars || h.stars >= params.stars)
-    .sort((a, b) => a.pricePerNight - b.pricePerNight)
-    .slice(0, 15);
+    .sort((a, b) => a.pricePerNight - b.pricePerNight);
 
   console.log(`[aggregateHotels] raw=${allHotels.length}, deduped=${deduped.length}, filtered=${filtered.length}, maxPrice=${params.maxPrice ?? 'none'}, stars=${params.stars ?? 'none'}`);
 

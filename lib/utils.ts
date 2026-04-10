@@ -217,6 +217,67 @@ export function compressMessageHistory<T extends Record<string, any>>(
   });
 }
 
+// ─── IATA airport code → city name lookup ────────────────────────────────────
+// Client-safe compact table (subset of the server-side liteapi.ts IATA_TO_CITY map).
+// Used in FlightCard layover labels — "Layover in Toronto (YYZ): 2h 15m".
+const IATA_CITY_NAMES: Record<string, string> = {
+  // North America
+  YYZ:'Toronto', YVR:'Vancouver', YUL:'Montreal', YYC:'Calgary', YEG:'Edmonton',
+  YOW:'Ottawa', YHZ:'Halifax', YWG:'Winnipeg', YQB:'Quebec City',
+  JFK:'New York', EWR:'Newark', LGA:'New York', ORD:'Chicago', MDW:'Chicago',
+  LAX:'Los Angeles', SFO:'San Francisco', MIA:'Miami', FLL:'Fort Lauderdale',
+  ATL:'Atlanta', DFW:'Dallas', IAH:'Houston', HOU:'Houston',
+  SEA:'Seattle', DEN:'Denver', BOS:'Boston', MSP:'Minneapolis',
+  DTW:'Detroit', PHL:'Philadelphia', DCA:'Washington', IAD:'Washington',
+  BWI:'Baltimore', SAN:'San Diego', LAS:'Las Vegas', MCO:'Orlando',
+  TPA:'Tampa', CLT:'Charlotte', PHX:'Phoenix', PDX:'Portland',
+  SLC:'Salt Lake City', MSY:'New Orleans', AUS:'Austin', BNA:'Nashville',
+  RDU:'Raleigh', HNL:'Honolulu', OGG:'Maui', KOA:'Kona', LIH:'Kauai',
+  MCI:'Kansas City', STL:'St Louis', CMH:'Columbus', IND:'Indianapolis',
+  MEM:'Memphis', SAT:'San Antonio', SJC:'San Jose', OAK:'Oakland',
+  // Mexico & Caribbean
+  CUN:'Cancun', PUJ:'Punta Cana', MEX:'Mexico City', GDL:'Guadalajara',
+  SJD:'Los Cabos', PVR:'Puerto Vallarta', BOG:'Bogota',
+  NAS:'Nassau', MBJ:'Montego Bay', SJU:'San Juan',
+  // Europe
+  LHR:'London', LGW:'London', STN:'London', CDG:'Paris', ORY:'Paris',
+  AMS:'Amsterdam', FRA:'Frankfurt', MUC:'Munich', BCN:'Barcelona',
+  MAD:'Madrid', FCO:'Rome', MXP:'Milan', LIN:'Milan', VCE:'Venice',
+  FCO2:'Rome', ATH:'Athens', LIS:'Lisbon', VIE:'Vienna', ZRH:'Zurich',
+  GVA:'Geneva', BRU:'Brussels', CPH:'Copenhagen', ARN:'Stockholm',
+  OSL:'Oslo', HEL:'Helsinki', WAW:'Warsaw', PRG:'Prague', BUD:'Budapest',
+  DUB:'Dublin', EDI:'Edinburgh', MAN:'Manchester',
+  // Middle East & Asia
+  DXB:'Dubai', AUH:'Abu Dhabi', DOH:'Doha', KWI:'Kuwait City',
+  RUH:'Riyadh', AMM:'Amman', TLV:'Tel Aviv', IST:'Istanbul',
+  NRT:'Tokyo', HND:'Tokyo', KIX:'Osaka', ITM:'Osaka', NGO:'Nagoya',
+  ICN:'Seoul', GMP:'Seoul', PEK:'Beijing', PVG:'Shanghai', SHA:'Shanghai',
+  CAN:'Guangzhou', HKG:'Hong Kong', SIN:'Singapore', KUL:'Kuala Lumpur',
+  BKK:'Bangkok', DMK:'Bangkok', CGK:'Jakarta', SUB:'Surabaya',
+  MNL:'Manila', SGN:'Ho Chi Minh City', HAN:'Hanoi', DAD:'Da Nang',
+  CMB:'Colombo', DEL:'Delhi', BOM:'Mumbai', BLR:'Bangalore',
+  MAA:'Chennai', CCU:'Kolkata', HYD:'Hyderabad', GOI:'Goa',
+  COK:'Kochi', TRV:'Thiruvananthapuram', AMD:'Ahmedabad',
+  DPS:'Bali', DXB2:'Dubai',
+  // Oceania & Africa
+  SYD:'Sydney', MEL:'Melbourne', BNE:'Brisbane', PER:'Perth',
+  AKL:'Auckland', CHC:'Christchurch', ZQN:'Queenstown',
+  JNB:'Johannesburg', CPT:'Cape Town', NBO:'Nairobi', ADD:'Addis Ababa',
+  CAI:'Cairo', CMN:'Casablanca', RAK:'Marrakech',
+  // Latin America
+  GRU:'São Paulo', GIG:'Rio de Janeiro', BSB:'Brasilia',
+  EZE:'Buenos Aires', SCL:'Santiago', LIM:'Lima', CUZ:'Cusco',
+  UIO:'Quito', MDE:'Medellín', CTG:'Cartagena', SDQ:'Santo Domingo',
+};
+
+/**
+ * Map a 3-letter IATA airport code to a human-readable city name.
+ * Falls back to the code itself if not in the lookup table.
+ */
+export function iataToCity(code: string): string {
+  return IATA_CITY_NAMES[code.toUpperCase()] ?? code;
+}
+
 /** Get star rating display */
 export function starsArray(count: number): string[] {
   return Array.from({ length: 5 }, (_, i) =>
