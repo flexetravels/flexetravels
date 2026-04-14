@@ -11,8 +11,9 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Plane, Building2, User, Plus, Minus,
   CheckCircle2, AlertCircle, Loader2, Lock, X, ArrowRight, ArrowLeft,
+  ChevronDown, ChevronUp, Clock,
 } from 'lucide-react';
-import { cn, formatPrice, formatDate } from '@/lib/utils';
+import { cn, formatPrice, formatDate, formatTime, iataToCity } from '@/lib/utils';
 import type { FlightResult, HotelResult } from '@/lib/types';
 
 // ─── Stripe CDN loader ─────────────────────────────────────────────────────────
@@ -145,25 +146,154 @@ function StepDots({ phase }: { phase: Phase }) {
 
 // ─── Trip summary row ──────────────────────────────────────────────────────────
 
+function calcLayoverMins(arrivalIso: string, departureIso: string): string | null {
+  try {
+    const diff = new Date(departureIso).getTime() - new Date(arrivalIso).getTime();
+    if (diff <= 0 || isNaN(diff)) return null;
+    const h = Math.floor(diff / 3_600_000);
+    const m = Math.round((diff % 3_600_000) / 60_000);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  } catch { return null; }
+}
+
 function TripRow({ flight, hotel }: { flight: FlightResult | null; hotel: HotelResult | null }) {
+  const [flightExpanded, setFlightExpanded] = useState(false);
+
+  const segs = flight?.segments ?? [];
+  const hasSegments = segs.length > 0;
+
   return (
     <div className="space-y-2">
       {flight && (
-        <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-muted/40 border border-border/60">
-          <div className="w-8 h-8 rounded-xl bg-teal-500/10 flex items-center justify-center flex-shrink-0">
-            <Plane className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+        <div className="rounded-2xl bg-muted/40 border border-border/60 overflow-hidden">
+          {/* Compact summary row */}
+          <div className="flex items-center gap-3 p-3.5">
+            <div className="w-8 h-8 rounded-xl bg-teal-500/10 flex items-center justify-center flex-shrink-0">
+              <Plane className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-foreground">
+                {flight.origin} <span className="text-muted-foreground font-normal">→</span> {flight.destination}
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                {flight.airline} · {formatDate(flight.departure)} · {flight.stops === 0 ? 'Non-stop' : `${flight.stops} stop${flight.stops > 1 ? 's' : ''}`}
+                {flight.duration ? ` · ${flight.duration}` : ''}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <p className="text-sm font-black text-foreground">
+                {formatPrice(flight.price, flight.currency)}
+              </p>
+              {hasSegments && (
+                <button
+                  type="button"
+                  onClick={() => setFlightExpanded(e => !e)}
+                  className="p-1 rounded-lg hover:bg-muted/60 transition-colors text-muted-foreground hover:text-foreground"
+                  title={flightExpanded ? 'Hide details' : 'Show flight details'}
+                >
+                  {flightExpanded
+                    ? <ChevronUp className="w-4 h-4" />
+                    : <ChevronDown className="w-4 h-4" />}
+                </button>
+              )}
+            </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-foreground">
-              {flight.origin} <span className="text-muted-foreground font-normal">→</span> {flight.destination}
-            </p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              {flight.airline} · {formatDate(flight.departure)} · {flight.stops === 0 ? 'Non-stop' : `${flight.stops} stop${flight.stops > 1 ? 's' : ''}`}
-            </p>
-          </div>
-          <p className="text-sm font-black text-foreground flex-shrink-0">
-            {formatPrice(flight.price, flight.currency)}
-          </p>
+
+          {/* Expandable segment details */}
+          {flightExpanded && hasSegments && (
+            <div className="border-t border-border/40 bg-muted/20 px-3.5 py-3 space-y-0">
+              {segs.map((seg, i) => {
+                const layover = i < segs.length - 1
+                  ? calcLayoverMins(seg.arrival, segs[i + 1].departure)
+                  : null;
+                return (
+                  <div key={i}>
+                    <div className="flex items-start gap-2.5 py-2 text-xs">
+                      {/* Timeline */}
+                      <div className="flex flex-col items-center pt-0.5 flex-shrink-0">
+                        <div className="w-2 h-2 rounded-full bg-teal-500 ring-2 ring-teal-200 dark:ring-teal-800" />
+                        {(layover || i < segs.length - 1) && (
+                          <div className="w-px flex-1 min-h-[28px] bg-teal-400/30 mt-1" />
+                        )}
+                      </div>
+                      {/* Segment info */}
+                      <div className="flex-1 pb-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-bold text-foreground">
+                            {seg.origin} → {seg.destination}
+                          </p>
+                          {seg.flightNumber && (
+                            <span className="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                              {seg.flightNumber}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-muted-foreground mt-0.5">
+                          {formatDate(seg.departure)} · {formatTime(seg.departure)} – {formatTime(seg.arrival)}
+                        </p>
+                        <div className="flex items-center gap-3 mt-0.5 text-muted-foreground/70 text-[10px]">
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {seg.duration}
+                          </span>
+                          {flight.baggage && i === 0 && (
+                            <span className="text-teal-600 dark:text-teal-400 font-medium">
+                              ✓ {flight.baggage}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    {/* Layover pill */}
+                    {layover && (
+                      <div className="ml-4.5 mb-1 flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 bg-amber-50 dark:bg-amber-900/20
+                                        border border-amber-200 dark:border-amber-700/50
+                                        text-amber-700 dark:text-amber-400
+                                        px-2.5 py-1 rounded-full text-[10px] font-semibold">
+                          <Clock className="w-2.5 h-2.5 flex-shrink-0" />
+                          Layover in {iataToCity(seg.destination)} ({seg.destination}): {layover}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {/* Final destination dot */}
+              <div className="flex items-center gap-2.5 pt-0.5">
+                <div className="w-2 h-2 rounded-full bg-teal-600 ring-2 ring-teal-200 dark:ring-teal-800 flex-shrink-0" />
+                <p className="text-[11px] font-semibold text-foreground">
+                  {segs[segs.length - 1]?.destination} — {formatTime(flight.arrival)}, {formatDate(flight.arrival)}
+                </p>
+              </div>
+              {/* Baggage row (if no segments had it yet) */}
+              {flight.baggage && (
+                <p className="text-[11px] text-teal-600 dark:text-teal-400 font-medium mt-2 pl-4.5">
+                  ✓ {flight.baggage} included
+                </p>
+              )}
+              {/* Flexibility summary */}
+              {flight.flexibilitySummary && (
+                <p className="text-[10px] text-muted-foreground mt-2 pl-4.5 bg-muted/40 rounded px-2 py-1.5">
+                  {flight.flexibilitySummary}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* "Show details" hint when collapsed and segments exist */}
+          {!flightExpanded && hasSegments && (
+            <button
+              type="button"
+              onClick={() => setFlightExpanded(true)}
+              className="w-full flex items-center justify-center gap-1 py-1.5 text-[10px]
+                         text-muted-foreground hover:text-teal-600 dark:hover:text-teal-400
+                         border-t border-border/40 bg-muted/10 hover:bg-muted/30 transition-colors"
+            >
+              <ChevronDown className="w-3 h-3" />
+              Flight details · {segs.length} leg{segs.length !== 1 ? 's' : ''}
+            </button>
+          )}
         </div>
       )}
       {hotel && (
@@ -213,6 +343,92 @@ function Field({
                    focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500
                    transition-all duration-150"
       />
+    </div>
+  );
+}
+
+// ─── Date-of-birth picker — Year / Month / Day dropdowns ─────────────────────
+// Replaces <input type="date"> which shows a broken month-by-month calendar
+// on mobile with no year-jump. Dropdowns are instantly usable on all devices.
+
+const MONTHS = [
+  'January','February','March','April','May','June',
+  'July','August','September','October','November','December',
+];
+
+function DOBPicker({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;           // YYYY-MM-DD or ''
+  onChange: (v: string) => void;
+}) {
+  // Parse current value
+  const parts  = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const curYear  = parts ? parts[1] : '';
+  const curMonth = parts ? parts[2] : '';
+  const curDay   = parts ? parts[3] : '';
+
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: currentYear - 1920 + 1 }, (_, i) => currentYear - i);
+
+  // How many days in the selected month/year?
+  const daysInMonth = curYear && curMonth
+    ? new Date(parseInt(curYear), parseInt(curMonth), 0).getDate()
+    : 31;
+  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+  const emit = (y: string, m: string, d: string) => {
+    if (y && m && d) onChange(`${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`);
+    else onChange('');
+  };
+
+  const selectCls = `px-3 py-2.5 text-sm rounded-xl border border-border/80 bg-background
+    text-foreground focus:outline-none focus:ring-2 focus:ring-teal-500/30
+    focus:border-teal-500 transition-all duration-150 appearance-none`;
+
+  return (
+    <div className="space-y-1.5">
+      <label className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+        {label}
+      </label>
+      <div className="grid grid-cols-3 gap-2">
+        {/* Year */}
+        <select
+          value={curYear}
+          onChange={e => emit(e.target.value, curMonth, curDay)}
+          className={selectCls}
+        >
+          <option value="">Year</option>
+          {years.map(y => (
+            <option key={y} value={String(y)}>{y}</option>
+          ))}
+        </select>
+        {/* Month */}
+        <select
+          value={curMonth}
+          onChange={e => emit(curYear, e.target.value, curDay)}
+          className={selectCls}
+        >
+          <option value="">Month</option>
+          {MONTHS.map((name, i) => (
+            <option key={i} value={String(i + 1).padStart(2, '0')}>{name}</option>
+          ))}
+        </select>
+        {/* Day */}
+        <select
+          value={curDay}
+          onChange={e => emit(curYear, curMonth, e.target.value)}
+          className={selectCls}
+        >
+          <option value="">Day</option>
+          {days.map(d => (
+            <option key={d} value={String(d).padStart(2, '0')}>{d}</option>
+          ))}
+        </select>
+      </div>
     </div>
   );
 }
@@ -1228,11 +1444,10 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                       placeholder="As on passport"
                     />
                   </div>
-                  <Field
+                  <DOBPicker
                     label="Date of Birth"
                     value={pax.dateOfBirth}
                     onChange={v => updatePassenger(i, 'dateOfBirth', v)}
-                    type="date"
                   />
                   <div className="grid grid-cols-2 gap-3">
                     <Field
@@ -1301,13 +1516,14 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                     />
                   </div>
                   <div>
-                    <Field
+                    <DOBPicker
                       label="Date of Birth"
                       value={child.dateOfBirth}
                       onChange={v => updateChildPassenger(i, 'dateOfBirth', v)}
-                      type="date"
                     />
-                    <ChildAgeBadge dob={child.dateOfBirth} />
+                    <div className="mt-1.5">
+                      <ChildAgeBadge dob={child.dateOfBirth} />
+                    </div>
                   </div>
                 </div>
 
