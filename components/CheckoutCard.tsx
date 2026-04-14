@@ -376,13 +376,14 @@ function DOBPicker({
   const [month, setMonth] = useState<string>(() => value.match(/^\d{4}-(\d{2})-/)?.[1] ?? '');
   const [day,   setDay]   = useState<string>(() => value.match(/\d{4}-\d{2}-(\d{2})$/)?.[1] ?? '');
 
-  // Sync from parent when value changes externally (e.g. form reset)
+  // Sync from parent when value changes externally (e.g. pre-filling a saved date).
+  // Only update local state when parent provides a complete YYYY-MM-DD — never clear
+  // local state when value becomes '' because that would undo partial user selections
+  // (the circular-reset bug: year selected → notify('') → useEffect clears year → disappears).
   useEffect(() => {
     const p = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (p) {
       setYear(p[1]); setMonth(p[2]); setDay(p[3]);
-    } else if (!value) {
-      setYear(''); setMonth(''); setDay('');
     }
   }, [value]);
 
@@ -395,16 +396,18 @@ function DOBPicker({
     : 31;
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
-  // Notify parent only when all three fields are complete
+  // Notify parent only when all three fields are complete.
+  // Do NOT call onChange('') for incomplete selections — that triggers the parent
+  // to re-render with value='', which causes useEffect to clear local state (the
+  // circular-reset bug where every selection immediately disappears).
   const notify = (y: string, m: string, d: string) => {
     if (y && m && d) {
       // Clamp day if switching to a shorter month
       const maxDay = new Date(parseInt(y), parseInt(m), 0).getDate();
       const clampedDay = Math.min(parseInt(d), maxDay).toString().padStart(2, '0');
       onChange(`${y}-${m.padStart(2, '0')}-${clampedDay}`);
-    } else {
-      onChange('');
     }
+    // Incomplete: leave parent value as-is — validation will catch missing DOB on submit
   };
 
   const handleYear = (y: string) => {
