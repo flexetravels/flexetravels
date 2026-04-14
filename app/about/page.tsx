@@ -298,6 +298,7 @@ export default function AboutPage() {
                 {l.label}
               </Link>
             ))}
+            <a href="tel:+17789016639" className="text-white/30 hover:text-teal-400 text-xs transition-colors">+1 778-901-6639</a>
           </div>
           <p className="text-white/18 text-[10px]">
             © {new Date().getFullYear()} FlexeTravels &nbsp;·&nbsp;{' '}

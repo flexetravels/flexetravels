@@ -967,9 +967,12 @@ export default function LandingPage() {
               BC travel agent licence.{' '}
               Phone: <a href="tel:+17789016639" className="hover:text-white/40 transition-colors">+1 778-901-6639</a>
             </p>
-            <p className="text-white/18 text-[10px] flex-shrink-0">
-              © {new Date().getFullYear()} FlexeTravels
-            </p>
+            <div className="flex items-center gap-4 flex-shrink-0">
+              <a href="tel:+17789016639" className="text-white/35 hover:text-teal-400 text-[10px] transition-colors">
+                +1 778-901-6639
+              </a>
+              <p className="text-white/18 text-[10px]">© {new Date().getFullYear()} FlexeTravels</p>
+            </div>
           </div>
         </div>
       </footer>
