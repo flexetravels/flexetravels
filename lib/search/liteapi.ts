@@ -550,7 +550,7 @@ export class LiteApiProvider implements SearchProvider {
           roomMapping:      true,
           timeout:          3,
         }),
-        signal: AbortSignal.timeout(20_000),
+        signal: AbortSignal.timeout(7_000),
       });
       if (!res.ok) {
         const txt = await res.text();

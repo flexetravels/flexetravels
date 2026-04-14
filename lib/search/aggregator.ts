@@ -220,9 +220,9 @@ export async function aggregateHotels(params: HotelSearchParams): Promise<HotelA
     };
   }
 
-  // Per-provider 10s cap inside the aggregator (outer route-level cap is 12s).
-  // Prevents a single slow provider from blocking the whole hotel search.
-  const HOTEL_WALL_CLOCK_MS = 10_000;
+  // Per-provider 8s cap inside the aggregator (outer route-level cap is 8s).
+  // LiteAPI request body sets timeout=3 (server-side); 8s covers network round-trip.
+  const HOTEL_WALL_CLOCK_MS = 8_000;
   const withHotelCap = (p: Promise<SearchResult<NormalizedHotel>>, providerName: string): Promise<SearchResult<NormalizedHotel>> =>
     new Promise(resolve => {
       const timer = setTimeout(() => resolve({ provider: '__timeout__', results: [], latencyMs: HOTEL_WALL_CLOCK_MS }), HOTEL_WALL_CLOCK_MS);

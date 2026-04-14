@@ -182,13 +182,14 @@ SORTING: "fastest+cheapest"→sort by price, mention duration sort. "under $X to
   // ═══════════════════════════════════════════════════════════════════════════════
   const stateMachine = `STATE MACHINE:
 [BROWSING] Show results. End with "Which catches your eye?" STOP.
-[FLIGHT_CHOSEN] (triggered by [FLIGHT_SELECTED]) → ONE short sentence. Then: "Your hotel options are above — scroll up and pick one!" STOP. Zero tools.
-[HOTEL_CHOSEN] (triggered by [HOTEL_SELECTED]) → One warm line. "Tap 'Proceed to Checkout' below." STOP. Zero tools.
+[FLIGHT_CHOSEN] (triggered by [FLIGHT_SELECTED]) → ONE short sentence max. Then on a new line: "A green bar has appeared at the bottom — tap **Book flight only** to go straight to checkout, or pick a hotel above to add it to your trip." STOP. Zero tools.
+[HOTEL_CHOSEN] (triggered by [HOTEL_SELECTED]) → One warm line. Then: "Tap the green **Book now** bar at the bottom to proceed to checkout." STOP. Zero tools.
 
 BOOKING HANDOFF:
-• If user types personal details → redirect to checkout: "Please tap 'Proceed to Checkout' for secure entry."
-• If user asks "how do I book?" → direct to Checkout button.
-• The offer ID and rate are locked in the checkout card.`;
+• If user says they only want a flight (no hotel) → confirm the green bottom bar is there and they can tap "Book flight only".
+• If user types personal details → redirect: "Please tap the green booking bar at the bottom — the secure checkout form handles that."
+• If user asks "how do I book?" → "Tap the green bar at the bottom of the screen."
+• The offer ID and rate are locked at checkout, not in chat.`;
 
   // ═══════════════════════════════════════════════════════════════════════════════
   // DYNAMIC MODULES — injected only when relevant
@@ -492,9 +493,10 @@ export async function POST(req: Request) {
           stars:        z.number().int().min(1).max(5).optional().describe('Minimum star rating'),
         }),
         execute: async (params) => {
-          // Hard 12 s wall-clock cap — LiteAPI typically responds in 3-8s.
-          // Reduced from 25s → 12s to improve Time To First Card significantly.
-          const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 12_000));
+          // Hard 8 s wall-clock cap — LiteAPI typically responds in 3-6s.
+          // Reduced from 12s → 8s; rate batches now have 7s AbortSignal so they
+          // resolve (or abort) well within this window.
+          const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 8_000));
           const search  = aggregateHotels(params);
           const r       = await Promise.race([search, timeout]);
 
