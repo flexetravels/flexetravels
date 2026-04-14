@@ -4,7 +4,9 @@ const path = require('path');
 const nextConfig = {
   // Standalone output — minimal Docker image for Railway (~50MB vs ~500MB)
   output: 'standalone',
-  // Fix workspace root detection in git worktrees
+  // Fix workspace root detection in git worktrees (Railway monorepo support)
+  // NOTE: Comment this line out for local builds — it causes the build to hang
+  // by scanning the entire parent directory tree. Only needed on Railway.
   outputFileTracingRoot: path.join(__dirname, '../../..'),
 
   // Skip ESLint during production builds — lint is enforced in CI/pre-commit instead

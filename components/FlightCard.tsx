@@ -115,11 +115,16 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
     );
   }
 
+  const ariaLabel = `${flight.airline} flight from ${flight.origin} to ${flight.destination}, ${formatPrice(flight.price, flight.currency)}, ${stopLabel}, ${flight.duration}`;
+
   return (
-    <div className={cn(
-      'travel-card overflow-hidden transition-all duration-200',
-      selected && 'ring-2 ring-teal-500 dark:ring-teal-400 shadow-teal-500/10 shadow-lg'
-    )}>
+    <div
+      role="article"
+      aria-label={ariaLabel}
+      className={cn(
+        'travel-card overflow-hidden transition-all duration-200',
+        selected && 'ring-2 ring-teal-500 dark:ring-teal-400 shadow-teal-500/10 shadow-lg'
+      )}>
       {/* ── Top bar: airline + badges ─────────────────────────────────────── */}
       <div className="px-4 pt-3.5 pb-0 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
@@ -256,9 +261,16 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
 
       {/* ── Price + CTA row ───────────────────────────────────────────────── */}
       <div className="mx-4 mb-3 pt-3 border-t border-border/60 flex items-center justify-between gap-3">
-        <div className="text-xs text-muted-foreground">
-          {flight.cabinClass?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) ?? 'Economy'}
-          {flight.baggage && <span> · {flight.baggage}</span>}
+        <div className="flex-1 min-w-0">
+          <div className="text-xs text-muted-foreground">
+            {flight.cabinClass?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) ?? 'Economy'}
+            {flight.baggage && <span className="ml-2 font-medium text-teal-700 dark:text-teal-300">✓ {flight.baggage}</span>}
+          </div>
+          {flight.flexibilitySummary && (
+            <div className="mt-1.5 text-[11px] text-muted-foreground bg-muted/40 rounded px-2 py-1.5">
+              {flight.flexibilitySummary}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <div className="text-right">
@@ -269,6 +281,7 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
           </div>
           <button
             onClick={() => onSelect?.(flight)}
+            aria-label={`Select this ${flight.airline} flight from ${flight.origin} to ${flight.destination}, ${formatPrice(flight.price, flight.currency)}`}
             className={cn(
               'px-4 py-3 rounded-xl text-[13px] font-bold transition-all duration-150 flex items-center gap-1.5',
               'min-h-[44px] touch-manipulation -webkit-tap-highlight-color-transparent',

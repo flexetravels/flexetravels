@@ -22,6 +22,7 @@ interface DuffelSegment {
   arriving_at:  string;
   duration:     string;
   marketing_carrier:               { iata_code: string; name: string; logo_symbol_url?: string };
+  operating_carrier?:              { iata_code: string; name: string };
   marketing_carrier_flight_number: string;
 }
 interface DuffelSlice {
@@ -91,6 +92,7 @@ function mapOffer(offer: DuffelOffer, cabinClass: string, totalPassengers: numbe
       arrival:      seg.arriving_at ?? '',
       duration:     fmtDuration(seg.duration ?? ''),
       carrier:      seg.marketing_carrier?.iata_code ?? '', // IATA code (e.g. "AC"), used for logo lookup
+      operatingCarrier: seg.operating_carrier?.iata_code ?? seg.marketing_carrier?.iata_code ?? '',
       flightNumber: `${seg.marketing_carrier?.iata_code ?? ''}${seg.marketing_carrier_flight_number ?? ''}`,
     })),
     // ── Enriched flexibility data (consumed by ranking agent) ────────────────

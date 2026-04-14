@@ -15,12 +15,15 @@ const PassengerSchema = z.object({
   dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD format required'),
   email:       z.string().email(),
   phone:       z.string().min(6),
+  title:       z.enum(['mr', 'ms', 'mrs', 'miss', 'dr']).optional().default('mr'),
+  gender:      z.enum(['m', 'f']).optional().default('m'),
 });
 
 const ChildPassengerSchema = z.object({
   firstName:   z.string().min(1),
   lastName:    z.string().min(1),
   dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD format required'),
+  gender:      z.enum(['m', 'f']).optional().default('m'),
 });
 
 const BodySchema = z.object({

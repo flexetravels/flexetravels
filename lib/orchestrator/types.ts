@@ -95,12 +95,15 @@ export interface PassengerDetail {
   dateOfBirth: string;
   email:       string;
   phone:       string;
+  title?:      'mr' | 'ms' | 'mrs' | 'miss' | 'dr';
+  gender?:     'm' | 'f';
 }
 
 export interface ChildPassengerDetail {
   firstName:   string;
   lastName:    string;
   dateOfBirth: string;
+  gender?:     'm' | 'f';
 }
 
 export interface BookingResult {

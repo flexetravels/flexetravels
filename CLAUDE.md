@@ -126,6 +126,12 @@ SUPABASE_SERVICE_KEY=eyJ...
 NEXT_PUBLIC_APP_URL=https://www.flexetravels.com
 ADMIN_SECRET=<strong random string>
 GEMINI_API_KEY=...                      ← for destination guides
+# ── Neomail / SMTP — Confirmation emails ───────────────────────
+SMTP_HOST=mail.neosite.com              ← Neomail SMTP host (check Neomail settings)
+SMTP_PORT=587                           ← 587 (STARTTLS) or 465 (SSL)
+SMTP_USER=bookings@flexetravels.com     ← Neomail email address
+SMTP_PASS=...                           ← Neomail email password
+SMTP_FROM=FlexeTravels <bookings@flexetravels.com>
 ```
 
 ---

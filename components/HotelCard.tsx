@@ -194,11 +194,16 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
     );
   }
 
+  const ariaLabel = `${hotel.name}, ${hotel.stars} stars, ${formatPrice(hotel.pricePerNight, hotel.currency)} per night in ${hotel.location}`;
+
   return (
-    <div className={cn(
-      'travel-card overflow-hidden transition-all duration-200',
-      selected && 'ring-2 ring-teal-500 dark:ring-teal-400 shadow-lg shadow-teal-500/10'
-    )}>
+    <div
+      role="article"
+      aria-label={ariaLabel}
+      className={cn(
+        'travel-card overflow-hidden transition-all duration-200',
+        selected && 'ring-2 ring-teal-500 dark:ring-teal-400 shadow-lg shadow-teal-500/10'
+      )}>
       {/* ── Hero image ──────────────────────────────────────────────────── */}
       {galleryImages.length > 0 ? (
         <HeroGallery
@@ -291,6 +296,7 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
         {onOpenDetail && !hotel.isSample && (
           <button
             onClick={() => onOpenDetail(hotel)}
+            aria-label={`View full details, photos, and room options for ${hotel.name}`}
             className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl
                        bg-muted/50 hover:bg-muted/80 text-xs font-medium text-muted-foreground
                        transition-colors"
@@ -338,6 +344,7 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
           ) : (
             <button
               onClick={handleSelect}
+              aria-label={`Select ${hotel.name} in ${hotel.location} for ${formatPrice(hotel.pricePerNight, hotel.currency)} per night`}
               className={cn(
                 'px-4 py-2.5 rounded-xl text-[13px] font-bold transition-all duration-150 flex items-center gap-1.5',
                 selected

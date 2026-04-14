@@ -63,20 +63,25 @@ interface Passenger {
   dateOfBirth: string;   // YYYY-MM-DD
   email:       string;
   phone:       string;
+  title:       'mr' | 'ms' | 'mrs' | 'miss' | 'dr';
+  gender:      'm' | 'f';
+  nationality?: string;  // MEDIUM severity: nationality code (e.g., 'CA', 'US', 'GB')
 }
 
 interface ChildPassenger {
   firstName:   string;
   lastName:    string;
   dateOfBirth: string;   // YYYY-MM-DD — needed to calculate age for Duffel/LiteAPI
+  gender:      'm' | 'f';
 }
 
 const blankPassenger = (): Passenger => ({
   firstName: '', lastName: '', dateOfBirth: '', email: '', phone: '',
+  title: 'mr', gender: 'm',
 });
 
 const blankChild = (): ChildPassenger => ({
-  firstName: '', lastName: '', dateOfBirth: '',
+  firstName: '', lastName: '', dateOfBirth: '', gender: 'm',
 });
 
 interface CheckoutCardProps {
@@ -271,6 +276,10 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
   const [stripeCurrency,  setStripeCurrency]  = useState('USD');    // currency of Stripe charge
   // Confirmation state when no flight is in cart (hotel-only booking)
   const [confirmFlightless, setConfirmFlightless] = useState(false);
+  // Terms & Conditions acceptance for payment
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  // MEDIUM severity: Nationality selection — applies to all passengers
+  const [nationality, setNationality] = useState('CA');
 
   // ── LiteAPI payment SDK state (production only) ─────────────────────────────
   // Populated when /api/book-trip returns requiresHotelPayment: true.
@@ -464,6 +473,27 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
   // ── Validation ──────────────────────────────────────────────────────────────
   function validate(): string | null {
     if (!flight && !hotel) return 'Please select a flight or hotel first.';
+
+    // MEDIUM severity: Check for unaccompanied minors
+    if (childPassengers.length > 0 && passengers.length === 0) {
+      return 'At least one adult passenger is required when booking for children.';
+    }
+
+    // MEDIUM severity: Check for unaccompanied minors under 15
+    for (let i = 0; i < childPassengers.length; i++) {
+      const c = childPassengers[i];
+      if (c.dateOfBirth && c.dateOfBirth.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        const dob = new Date(c.dateOfBirth);
+        const today = new Date();
+        const age = today.getFullYear() - dob.getFullYear() -
+                    (today.getMonth() < dob.getMonth() ||
+                     (today.getMonth() === dob.getMonth() && today.getDate() < dob.getDate()) ? 1 : 0);
+        if (age < 15 && passengers.length === 0) {
+          return `Unaccompanied minors under 15 require special arrangements not available through online booking. Please contact the airline directly.`;
+        }
+      }
+    }
+
     for (let i = 0; i < passengers.length; i++) {
       const p = passengers[i];
       if (!p.firstName.trim())  return `Adult ${i + 1}: first name required`;
@@ -494,16 +524,16 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
   // Dev-only: fill all passengers with test data so the form can be bypassed
   const isDev = process.env.NODE_ENV === 'development';
   function fillTestData() {
-    const adultBase = [
-      { firstName: 'John',  lastName: 'Doe',   dateOfBirth: '1990-01-15', email: 'test@flexetravels.com',  phone: '+14165551234' },
-      { firstName: 'Jane',  lastName: 'Doe',   dateOfBirth: '1992-03-22', email: 'test2@flexetravels.com', phone: '+14165551235' },
-      { firstName: 'Alice', lastName: 'Smith', dateOfBirth: '1985-07-04', email: 'test3@flexetravels.com', phone: '+14165551236' },
-      { firstName: 'Bob',   lastName: 'Smith', dateOfBirth: '1983-11-30', email: 'test4@flexetravels.com', phone: '+14165551237' },
+    const adultBase: Passenger[] = [
+      { firstName: 'John',  lastName: 'Doe',   dateOfBirth: '1990-01-15', email: 'test@flexetravels.com',  phone: '+14165551234', title: 'mr', gender: 'm' },
+      { firstName: 'Jane',  lastName: 'Doe',   dateOfBirth: '1992-03-22', email: 'test2@flexetravels.com', phone: '+14165551235', title: 'ms', gender: 'f' },
+      { firstName: 'Alice', lastName: 'Smith', dateOfBirth: '1985-07-04', email: 'test3@flexetravels.com', phone: '+14165551236', title: 'ms', gender: 'f' },
+      { firstName: 'Bob',   lastName: 'Smith', dateOfBirth: '1983-11-30', email: 'test4@flexetravels.com', phone: '+14165551237', title: 'mr', gender: 'm' },
     ];
-    const childBase = [
-      { firstName: 'Emma',  lastName: 'Doe',   dateOfBirth: '2016-06-10' },
-      { firstName: 'Liam',  lastName: 'Doe',   dateOfBirth: '2018-11-22' },
-      { firstName: 'Olivia',lastName: 'Smith', dateOfBirth: '2019-03-05' },
+    const childBase: ChildPassenger[] = [
+      { firstName: 'Emma',  lastName: 'Doe',   dateOfBirth: '2016-06-10', gender: 'f' },
+      { firstName: 'Liam',  lastName: 'Doe',   dateOfBirth: '2018-11-22', gender: 'm' },
+      { firstName: 'Olivia',lastName: 'Smith', dateOfBirth: '2019-03-05', gender: 'f' },
     ];
     setPassengers(passengers.map((_, i) => adultBase[i] ?? adultBase[0]));
     if (childPassengers.length > 0) {
@@ -591,6 +621,8 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
           flightPriceCents,
           flightCurrency,
           flightDescription: flightDesc,
+          hotelTotalCents: hotel ? Math.round((hotel.totalPrice ?? 0) * 100) : undefined,
+          passengerCount: adults + children,
         }),
       });
       const data = await res.json() as {
@@ -616,7 +648,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
     } finally {
       setPreparing(false);
     }
-  }, [passengers, flight]);
+  }, [passengers, flight, hotel, adults, children]);
 
   // ── Pay → then Book ──────────────────────────────────────────────────────────
   // 1. Confirm payment with Stripe
@@ -678,7 +710,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
           passengers:          passengers.slice(0, adults),
           childPassengers:     childPassengers.slice(0, children),
           originAirport:       flight?.origin ?? '',
-          guestNationality:    'CA',
+          guestNationality:    nationality,
         }),
       });
 
@@ -738,6 +770,25 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
 
       setPhase('success');
       onConfirmed?.(data.flightRef, data.hotelRef);
+
+      // Send confirmation email (non-blocking)
+      fetch('/api/send-confirmation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          flightRef: data.flightRef ?? flightRef,
+          hotelRef: data.hotelRef ?? hotelRef,
+          flight,
+          hotel,
+          passengers: passengers.slice(0, adults),
+          childPassengers: childPassengers.slice(0, children),
+          adults,
+          children,
+          currency: data.currency ?? 'USD',
+          serviceFee: 20,
+          bookedAt: new Date().toISOString(),
+        }),
+      }).catch(e => console.warn('[checkout] Confirmation email failed:', e));
     } catch (e) {
       const chargedAmt = stripeTotal > 0
         ? formatPrice(stripeTotal / 100, stripeCurrency)
@@ -748,7 +799,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
       );
       setPhase('error');
     }
-  }, [paymentIntentId, stripeTotal, stripeCurrency, sessionId, flight, hotel, passengers, adults, children, childPassengers, onConfirmed]);
+  }, [paymentIntentId, stripeTotal, stripeCurrency, sessionId, flight, hotel, passengers, adults, children, childPassengers, nationality, onConfirmed]);
 
   // Service fee is always USD $20 — Stripe PaymentIntent is created in USD
   const feeDisplay = formatPrice(20, 'USD');
@@ -790,6 +841,17 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
             : `Service fee of ${feeDisplay} processed`
           } · Powered by Stripe
         </p>
+        <p className="text-[10px] text-muted-foreground/60 mt-2">
+          Questions or complaints? Contact us at{' '}
+          <a href="mailto:support@flexetravels.com" className="underline">support@flexetravels.com</a>
+          {' '}· US DOT complaint line: 1-202-366-2220
+        </p>
+        <div className="mt-3 px-3 py-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+          <p className="text-[11px] text-blue-700 dark:text-blue-300 font-medium">
+            ✈️ Under US DOT rules, you may cancel your flight free of charge within 24 hours of booking,
+            provided departure is 7+ days away.
+          </p>
+        </div>
       </div>
     );
   }
@@ -1036,6 +1098,13 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
             {/* Scrollable form area — button stays visible below */}
             <div className="space-y-5 overflow-y-auto max-h-[52vh] pr-1
                             [scrollbar-width:thin] [scrollbar-color:theme(colors.border)_transparent]">
+              {/* Privacy notice — PIPEDA/CCPA compliance */}
+              <p className="text-[10px] text-muted-foreground/70 leading-relaxed px-1">
+                Your personal information is collected to process your booking and is handled in accordance with our{' '}
+                <a href="/privacy" className="underline hover:text-teal-600 transition-colors">Privacy Policy</a>.
+                We share your details only with airlines and hotels to complete your reservation.
+              </p>
+
               {/* Dev-only: one-click test data fill */}
               {isDev && (
                 <button
@@ -1050,6 +1119,41 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                 </button>
               )}
 
+              {/* MEDIUM severity: Nationality selector — applies to all passengers */}
+              <div className="space-y-1.5 pl-1">
+                <label className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+                  Nationality (all passengers)
+                </label>
+                <select
+                  value={nationality}
+                  onChange={e => setNationality(e.target.value)}
+                  className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-border/80
+                             bg-background text-foreground focus:outline-none focus:ring-2
+                             focus:ring-teal-500/30 focus:border-teal-500 transition-all duration-150"
+                >
+                  <option value="CA">Canada (CA)</option>
+                  <option value="US">United States (US)</option>
+                  <option value="GB">United Kingdom (GB)</option>
+                  <option value="AU">Australia (AU)</option>
+                  <option value="IN">India (IN)</option>
+                  <option value="DE">Germany (DE)</option>
+                  <option value="FR">France (FR)</option>
+                  <option value="MX">Mexico (MX)</option>
+                  <option value="BR">Brazil (BR)</option>
+                  <option value="SG">Singapore (SG)</option>
+                  <option value="JP">Japan (JP)</option>
+                  <option value="NZ">New Zealand (NZ)</option>
+                  <option value="ZA">South Africa (ZA)</option>
+                  <option value="AR">Argentina (AR)</option>
+                  <option value="CH">Switzerland (CH)</option>
+                  <option value="IE">Ireland (IE)</option>
+                  <option value="NL">Netherlands (NL)</option>
+                  <option value="SE">Sweden (SE)</option>
+                  <option value="IT">Italy (IT)</option>
+                  <option value="ES">Spain (ES)</option>
+                </select>
+              </div>
+
             {/* ── Adult passengers ─────────────────────────────────────── */}
             {passengers.map((pax, i) => (
               <div key={`adult-${i}`} className="space-y-3">
@@ -1063,6 +1167,38 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                 </div>
 
                 <div className="space-y-3 pl-1">
+                  {/* Title & Gender — TSA Secure Flight requirement */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Title</label>
+                      <select
+                        value={pax.title}
+                        onChange={e => updatePassenger(i, 'title', e.target.value)}
+                        className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-border/80
+                                   bg-background text-foreground focus:outline-none focus:ring-2
+                                   focus:ring-teal-500/30 focus:border-teal-500 transition-all duration-150"
+                      >
+                        <option value="mr">Mr</option>
+                        <option value="ms">Ms</option>
+                        <option value="mrs">Mrs</option>
+                        <option value="miss">Miss</option>
+                        <option value="dr">Dr</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Gender</label>
+                      <select
+                        value={pax.gender}
+                        onChange={e => updatePassenger(i, 'gender', e.target.value)}
+                        className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-border/80
+                                   bg-background text-foreground focus:outline-none focus:ring-2
+                                   focus:ring-teal-500/30 focus:border-teal-500 transition-all duration-150"
+                      >
+                        <option value="m">Male</option>
+                        <option value="f">Female</option>
+                      </select>
+                    </div>
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <Field
                       label="First Name"
@@ -1121,6 +1257,20 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                 </div>
 
                 <div className="space-y-3 pl-1">
+                  {/* Gender — TSA Secure Flight */}
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Gender</label>
+                    <select
+                      value={child.gender}
+                      onChange={e => updateChildPassenger(i, 'gender', e.target.value)}
+                      className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-border/80
+                                 bg-background text-foreground focus:outline-none focus:ring-2
+                                 focus:ring-teal-500/30 focus:border-teal-500 transition-all duration-150"
+                    >
+                      <option value="m">Male</option>
+                      <option value="f">Female</option>
+                    </select>
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <Field
                       label="First Name"
@@ -1230,13 +1380,21 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                     <Lock className="w-3 h-3" /> Charged to your card now
                   </p>
                   {flight && (
-                    <div className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">
-                        ✈ Flight · {flight.airline} · {flight.origin} → {flight.destination}
-                      </span>
-                      <span className="font-semibold text-foreground flex-shrink-0 ml-2">
-                        {formatPrice(flight.price, flight.currency)}
-                      </span>
+                    <div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">
+                          ✈ Flight · {flight.airline} · {flight.origin} → {flight.destination}
+                        </span>
+                        <span className="font-semibold text-foreground flex-shrink-0 ml-2">
+                          {formatPrice(flight.price, flight.currency)}
+                        </span>
+                      </div>
+                      {/* MEDIUM severity: Child pricing disclosure */}
+                      {children > 0 && flight && (
+                        <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 leading-tight">
+                          Note: Child fares may differ from adult pricing shown. Final child seat prices are confirmed at booking time by the airline.
+                        </p>
+                      )}
                     </div>
                   )}
                   {!flight && (
@@ -1310,6 +1468,25 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
               </div>
             )}
 
+            {/* Terms & Conditions acceptance — consumer protection */}
+            <div className="pt-3 border-t border-border/30 mt-3">
+              <label className="flex items-start gap-2.5 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={termsAccepted}
+                  onChange={e => setTermsAccepted(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded border-border accent-teal-600"
+                />
+                <span className="text-[11px] text-muted-foreground leading-relaxed">
+                  I agree to FlexeTravels'{' '}
+                  <a href="/terms" className="underline hover:text-teal-600">Terms of Service</a>
+                  {' '}and acknowledge the{' '}
+                  <a href="/privacy" className="underline hover:text-teal-600">Privacy Policy</a>.
+                  I understand the $20 service fee is non-refundable and flight cancellation rights under US DOT regulations.
+                </span>
+              </label>
+            </div>
+
             <div className="flex gap-3 pt-4 border-t border-border/30 mt-3">
               <button
                 onClick={() => { setPhase('passengers'); setError(''); }}
@@ -1320,7 +1497,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
               </button>
               <button
                 onClick={() => void handleProceedToPayment()}
-                disabled={preparing}
+                disabled={preparing || !termsAccepted}
                 className={cn(
                   'flex-1 py-3.5 rounded-2xl text-white font-bold text-sm flex items-center justify-center gap-2 transition-all duration-150',
                   preparing

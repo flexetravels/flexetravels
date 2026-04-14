@@ -7,6 +7,7 @@ export interface FlightSegment {
   arrival:     string;
   duration:    string;   // e.g. "14h 20m"
   carrier:     string;
+  operatingCarrier?: string;
   flightNumber:string;
 }
 

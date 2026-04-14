@@ -31,6 +31,7 @@ const schema = z.object({
   flightCurrency:    z.string().min(3).max(3).default('USD'),
   flightDescription: z.string().optional(),   // e.g. "YYZ → CUN (Air Canada)"
   hotelTotalCents:   z.number().int().min(0).optional(),  // informational only — not charged here
+  passengerCount:    z.number().int().min(1).optional(),  // total passengers for metadata
 });
 
 export async function POST(req: Request) {
@@ -57,7 +58,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const { bookingReference, customerEmail, flightPriceCents, flightCurrency, flightDescription } = parsed.data;
+  const { bookingReference, customerEmail, flightPriceCents, flightCurrency, flightDescription, hotelTotalCents, passengerCount } = parsed.data;
   const currency    = flightCurrency.toLowerCase();
   const totalAmount = flightPriceCents + SERVICE_FEE_CENTS; // flight + $20 service fee
 
@@ -65,12 +66,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid total amount' }, { status: 400 });
   }
 
-  // Build a human-readable description for the Stripe dashboard and receipt
+  // MEDIUM severity: Build an improved human-readable description for the Stripe dashboard and receipt
   const flightLabel  = flightDescription ?? 'Flight';
   const flightFormatted  = `$${(flightPriceCents / 100).toFixed(2)} ${currency.toUpperCase()}`;
   const feeFormatted     = `$${(SERVICE_FEE_CENTS  / 100).toFixed(2)} ${currency.toUpperCase()}`;
   const totalFormatted   = `$${(totalAmount         / 100).toFixed(2)} ${currency.toUpperCase()}`;
-  const description = `FlexeTravels — ${flightLabel} fare ${flightFormatted} + service fee ${feeFormatted} = ${totalFormatted}`;
+  const passengerSuffix = passengerCount ? ` | Passengers: ${passengerCount}` : '';
+  const hotelSuffix = hotelTotalCents && hotelTotalCents > 0
+    ? ` | Hotel: $${(hotelTotalCents / 100).toFixed(2)} ${currency.toUpperCase()} (separate)`
+    : '';
+  const description = `FlexeTravels booking: ${flightLabel} ${flightFormatted} + service fee ${feeFormatted} = ${totalFormatted}${passengerSuffix}${hotelSuffix}`;
 
   try {
     const result = await createPaymentIntent({
@@ -86,6 +91,8 @@ export async function POST(req: Request) {
         total_cents:           String(totalAmount),
         flight_description:    flightLabel,
         booking_reference:     bookingReference,
+        passenger_count:       String(passengerCount ?? 1),
+        hotel_total_cents:     String(hotelTotalCents ?? 0),
       },
     });
 

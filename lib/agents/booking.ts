@@ -212,10 +212,11 @@ async function bookDuffelFlight(
     // ── Child seat (age 2+) ──────────────────────────────────────────────────
     if (offerPax.type === 'child' && childIdx < childList.length) {
       const c = childList[childIdx++];
+      const childGender = (c.gender ?? 'm') as 'm' | 'f';
       return {
         id:           offerPax.id,
-        title:        'mr' as const,
-        gender:       'm'  as const,
+        title:        childGender === 'f' ? 'miss' as const : 'mr' as const,
+        gender:       childGender,
         given_name:   c.firstName,
         family_name:  c.lastName,
         born_on:      c.dateOfBirth,
@@ -228,10 +229,11 @@ async function bookDuffelFlight(
     if (offerPax.type === 'infant_without_seat') {
       const infant = infantList[infantIdx++];
       if (infant) {
+        const infantGender = (infant.gender ?? 'm') as 'm' | 'f';
         return {
           id:           offerPax.id,
-          title:        'mr' as const,
-          gender:       'm'  as const,
+          title:        infantGender === 'f' ? 'miss' as const : 'mr' as const,
+          gender:       infantGender,
           given_name:   infant.firstName,
           family_name:  infant.lastName,
           born_on:      infant.dateOfBirth,
@@ -246,8 +248,8 @@ async function bookDuffelFlight(
       console.warn('[booking-agent] No infant form data — using estimated DOB for infant slot');
       return {
         id:           offerPax.id,
-        title:        'mr' as const,
-        gender:       'm'  as const,
+        title:        lead.gender === 'f' ? 'ms' as const : 'mr' as const,
+        gender:       (lead.gender ?? 'm') as 'm' | 'f',
         given_name:   'Infant',
         family_name:  lead.lastName,
         born_on:      estDob.toISOString().split('T')[0],
@@ -260,8 +262,8 @@ async function bookDuffelFlight(
     const p = passengers[Math.min(adultIdx++, passengers.length - 1)];
     return {
       id:           offerPax.id,
-      title:        'mr' as const,
-      gender:       'm'  as const,
+      title:        (p.title ?? (p.gender === 'f' ? 'ms' : 'mr')) as string,
+      gender:       (p.gender ?? 'm') as 'm' | 'f',
       given_name:   p.firstName,
       family_name:  p.lastName,
       born_on:      p.dateOfBirth,
@@ -340,19 +342,21 @@ async function bookDuffelFlight(
           const freshPassMap = freshPassengers.map((offerPax) => {
             if (offerPax.type === 'child' && freshChildIdx < freshChildList.length) {
               const c = freshChildList[freshChildIdx++];
-              return { id: offerPax.id, title: 'mr', gender: 'm', given_name: c.firstName, family_name: c.lastName, born_on: c.dateOfBirth, email: passengers[0].email, phone_number: normalisePhone(passengers[0].phone) };
+              const cg = c.gender ?? 'm';
+              return { id: offerPax.id, title: cg === 'f' ? 'miss' : 'mr', gender: cg, given_name: c.firstName, family_name: c.lastName, born_on: c.dateOfBirth, email: passengers[0].email, phone_number: normalisePhone(passengers[0].phone) };
             }
             if (offerPax.type === 'infant_without_seat') {
               const infant = freshInfantList[freshInfantIdx++];
               if (infant) {
-                return { id: offerPax.id, title: 'mr', gender: 'm', given_name: infant.firstName, family_name: infant.lastName, born_on: infant.dateOfBirth, email: passengers[0].email, phone_number: normalisePhone(passengers[0].phone) };
+                const ig = infant.gender ?? 'm';
+                return { id: offerPax.id, title: ig === 'f' ? 'miss' : 'mr', gender: ig, given_name: infant.firstName, family_name: infant.lastName, born_on: infant.dateOfBirth, email: passengers[0].email, phone_number: normalisePhone(passengers[0].phone) };
               }
               const lead = passengers[0];
               const estDob = new Date(); estDob.setMonth(estDob.getMonth() - 6);
-              return { id: offerPax.id, title: 'mr', gender: 'm', given_name: 'Infant', family_name: lead.lastName, born_on: estDob.toISOString().split('T')[0], email: lead.email, phone_number: normalisePhone(lead.phone) };
+              return { id: offerPax.id, title: lead.gender === 'f' ? 'ms' : 'mr', gender: lead.gender ?? 'm', given_name: 'Infant', family_name: lead.lastName, born_on: estDob.toISOString().split('T')[0], email: lead.email, phone_number: normalisePhone(lead.phone) };
             }
             const adult = passengers[Math.min(freshAdultIdx++, passengers.length - 1)];
-            return { id: offerPax.id, born_on: adult?.dateOfBirth, title: 'mr', gender: 'm', given_name: adult?.firstName, family_name: adult?.lastName, email: adult?.email, phone_number: normalisePhone(adult?.phone ?? '') };
+            return { id: offerPax.id, born_on: adult?.dateOfBirth, title: adult?.title ?? (adult?.gender === 'f' ? 'ms' : 'mr'), gender: adult?.gender ?? 'm', given_name: adult?.firstName, family_name: adult?.lastName, email: adult?.email, phone_number: normalisePhone(adult?.phone ?? '') };
           });
           const retryRes = await fetch('https://api.duffel.com/air/orders', {
             method: 'POST', headers,

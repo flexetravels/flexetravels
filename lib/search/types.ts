@@ -50,6 +50,7 @@ export interface NormalizedFlight {
     arrival: string;
     duration: string;
     carrier: string;
+    operatingCarrier?: string;
     flightNumber: string;
   }>;
 }
