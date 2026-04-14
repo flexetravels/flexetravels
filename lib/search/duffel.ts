@@ -65,7 +65,7 @@ function mapOffer(offer: DuffelOffer, cabinClass: string, totalPassengers: numbe
 
   // Score flexibility from Duffel conditions object
   const fareCents = Math.round(parseFloat(offer.total_amount ?? '0') * 100);
-  const flexObj   = scoreFlexibility(offer.conditions ?? null, fareCents);
+  const flexObj   = scoreFlexibility(offer.conditions ?? null, fareCents, offer.total_currency ?? 'USD');
 
   return {
     id:           offer.id,

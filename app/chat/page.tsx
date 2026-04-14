@@ -681,18 +681,26 @@ export default function ChatPage() {
             </div>
           )}
 
-          {/* ── Cart CTA — appears when a hotel (and optionally flight) is selected ── */}
-          {cartHotel && (
+          {/* ── Cart CTA — appears when a flight or hotel is selected ── */}
+          {(cartFlight || cartHotel) && (
             <div className="px-3 sm:px-4 pt-2 pb-1 border-t border-border/30
                             bg-background/95 backdrop-blur-sm">
               <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-2xl
                               bg-teal-600 text-white shadow-lg shadow-teal-900/20">
                 <div className="min-w-0">
                   <p className="text-sm font-bold leading-tight">
-                    {cartFlight ? '✈ Flight + 🏨 Hotel selected' : '🏨 Hotel selected'}
+                    {cartFlight && cartHotel
+                      ? '✈ Flight + 🏨 Hotel selected'
+                      : cartFlight
+                      ? '✈ Flight selected'
+                      : '🏨 Hotel selected'}
                   </p>
                   <p className="text-xs text-teal-100 mt-0.5 truncate">
-                    {[cartFlight?.airline, cartHotel.name].filter(Boolean).join(' · ')}
+                    {cartFlight && cartHotel
+                      ? `${cartFlight.airline} · ${cartHotel.name}`
+                      : cartFlight
+                      ? `${cartFlight.airline} · ${cartFlight.origin}→${cartFlight.destination}`
+                      : cartHotel?.name ?? ''}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
@@ -702,7 +710,7 @@ export default function ChatPage() {
                                bg-white text-teal-700 text-sm font-bold
                                hover:bg-teal-50 transition-colors"
                   >
-                    Book now
+                    {cartFlight && !cartHotel ? 'Book flight only' : 'Book now'}
                     <ArrowRight className="w-3.5 h-3.5" />
                   </button>
                   <button

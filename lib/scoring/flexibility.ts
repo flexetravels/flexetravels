@@ -42,6 +42,7 @@ export interface DuffelConditions {
 export function scoreFlexibility(
   conditions: DuffelConditions | null | undefined,
   fareCents: number,              // ticket price in cents (for penalty ratio)
+  ticketCurrency?: string,        // main fare currency — used to flag cross-currency penalties
 ): FlexibilityScore {
   // Defaults when no conditions data
   if (!conditions) {
@@ -101,11 +102,19 @@ export function scoreFlexibility(
     'Locked';
 
   // ── Summary text ───────────────────────────────────────────────────────────
+  // When penalty currency differs from the ticket's display currency, append the
+  // ISO code so the user isn't confused seeing e.g. €200 on a USD-priced ticket.
+  const crossCurrency = ticketCurrency && currency !== ticketCurrency;
+  const feeLabel = (cents: number) =>
+    crossCurrency
+      ? `${formatCents(cents, currency)} ${currency}`
+      : formatCents(cents, currency);
+
   const parts: string[] = [];
   if (refundable) {
     parts.push(
       refundPenaltyCents === 0  ? 'Free cancellation' :
-      refundPenaltyCents !== null ? `Cancel (${formatCents(refundPenaltyCents, currency)} fee)` :
+      refundPenaltyCents !== null ? `Cancel (${feeLabel(refundPenaltyCents)} fee)` :
       'Cancellation allowed'
     );
   } else {
@@ -114,7 +123,7 @@ export function scoreFlexibility(
   if (changeable) {
     parts.push(
       changePenaltyCents === 0  ? 'Free changes' :
-      changePenaltyCents !== null ? `Changes (${formatCents(changePenaltyCents, currency)} fee)` :
+      changePenaltyCents !== null ? `Changes (${feeLabel(changePenaltyCents)} fee)` :
       'Changes allowed'
     );
   } else {
