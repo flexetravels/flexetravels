@@ -129,7 +129,7 @@ export default function PartnersPage() {
                   'Access to 200+ airline NDC and GDS inventory',
                   'Passenger PII collected in-app before booking',
                   'Webhook-ready for order status updates',
-                  'Amadeus used as price-reference fallback (not bookable)',
+                  'Webhook-ready for real-time order status and itinerary updates',
                 ],
                 link: 'https://duffel.com',
               },
@@ -273,7 +273,7 @@ export default function PartnersPage() {
 
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
               {[
-                { step: '01', label: 'AI Conversation', sub: 'Claude + Grok + Gemini', color: 'from-teal-500 to-cyan-500' },
+                { step: '01', label: 'AI Conversation', sub: 'Claude + Grok + Claude Haiku', color: 'from-teal-500 to-cyan-500' },
                 { step: '02', label: 'Live Search',     sub: 'Duffel · LiteAPI · FSQ', color: 'from-violet-500 to-purple-500' },
                 { step: '03', label: 'Card Selection',  sub: 'UI + booking state machine', color: 'from-amber-500 to-orange-500' },
                 { step: '04', label: 'Stripe Payment',  sub: 'Webhook verification',   color: 'from-rose-500 to-pink-500' },
@@ -479,17 +479,13 @@ export default function PartnersPage() {
             </span>
           </Link>
           <div className="flex gap-6">
-            {[{href:'/how-it-works',label:'How It Works'},{href:'/about',label:'About'},{href:'/chat',label:'Start Planning'}].map(l => (
+            {[{href:'/how-it-works',label:'How It Works'},{href:'/about',label:'About'},{href:'/contact',label:'Contact'},{href:'/chat',label:'Start Planning'}].map(l => (
               <Link key={l.href} href={l.href} className="text-white/30 hover:text-white/70 text-xs transition-colors">
                 {l.label}
               </Link>
             ))}
-            <a href="tel:+17789016639" className="text-white/30 hover:text-teal-400 text-xs transition-colors">+1 778-901-6639</a>
           </div>
-          <p className="text-white/18 text-[10px]">
-            © {new Date().getFullYear()} FlexeTravels &nbsp;·&nbsp;{' '}
-            <a href="tel:+17789016639" className="hover:text-white/40 transition-colors">+1 778-901-6639</a>
-          </p>
+          <p className="text-white/18 text-[10px]">© {new Date().getFullYear()} FlexeTravels</p>
         </div>
       </footer>
     </div>

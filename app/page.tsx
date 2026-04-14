@@ -950,6 +950,7 @@ export default function LandingPage() {
                 { href: '/how-it-works', label: 'How It Works' },
                 { href: '/about',        label: 'About' },
                 { href: '/partners',     label: 'For Partners' },
+                { href: '/contact',      label: 'Contact' },
                 { href: '/chat',         label: 'Start Planning' },
               ].map(l => (
                 <Link key={l.href} href={l.href}
@@ -964,15 +965,9 @@ export default function LandingPage() {
             <p className="text-white/18 text-[10px] max-w-2xl leading-relaxed text-center sm:text-left">
               FlexeTravels is a technology platform. Flights are booked through IATA-accredited channels.
               Flat $20 service fee per booking. Prices are live at time of search — always confirm before payment.{' '}
-              BC travel agent licence.{' '}
-              Phone: <a href="tel:+17789016639" className="hover:text-white/40 transition-colors">+1 778-901-6639</a>
+              BC travel agent licence.
             </p>
-            <div className="flex items-center gap-4 flex-shrink-0">
-              <a href="tel:+17789016639" className="text-white/35 hover:text-teal-400 text-[10px] transition-colors">
-                +1 778-901-6639
-              </a>
-              <p className="text-white/18 text-[10px]">© {new Date().getFullYear()} FlexeTravels</p>
-            </div>
+            <p className="text-white/18 text-[10px] flex-shrink-0">© {new Date().getFullYear()} FlexeTravels</p>
           </div>
         </div>
       </footer>

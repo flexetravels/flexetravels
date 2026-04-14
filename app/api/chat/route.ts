@@ -2,8 +2,8 @@
 // Primary model:   Claude (anthropic)  — orchestrates all tools and conversation
 // Market intel:    Grok (xAI)          — price comparison & market insights
 // Destination AI:  Claude (Anthropic)     — travel guides & alternative suggestions
-// Flights:         Duffel (bookable) + Amadeus (price reference)
-// Hotels:          LiteAPI (live rates) + Amadeus fallback + sample fallback
+// Flights:         Duffel (bookable, IATA-accredited)
+// Hotels:          LiteAPI (live rates) + sample fallback
 // Experiences:     OpenTripMap (POI discovery) → Viator (bookable, coming soon)
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -362,7 +362,7 @@ export async function POST(req: Request) {
       // ── Multi-source flight search ──────────────────────────────────────────
       searchFlights: tool({
         description:
-          'Search flights across Duffel + Amadeus in parallel. Returns best-priced options ranked cheapest first. Duffel results are bookable; Amadeus are price references only.',
+          'Search flights via Duffel. Returns best-priced options ranked cheapest first. All results are confirmed-bookable through Duffel (IATA-accredited).',
         parameters: z.object({
           origin:        z.string().describe('Origin IATA airport code e.g. YVR, JFK'),
           destination:   z.string().describe('Destination IATA airport code e.g. CUN, NRT, LHR'),
@@ -411,10 +411,10 @@ export async function POST(req: Request) {
         },
       }),
 
-      // ── Duffel-only flight search (for booking Amadeus reference fares) ────
+      // ── Duffel-only flight search (targeted retry) ───────────────────────────
       searchBookableFlights: tool({
         description:
-          'Search ONLY Duffel for bookable flights on the same route. Use when user wants to book an Amadeus reference fare — find the equivalent Duffel offer first.',
+          'Search Duffel for bookable flights on a specific route. Use as a targeted retry when the main search returned no suitable results.',
         parameters: z.object({
           origin:        z.string().describe('Origin IATA airport code'),
           destination:   z.string().describe('Destination IATA airport code'),

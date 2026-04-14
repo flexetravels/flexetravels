@@ -392,18 +392,15 @@ export default function TermsPage() {
             {[
               {href:'/privacy',label:'Privacy'},
               {href:'/terms',label:'Terms'},
+              {href:'/contact',label:'Contact'},
               {href:'/chat',label:'Start Planning'}
             ].map(l => (
               <Link key={l.href} href={l.href} className="text-white/30 hover:text-white/70 text-xs transition-colors">
                 {l.label}
               </Link>
             ))}
-            <a href="tel:+17789016639" className="text-white/30 hover:text-teal-400 text-xs transition-colors">+1 778-901-6639</a>
           </div>
-          <p className="text-white/18 text-[10px]">
-            © {new Date().getFullYear()} FlexeTravels &nbsp;·&nbsp;{' '}
-            <a href="tel:+17789016639" className="hover:text-white/40 transition-colors">+1 778-901-6639</a>
-          </p>
+          <p className="text-white/18 text-[10px]">© {new Date().getFullYear()} FlexeTravels</p>
         </div>
       </footer>
     </div>

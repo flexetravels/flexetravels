@@ -98,7 +98,7 @@ export default function AboutPage() {
                 {
                   icon: <Brain className="w-5 h-5" />, color: 'text-violet-400 bg-violet-400/10 border-violet-400/20',
                   title: 'Three AIs, one answer',
-                  desc: 'Claude orchestrates the conversation, Grok surfaces price intelligence, Gemini writes your destination guide. Three specialized models, seamlessly coordinated.',
+                  desc: 'Claude orchestrates the conversation, Grok surfaces price intelligence, Claude Haiku writes your destination guide — fast and cheap for travel content.',
                 },
               ].map(item => (
                 <div key={item.title}
@@ -183,9 +183,9 @@ export default function AboutPage() {
               },
               {
                 icon: <Sparkles className="w-6 h-6 text-white" />, grad: 'from-emerald-500 to-teal-600',
-                name: 'Gemini (Google)',
+                name: 'Claude Haiku',
                 role: 'Destination guides',
-                desc: 'Best time to visit, neighbourhood breakdowns, visa info, currency tips, and AI-generated alternative destination suggestions.',
+                desc: 'Fast, lightweight Claude model for destination guides — best time to visit, neighbourhood breakdowns, visa info, currency tips, and alternative suggestions.',
               },
             ].map(item => (
               <div key={item.name}
@@ -293,17 +293,13 @@ export default function AboutPage() {
             </span>
           </Link>
           <div className="flex gap-6">
-            {[{href:'/how-it-works',label:'How It Works'},{href:'/partners',label:'Partners'},{href:'/chat',label:'Start Planning'}].map(l => (
+            {[{href:'/how-it-works',label:'How It Works'},{href:'/partners',label:'Partners'},{href:'/contact',label:'Contact'},{href:'/chat',label:'Start Planning'}].map(l => (
               <Link key={l.href} href={l.href} className="text-white/30 hover:text-white/70 text-xs transition-colors">
                 {l.label}
               </Link>
             ))}
-            <a href="tel:+17789016639" className="text-white/30 hover:text-teal-400 text-xs transition-colors">+1 778-901-6639</a>
           </div>
-          <p className="text-white/18 text-[10px]">
-            © {new Date().getFullYear()} FlexeTravels &nbsp;·&nbsp;{' '}
-            <a href="tel:+17789016639" className="hover:text-white/40 transition-colors">+1 778-901-6639</a>
-          </p>
+          <p className="text-white/18 text-[10px]">© {new Date().getFullYear()} FlexeTravels</p>
         </div>
       </footer>
     </div>

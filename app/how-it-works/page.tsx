@@ -123,9 +123,9 @@ export default function HowItWorksPage() {
                   { icon: <Plane className="w-4 h-4" />, text: 'Duffel searches 200+ airlines for bookable flights from your origin city' },
                   { icon: <Globe className="w-4 h-4" />, text: 'LiteAPI searches 1M+ hotels with live real-time rates' },
                   { icon: <Zap className="w-4 h-4" />, text: 'Grok checks current market prices — "is this a good deal?" context' },
-                  { icon: <Sparkles className="w-4 h-4" />, text: 'Gemini writes your destination guide with visa info, best time to visit, local tips' },
+                  { icon: <Sparkles className="w-4 h-4" />, text: 'Claude writes your destination guide with visa info, best time to visit, local tips' },
                 ],
-                tip: 'The AI tells you which flights are confirmed-bookable (Duffel ✅) vs. reference-only (Amadeus — for price comparison only).',
+                tip: 'All flights shown are confirmed-bookable through Duffel — an IATA-accredited distribution channel.',
               },
               {
                 n: '03', grad: 'from-amber-500 to-orange-500',
@@ -228,13 +228,13 @@ export default function HowItWorksPage() {
             {[
               { icon: '✈', title: 'Real confirmed bookings', desc: 'Not links. Not referrals. Actual Duffel flight orders and LiteAPI hotel reservations with real booking references.' },
               { icon: '🏨', title: 'Live hotel rates', desc: 'Hotel prices are fetched in real-time when you search — not cached. You see the actual rate available at that moment.' },
-              { icon: '🗺', title: 'Destination guides', desc: 'Every search includes a Gemini-generated guide: best time to visit, visa info, currency tips, neighbourhood breakdown.' },
+              { icon: '🗺', title: 'Destination guides', desc: 'Every search includes an AI-generated guide: best time to visit, visa info, currency tips, neighbourhood breakdown.' },
               { icon: '💡', title: 'Price intelligence', desc: 'Grok gives you market context — is this flight price high for the season? Will hotels be more expensive during the festival?' },
               { icon: '📱', title: 'Works great on mobile', desc: 'Fully responsive for iPhone and Android. Font sizes prevent iOS zoom, safe area insets handle notches. 44px tap targets everywhere.' },
               { icon: '🧳', title: 'Itinerary sidebar', desc: 'Drag-and-drop day planner builds as you chat. Add activities by category, see your flight and hotel tiles at a glance.' },
               { icon: '💳', title: 'Flat $20 service fee', desc: 'One flat fee per booking. No per-passenger charges, no OTA markup on prices. The flight and hotel cost exactly what Duffel and LiteAPI charge.' },
               { icon: '🔒', title: 'Payments via Stripe', desc: 'PCI-compliant Stripe Payment Element. Your card details never touch FlexeTravels servers — handled entirely by Stripe.' },
-              { icon: '🌐', title: 'Multi-model AI', desc: 'Claude orchestrates, Grok adds price context, Gemini writes destination guides. Three specialized models in one conversation.' },
+              { icon: '🌐', title: 'Multi-model AI', desc: 'Claude orchestrates, Grok adds price context, Claude Haiku writes destination guides. Three specialized models in one conversation.' },
             ].map(f => (
               <div key={f.title}
                 className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-5
@@ -342,17 +342,13 @@ export default function HowItWorksPage() {
             </span>
           </Link>
           <div className="flex gap-6">
-            {[{href:'/about',label:'About'},{href:'/partners',label:'Partners'},{href:'/chat',label:'Start Planning'}].map(l => (
+            {[{href:'/about',label:'About'},{href:'/partners',label:'Partners'},{href:'/contact',label:'Contact'},{href:'/chat',label:'Start Planning'}].map(l => (
               <Link key={l.href} href={l.href} className="text-white/30 hover:text-white/70 text-xs transition-colors">
                 {l.label}
               </Link>
             ))}
-            <a href="tel:+17789016639" className="text-white/30 hover:text-teal-400 text-xs transition-colors">+1 778-901-6639</a>
           </div>
-          <p className="text-white/18 text-[10px]">
-            © {new Date().getFullYear()} FlexeTravels &nbsp;·&nbsp;{' '}
-            <a href="tel:+17789016639" className="hover:text-white/40 transition-colors">+1 778-901-6639</a>
-          </p>
+          <p className="text-white/18 text-[10px]">© {new Date().getFullYear()} FlexeTravels</p>
         </div>
       </footer>
     </div>
