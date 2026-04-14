@@ -18,6 +18,10 @@ const PassengerSchema = z.object({
   phone:       z.string().min(6),
   title:       z.enum(['mr', 'ms', 'mrs', 'miss', 'dr']).optional().default('mr'),
   gender:      z.enum(['m', 'f']).optional().default('m'),
+  // Passport / travel document — required by Duffel for international flights
+  passportNumber:         z.string().optional(),
+  passportIssuingCountry: z.string().length(2).optional(),   // ISO 3166-1 alpha-2
+  passportExpiry:         z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
 const ChildPassengerSchema = z.object({
@@ -25,6 +29,10 @@ const ChildPassengerSchema = z.object({
   lastName:    z.string().min(1),
   dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD format required'),
   gender:      z.enum(['m', 'f']).optional().default('m'),
+  // Passport / travel document
+  passportNumber:         z.string().optional(),
+  passportIssuingCountry: z.string().length(2).optional(),
+  passportExpiry:         z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
 const BodySchema = z.object({

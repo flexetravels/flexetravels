@@ -97,6 +97,10 @@ export interface PassengerDetail {
   phone:       string;
   title?:      'mr' | 'ms' | 'mrs' | 'miss' | 'dr';
   gender?:     'm' | 'f';
+  /** Passport / travel document fields — required by Duffel for international flights */
+  passportNumber?:         string;   // document number
+  passportIssuingCountry?: string;   // ISO 3166-1 alpha-2, e.g. 'CA'
+  passportExpiry?:         string;   // YYYY-MM-DD
 }
 
 export interface ChildPassengerDetail {
@@ -104,6 +108,10 @@ export interface ChildPassengerDetail {
   lastName:    string;
   dateOfBirth: string;
   gender?:     'm' | 'f';
+  /** Passport / travel document fields — required by Duffel for international flights */
+  passportNumber?:         string;
+  passportIssuingCountry?: string;
+  passportExpiry?:         string;
 }
 
 export interface BookingResult {

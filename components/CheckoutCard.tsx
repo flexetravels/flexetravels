@@ -67,6 +67,10 @@ interface Passenger {
   title:       'mr' | 'ms' | 'mrs' | 'miss' | 'dr';
   gender:      'm' | 'f';
   nationality?: string;  // MEDIUM severity: nationality code (e.g., 'CA', 'US', 'GB')
+  // Passport / travel document — required by Duffel for international flights
+  passportNumber:         string;   // document number
+  passportIssuingCountry: string;   // ISO 3166-1 alpha-2 e.g. 'CA'
+  passportExpiry:         string;   // YYYY-MM-DD
 }
 
 interface ChildPassenger {
@@ -74,15 +78,21 @@ interface ChildPassenger {
   lastName:    string;
   dateOfBirth: string;   // YYYY-MM-DD — needed to calculate age for Duffel/LiteAPI
   gender:      'm' | 'f';
+  // Passport / travel document
+  passportNumber:         string;
+  passportIssuingCountry: string;
+  passportExpiry:         string;
 }
 
 const blankPassenger = (): Passenger => ({
   firstName: '', lastName: '', dateOfBirth: '', email: '', phone: '',
   title: 'mr', gender: 'm',
+  passportNumber: '', passportIssuingCountry: 'CA', passportExpiry: '',
 });
 
 const blankChild = (): ChildPassenger => ({
   firstName: '', lastName: '', dateOfBirth: '', gender: 'm',
+  passportNumber: '', passportIssuingCountry: 'CA', passportExpiry: '',
 });
 
 interface CheckoutCardProps {
@@ -362,6 +372,69 @@ const MONTHS = [
   'July','August','September','October','November','December',
 ];
 
+// Countries used for nationality selector and passport issuing country dropdown.
+// ISO 3166-1 alpha-2 codes — sorted alphabetically by name.
+const COUNTRIES: { code: string; name: string }[] = [
+  { code: 'AR', name: 'Argentina' },
+  { code: 'AU', name: 'Australia' },
+  { code: 'AT', name: 'Austria' },
+  { code: 'BE', name: 'Belgium' },
+  { code: 'BR', name: 'Brazil' },
+  { code: 'CA', name: 'Canada' },
+  { code: 'CL', name: 'Chile' },
+  { code: 'CN', name: 'China' },
+  { code: 'CO', name: 'Colombia' },
+  { code: 'HR', name: 'Croatia' },
+  { code: 'CZ', name: 'Czech Republic' },
+  { code: 'DK', name: 'Denmark' },
+  { code: 'EG', name: 'Egypt' },
+  { code: 'EE', name: 'Estonia' },
+  { code: 'FI', name: 'Finland' },
+  { code: 'FR', name: 'France' },
+  { code: 'DE', name: 'Germany' },
+  { code: 'GR', name: 'Greece' },
+  { code: 'HU', name: 'Hungary' },
+  { code: 'IN', name: 'India' },
+  { code: 'ID', name: 'Indonesia' },
+  { code: 'IE', name: 'Ireland' },
+  { code: 'IL', name: 'Israel' },
+  { code: 'IT', name: 'Italy' },
+  { code: 'JP', name: 'Japan' },
+  { code: 'KE', name: 'Kenya' },
+  { code: 'KR', name: 'South Korea' },
+  { code: 'LV', name: 'Latvia' },
+  { code: 'LT', name: 'Lithuania' },
+  { code: 'MY', name: 'Malaysia' },
+  { code: 'MX', name: 'Mexico' },
+  { code: 'MA', name: 'Morocco' },
+  { code: 'NL', name: 'Netherlands' },
+  { code: 'NZ', name: 'New Zealand' },
+  { code: 'NG', name: 'Nigeria' },
+  { code: 'NO', name: 'Norway' },
+  { code: 'PK', name: 'Pakistan' },
+  { code: 'PE', name: 'Peru' },
+  { code: 'PH', name: 'Philippines' },
+  { code: 'PL', name: 'Poland' },
+  { code: 'PT', name: 'Portugal' },
+  { code: 'RO', name: 'Romania' },
+  { code: 'RU', name: 'Russia' },
+  { code: 'SA', name: 'Saudi Arabia' },
+  { code: 'RS', name: 'Serbia' },
+  { code: 'SG', name: 'Singapore' },
+  { code: 'SK', name: 'Slovakia' },
+  { code: 'ZA', name: 'South Africa' },
+  { code: 'ES', name: 'Spain' },
+  { code: 'SE', name: 'Sweden' },
+  { code: 'CH', name: 'Switzerland' },
+  { code: 'TH', name: 'Thailand' },
+  { code: 'TR', name: 'Turkey' },
+  { code: 'AE', name: 'United Arab Emirates' },
+  { code: 'GB', name: 'United Kingdom' },
+  { code: 'US', name: 'United States' },
+  { code: 'UA', name: 'Ukraine' },
+  { code: 'VN', name: 'Vietnam' },
+];
+
 function DOBPicker({
   label,
   value,
@@ -465,6 +538,92 @@ function DOBPicker({
           {days.map(d => (
             <option key={d} value={String(d).padStart(2, '0')}>{d}</option>
           ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
+// ─── Passport expiry picker — Year / Month / Day dropdowns ───────────────────
+// Same pattern as DOBPicker but year range is current year → current year + 10.
+// Passport must be valid at time of travel (most countries require 6+ months
+// beyond the return date). We validate in the form that expiry > today.
+
+function PassportExpiryPicker({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;       // YYYY-MM-DD or ''
+  onChange: (v: string) => void;
+}) {
+  const [year,  setYear]  = useState<string>(() => value.match(/^(\d{4})-/)?.[1]       ?? '');
+  const [month, setMonth] = useState<string>(() => value.match(/^\d{4}-(\d{2})-/)?.[1] ?? '');
+  const [day,   setDay]   = useState<string>(() => value.match(/\d{4}-\d{2}-(\d{2})$/)?.[1] ?? '');
+
+  useEffect(() => {
+    const p = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (p) { setYear(p[1]); setMonth(p[2]); setDay(p[3]); }
+  }, [value]);
+
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: 11 }, (_, i) => currentYear + i); // current to +10
+
+  const daysInMonth = year && month
+    ? new Date(parseInt(year), parseInt(month), 0).getDate()
+    : 31;
+  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+  const notify = (y: string, m: string, d: string) => {
+    if (y && m && d) {
+      const maxDay = new Date(parseInt(y), parseInt(m), 0).getDate();
+      const clampedDay = Math.min(parseInt(d), maxDay).toString().padStart(2, '0');
+      onChange(`${y}-${m.padStart(2, '0')}-${clampedDay}`);
+    }
+  };
+
+  const handleYear = (y: string) => {
+    setYear(y);
+    const clampedDay = (y && month && day)
+      ? Math.min(parseInt(day), new Date(parseInt(y), parseInt(month), 0).getDate()).toString().padStart(2, '0')
+      : day;
+    if (clampedDay !== day) setDay(clampedDay);
+    notify(y, month, clampedDay);
+  };
+  const handleMonth = (m: string) => {
+    setMonth(m);
+    const clampedDay = (year && m && day)
+      ? Math.min(parseInt(day), new Date(parseInt(year), parseInt(m), 0).getDate()).toString().padStart(2, '0')
+      : day;
+    if (clampedDay !== day) setDay(clampedDay);
+    notify(year, m, clampedDay);
+  };
+  const handleDay = (d: string) => { setDay(d); notify(year, month, d); };
+
+  const selectCls = 'w-full px-3 py-2.5 text-sm rounded-xl border border-border/80 bg-background ' +
+    'text-foreground focus:outline-none focus:ring-2 focus:ring-teal-500/30 ' +
+    'focus:border-teal-500 transition-all duration-150';
+
+  return (
+    <div className="space-y-1.5">
+      <label className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+        {label}
+      </label>
+      <div className="grid grid-cols-3 gap-2">
+        <select value={year} onChange={e => handleYear(e.target.value)} className={selectCls}>
+          <option value="">Year</option>
+          {years.map(y => <option key={y} value={String(y)}>{y}</option>)}
+        </select>
+        <select value={month} onChange={e => handleMonth(e.target.value)} className={selectCls}>
+          <option value="">Month</option>
+          {MONTHS.map((name, i) => (
+            <option key={i} value={String(i + 1).padStart(2, '0')}>{name}</option>
+          ))}
+        </select>
+        <select value={day} onChange={e => handleDay(e.target.value)} className={selectCls}>
+          <option value="">Day</option>
+          {days.map(d => <option key={d} value={String(d).padStart(2, '0')}>{d}</option>)}
         </select>
       </div>
     </div>
@@ -748,6 +907,9 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
       }
     }
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     for (let i = 0; i < passengers.length; i++) {
       const p = passengers[i];
       if (!p.firstName.trim())  return `Adult ${i + 1}: first name required`;
@@ -756,6 +918,17 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
         return `Adult ${i + 1}: date of birth required`;
       if (!p.email.includes('@')) return `Adult ${i + 1}: valid email required`;
       if (!p.phone.trim())      return `Adult ${i + 1}: phone required`;
+      // Passport validation — required when booking a flight
+      if (flight) {
+        if (!p.passportNumber.trim())
+          return `Adult ${i + 1}: passport number required`;
+        if (!p.passportIssuingCountry)
+          return `Adult ${i + 1}: passport issuing country required`;
+        if (!p.passportExpiry.match(/^\d{4}-\d{2}-\d{2}$/))
+          return `Adult ${i + 1}: passport expiry date required`;
+        if (new Date(p.passportExpiry) <= today)
+          return `Adult ${i + 1}: passport has expired — please use a valid passport`;
+      }
     }
     for (let i = 0; i < childPassengers.length; i++) {
       const c = childPassengers[i];
@@ -763,6 +936,17 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
       if (!c.lastName.trim())   return `Child ${i + 1}: last name required`;
       if (!c.dateOfBirth.match(/^\d{4}-\d{2}-\d{2}$/))
         return `Child ${i + 1}: date of birth required`;
+      // Passport validation for children on flights
+      if (flight) {
+        if (!c.passportNumber.trim())
+          return `Child ${i + 1}: passport number required`;
+        if (!c.passportIssuingCountry)
+          return `Child ${i + 1}: passport issuing country required`;
+        if (!c.passportExpiry.match(/^\d{4}-\d{2}-\d{2}$/))
+          return `Child ${i + 1}: passport expiry date required`;
+        if (new Date(c.passportExpiry) <= today)
+          return `Child ${i + 1}: passport has expired — please use a valid passport`;
+      }
     }
     return null;
   }
@@ -779,15 +963,15 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
   const isDev = process.env.NODE_ENV === 'development';
   function fillTestData() {
     const adultBase: Passenger[] = [
-      { firstName: 'John',  lastName: 'Doe',   dateOfBirth: '1990-01-15', email: 'test@flexetravels.com',  phone: '+14165551234', title: 'mr', gender: 'm' },
-      { firstName: 'Jane',  lastName: 'Doe',   dateOfBirth: '1992-03-22', email: 'test2@flexetravels.com', phone: '+14165551235', title: 'ms', gender: 'f' },
-      { firstName: 'Alice', lastName: 'Smith', dateOfBirth: '1985-07-04', email: 'test3@flexetravels.com', phone: '+14165551236', title: 'ms', gender: 'f' },
-      { firstName: 'Bob',   lastName: 'Smith', dateOfBirth: '1983-11-30', email: 'test4@flexetravels.com', phone: '+14165551237', title: 'mr', gender: 'm' },
+      { firstName: 'John',  lastName: 'Doe',   dateOfBirth: '1990-01-15', email: 'test@flexetravels.com',  phone: '+14165551234', title: 'mr', gender: 'm', passportNumber: 'AB123456', passportIssuingCountry: 'CA', passportExpiry: '2029-06-30' },
+      { firstName: 'Jane',  lastName: 'Doe',   dateOfBirth: '1992-03-22', email: 'test2@flexetravels.com', phone: '+14165551235', title: 'ms', gender: 'f', passportNumber: 'CD789012', passportIssuingCountry: 'CA', passportExpiry: '2028-09-15' },
+      { firstName: 'Alice', lastName: 'Smith', dateOfBirth: '1985-07-04', email: 'test3@flexetravels.com', phone: '+14165551236', title: 'ms', gender: 'f', passportNumber: 'EF345678', passportIssuingCountry: 'CA', passportExpiry: '2027-12-31' },
+      { firstName: 'Bob',   lastName: 'Smith', dateOfBirth: '1983-11-30', email: 'test4@flexetravels.com', phone: '+14165551237', title: 'mr', gender: 'm', passportNumber: 'GH901234', passportIssuingCountry: 'CA', passportExpiry: '2030-03-22' },
     ];
     const childBase: ChildPassenger[] = [
-      { firstName: 'Emma',  lastName: 'Doe',   dateOfBirth: '2016-06-10', gender: 'f' },
-      { firstName: 'Liam',  lastName: 'Doe',   dateOfBirth: '2018-11-22', gender: 'm' },
-      { firstName: 'Olivia',lastName: 'Smith', dateOfBirth: '2019-03-05', gender: 'f' },
+      { firstName: 'Emma',  lastName: 'Doe',   dateOfBirth: '2016-06-10', gender: 'f', passportNumber: 'IJ567890', passportIssuingCountry: 'CA', passportExpiry: '2028-06-10' },
+      { firstName: 'Liam',  lastName: 'Doe',   dateOfBirth: '2018-11-22', gender: 'm', passportNumber: 'KL123456', passportIssuingCountry: 'CA', passportExpiry: '2027-11-22' },
+      { firstName: 'Olivia',lastName: 'Smith', dateOfBirth: '2019-03-05', gender: 'f', passportNumber: 'MN789012', passportIssuingCountry: 'CA', passportExpiry: '2029-03-05' },
     ];
     setPassengers(passengers.map((_, i) => adultBase[i] ?? adultBase[0]));
     if (childPassengers.length > 0) {
@@ -1400,26 +1584,9 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                              bg-background text-foreground focus:outline-none focus:ring-2
                              focus:ring-teal-500/30 focus:border-teal-500 transition-all duration-150"
                 >
-                  <option value="CA">Canada (CA)</option>
-                  <option value="US">United States (US)</option>
-                  <option value="GB">United Kingdom (GB)</option>
-                  <option value="AU">Australia (AU)</option>
-                  <option value="IN">India (IN)</option>
-                  <option value="DE">Germany (DE)</option>
-                  <option value="FR">France (FR)</option>
-                  <option value="MX">Mexico (MX)</option>
-                  <option value="BR">Brazil (BR)</option>
-                  <option value="SG">Singapore (SG)</option>
-                  <option value="JP">Japan (JP)</option>
-                  <option value="NZ">New Zealand (NZ)</option>
-                  <option value="ZA">South Africa (ZA)</option>
-                  <option value="AR">Argentina (AR)</option>
-                  <option value="CH">Switzerland (CH)</option>
-                  <option value="IE">Ireland (IE)</option>
-                  <option value="NL">Netherlands (NL)</option>
-                  <option value="SE">Sweden (SE)</option>
-                  <option value="IT">Italy (IT)</option>
-                  <option value="ES">Spain (ES)</option>
+                  {COUNTRIES.map(c => (
+                    <option key={c.code} value={c.code}>{c.name} ({c.code})</option>
+                  ))}
                 </select>
               </div>
 
@@ -1503,6 +1670,45 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                       placeholder="+1 416 555 1234"
                     />
                   </div>
+
+                  {/* ── Passport / Travel Document ─────────────────────────── */}
+                  {flight && (
+                    <div className="space-y-3 pt-1">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-1.5">
+                        <svg className="w-3 h-3 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M3 4a2 2 0 012-2h10a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V4zm2 0h10v12H5V4zm2 3a1 1 0 000 2h6a1 1 0 000-2H7zm0 3a1 1 0 000 2h4a1 1 0 000-2H7z" clipRule="evenodd" />
+                        </svg>
+                        Passport / Travel Document
+                      </p>
+                      <Field
+                        label="Passport Number"
+                        value={pax.passportNumber}
+                        onChange={v => updatePassenger(i, 'passportNumber', v.toUpperCase())}
+                        placeholder="e.g. AB 123456"
+                      />
+                      <div className="space-y-1.5">
+                        <label className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+                          Issuing Country
+                        </label>
+                        <select
+                          value={pax.passportIssuingCountry}
+                          onChange={e => updatePassenger(i, 'passportIssuingCountry', e.target.value)}
+                          className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-border/80
+                                     bg-background text-foreground focus:outline-none focus:ring-2
+                                     focus:ring-teal-500/30 focus:border-teal-500 transition-all duration-150"
+                        >
+                          {COUNTRIES.map(c => (
+                            <option key={c.code} value={c.code}>{c.name} ({c.code})</option>
+                          ))}
+                        </select>
+                      </div>
+                      <PassportExpiryPicker
+                        label="Expiry Date"
+                        value={pax.passportExpiry}
+                        onChange={v => updatePassenger(i, 'passportExpiry', v)}
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {(i < passengers.length - 1 || childPassengers.length > 0) && (
@@ -1563,6 +1769,45 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                       <ChildAgeBadge dob={child.dateOfBirth} />
                     </div>
                   </div>
+
+                  {/* ── Passport / Travel Document ─────────────────────────── */}
+                  {flight && (
+                    <div className="space-y-3 pt-1">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-1.5">
+                        <svg className="w-3 h-3 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M3 4a2 2 0 012-2h10a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V4zm2 0h10v12H5V4zm2 3a1 1 0 000 2h6a1 1 0 000-2H7zm0 3a1 1 0 000 2h4a1 1 0 000-2H7z" clipRule="evenodd" />
+                        </svg>
+                        Passport / Travel Document
+                      </p>
+                      <Field
+                        label="Passport Number"
+                        value={child.passportNumber}
+                        onChange={v => updateChildPassenger(i, 'passportNumber', v.toUpperCase())}
+                        placeholder="e.g. AB 123456"
+                      />
+                      <div className="space-y-1.5">
+                        <label className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+                          Issuing Country
+                        </label>
+                        <select
+                          value={child.passportIssuingCountry}
+                          onChange={e => updateChildPassenger(i, 'passportIssuingCountry', e.target.value)}
+                          className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-border/80
+                                     bg-background text-foreground focus:outline-none focus:ring-2
+                                     focus:ring-teal-500/30 focus:border-teal-500 transition-all duration-150"
+                        >
+                          {COUNTRIES.map(c => (
+                            <option key={c.code} value={c.code}>{c.name} ({c.code})</option>
+                          ))}
+                        </select>
+                      </div>
+                      <PassportExpiryPicker
+                        label="Expiry Date"
+                        value={child.passportExpiry}
+                        onChange={v => updateChildPassenger(i, 'passportExpiry', v)}
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {i < childPassengers.length - 1 && (
@@ -1625,6 +1870,11 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                     </p>
                     <p className="text-xs text-muted-foreground">DOB: {pax.dateOfBirth}</p>
                     <p className="text-xs text-muted-foreground">{pax.email} · {pax.phone}</p>
+                    {pax.passportNumber && (
+                      <p className="text-xs text-muted-foreground">
+                        Passport: {pax.passportNumber} · {pax.passportIssuingCountry} · Exp: {pax.passportExpiry}
+                      </p>
+                    )}
                   </div>
                 ))}
                 {childPassengers.map((child, i) => (
@@ -1636,6 +1886,11 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                       </span>
                     </p>
                     <p className="text-xs text-muted-foreground">DOB: {child.dateOfBirth}</p>
+                    {child.passportNumber && (
+                      <p className="text-xs text-muted-foreground">
+                        Passport: {child.passportNumber} · {child.passportIssuingCountry} · Exp: {child.passportExpiry}
+                      </p>
+                    )}
                     <ChildAgeBadge dob={child.dateOfBirth} />
                   </div>
                 ))}

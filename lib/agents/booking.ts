@@ -126,6 +126,7 @@ async function bookDuffelFlight(
     childrenAges?: number[];   // for correct slot count on 422 retry
     infantCount?: number;      // lap infants for 422 retry
   },
+  guestNationality?: string,   // ISO alpha-2, used as nationality_country_code in documents
 ): Promise<{
   success: boolean;
   bookingRef?: string;
@@ -213,9 +214,9 @@ async function bookDuffelFlight(
     if (offerPax.type === 'child' && childIdx < childList.length) {
       const c = childList[childIdx++];
       const childGender = (c.gender ?? 'm') as 'm' | 'f';
-      return {
+      const childPax: Record<string, unknown> = {
         id:           offerPax.id,
-        title:        childGender === 'f' ? 'miss' as const : 'mr' as const,
+        title:        childGender === 'f' ? 'miss' : 'mr',
         gender:       childGender,
         given_name:   c.firstName,
         family_name:  c.lastName,
@@ -223,6 +224,16 @@ async function bookDuffelFlight(
         email:        passengers[0].email,
         phone_number: normalisePhone(passengers[0].phone),
       };
+      if (c.passportNumber && c.passportIssuingCountry && c.passportExpiry) {
+        childPax.documents = [{
+          type:                     'passport',
+          unique_identifier:        c.passportNumber,
+          expires_on:               c.passportExpiry,
+          issuing_country_code:     c.passportIssuingCountry.toUpperCase(),
+          nationality_country_code: (guestNationality ?? c.passportIssuingCountry).toUpperCase(),
+        }];
+      }
+      return childPax;
     }
 
     // ── Lap infant (age < 2) ─────────────────────────────────────────────────
@@ -230,9 +241,9 @@ async function bookDuffelFlight(
       const infant = infantList[infantIdx++];
       if (infant) {
         const infantGender = (infant.gender ?? 'm') as 'm' | 'f';
-        return {
+        const infantPax: Record<string, unknown> = {
           id:           offerPax.id,
-          title:        infantGender === 'f' ? 'miss' as const : 'mr' as const,
+          title:        infantGender === 'f' ? 'miss' : 'mr',
           gender:       infantGender,
           given_name:   infant.firstName,
           family_name:  infant.lastName,
@@ -240,6 +251,16 @@ async function bookDuffelFlight(
           email:        passengers[0].email,
           phone_number: normalisePhone(passengers[0].phone),
         };
+        if (infant.passportNumber && infant.passportIssuingCountry && infant.passportExpiry) {
+          infantPax.documents = [{
+            type:                     'passport',
+            unique_identifier:        infant.passportNumber,
+            expires_on:               infant.passportExpiry,
+            issuing_country_code:     infant.passportIssuingCountry.toUpperCase(),
+            nationality_country_code: (guestNationality ?? infant.passportIssuingCountry).toUpperCase(),
+          }];
+        }
+        return infantPax;
       }
       // Fallback: infant form not filled in — use lead adult's last name + estimated 6-mo DOB
       const lead   = passengers[0];
@@ -248,7 +269,7 @@ async function bookDuffelFlight(
       console.warn('[booking-agent] No infant form data — using estimated DOB for infant slot');
       return {
         id:           offerPax.id,
-        title:        lead.gender === 'f' ? 'ms' as const : 'mr' as const,
+        title:        lead.gender === 'f' ? 'ms' : 'mr',
         gender:       (lead.gender ?? 'm') as 'm' | 'f',
         given_name:   'Infant',
         family_name:  lead.lastName,
@@ -260,7 +281,7 @@ async function bookDuffelFlight(
 
     // ── Adult ────────────────────────────────────────────────────────────────
     const p = passengers[Math.min(adultIdx++, passengers.length - 1)];
-    return {
+    const adultPax: Record<string, unknown> = {
       id:           offerPax.id,
       title:        (p.title ?? (p.gender === 'f' ? 'ms' : 'mr')) as string,
       gender:       (p.gender ?? 'm') as 'm' | 'f',
@@ -270,6 +291,16 @@ async function bookDuffelFlight(
       email:        p.email,
       phone_number: normalisePhone(p.phone),
     };
+    if (p.passportNumber && p.passportIssuingCountry && p.passportExpiry) {
+      adultPax.documents = [{
+        type:                     'passport',
+        unique_identifier:        p.passportNumber,
+        expires_on:               p.passportExpiry,
+        issuing_country_code:     p.passportIssuingCountry.toUpperCase(),
+        nationality_country_code: (guestNationality ?? p.passportIssuingCountry).toUpperCase(),
+      }];
+    }
+    return adultPax;
   });
 
   // Step 2: create order
@@ -343,20 +374,32 @@ async function bookDuffelFlight(
             if (offerPax.type === 'child' && freshChildIdx < freshChildList.length) {
               const c = freshChildList[freshChildIdx++];
               const cg = c.gender ?? 'm';
-              return { id: offerPax.id, title: cg === 'f' ? 'miss' : 'mr', gender: cg, given_name: c.firstName, family_name: c.lastName, born_on: c.dateOfBirth, email: passengers[0].email, phone_number: normalisePhone(passengers[0].phone) };
+              const cp: Record<string, unknown> = { id: offerPax.id, title: cg === 'f' ? 'miss' : 'mr', gender: cg, given_name: c.firstName, family_name: c.lastName, born_on: c.dateOfBirth, email: passengers[0].email, phone_number: normalisePhone(passengers[0].phone) };
+              if (c.passportNumber && c.passportIssuingCountry && c.passportExpiry) {
+                cp.documents = [{ type: 'passport', unique_identifier: c.passportNumber, expires_on: c.passportExpiry, issuing_country_code: c.passportIssuingCountry.toUpperCase(), nationality_country_code: (guestNationality ?? c.passportIssuingCountry).toUpperCase() }];
+              }
+              return cp;
             }
             if (offerPax.type === 'infant_without_seat') {
               const infant = freshInfantList[freshInfantIdx++];
               if (infant) {
                 const ig = infant.gender ?? 'm';
-                return { id: offerPax.id, title: ig === 'f' ? 'miss' : 'mr', gender: ig, given_name: infant.firstName, family_name: infant.lastName, born_on: infant.dateOfBirth, email: passengers[0].email, phone_number: normalisePhone(passengers[0].phone) };
+                const ip: Record<string, unknown> = { id: offerPax.id, title: ig === 'f' ? 'miss' : 'mr', gender: ig, given_name: infant.firstName, family_name: infant.lastName, born_on: infant.dateOfBirth, email: passengers[0].email, phone_number: normalisePhone(passengers[0].phone) };
+                if (infant.passportNumber && infant.passportIssuingCountry && infant.passportExpiry) {
+                  ip.documents = [{ type: 'passport', unique_identifier: infant.passportNumber, expires_on: infant.passportExpiry, issuing_country_code: infant.passportIssuingCountry.toUpperCase(), nationality_country_code: (guestNationality ?? infant.passportIssuingCountry).toUpperCase() }];
+                }
+                return ip;
               }
               const lead = passengers[0];
               const estDob = new Date(); estDob.setMonth(estDob.getMonth() - 6);
               return { id: offerPax.id, title: lead.gender === 'f' ? 'ms' : 'mr', gender: lead.gender ?? 'm', given_name: 'Infant', family_name: lead.lastName, born_on: estDob.toISOString().split('T')[0], email: lead.email, phone_number: normalisePhone(lead.phone) };
             }
             const adult = passengers[Math.min(freshAdultIdx++, passengers.length - 1)];
-            return { id: offerPax.id, born_on: adult?.dateOfBirth, title: adult?.title ?? (adult?.gender === 'f' ? 'ms' : 'mr'), gender: adult?.gender ?? 'm', given_name: adult?.firstName, family_name: adult?.lastName, email: adult?.email, phone_number: normalisePhone(adult?.phone ?? '') };
+            const ap: Record<string, unknown> = { id: offerPax.id, born_on: adult?.dateOfBirth, title: adult?.title ?? (adult?.gender === 'f' ? 'ms' : 'mr'), gender: adult?.gender ?? 'm', given_name: adult?.firstName, family_name: adult?.lastName, email: adult?.email, phone_number: normalisePhone(adult?.phone ?? '') };
+            if (adult?.passportNumber && adult.passportIssuingCountry && adult.passportExpiry) {
+              ap.documents = [{ type: 'passport', unique_identifier: adult.passportNumber, expires_on: adult.passportExpiry, issuing_country_code: adult.passportIssuingCountry.toUpperCase(), nationality_country_code: (guestNationality ?? adult.passportIssuingCountry).toUpperCase() }];
+            }
+            return ap;
           });
           const retryRes = await fetch('https://api.duffel.com/air/orders', {
             method: 'POST', headers,
@@ -429,6 +472,7 @@ export const bookingAgent = {
                 .map(c => ageYears(c.dateOfBirth)),
               infantCount: req.childPassengers.filter(c => ageYears(c.dateOfBirth) < 2).length,
             } : undefined,
+            req.guestNationality,  // used as nationality_country_code in passport documents
           );
           logger.flightBooking({
             api:        'duffel',
