@@ -350,6 +350,12 @@ function Field({
 // ─── Date-of-birth picker — Year / Month / Day dropdowns ─────────────────────
 // Replaces <input type="date"> which shows a broken month-by-month calendar
 // on mobile with no year-jump. Dropdowns are instantly usable on all devices.
+//
+// CRITICAL: Uses LOCAL state for year/month/day so partial selections are
+// preserved. The original bug: parent only stores a complete YYYY-MM-DD,
+// so selecting "Year" while Month/Day were empty would call onChange(''),
+// which reset the parent state, which re-rendered the Year dropdown back
+// to empty — making every selection immediately disappear.
 
 const MONTHS = [
   'January','February','March','April','May','June',
@@ -365,29 +371,70 @@ function DOBPicker({
   value: string;           // YYYY-MM-DD or ''
   onChange: (v: string) => void;
 }) {
-  // Parse current value
-  const parts  = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  const curYear  = parts ? parts[1] : '';
-  const curMonth = parts ? parts[2] : '';
-  const curDay   = parts ? parts[3] : '';
+  // Local state — preserves partial selections independently of parent's value
+  const [year,  setYear]  = useState<string>(() => value.match(/^(\d{4})-/)?.[1]       ?? '');
+  const [month, setMonth] = useState<string>(() => value.match(/^\d{4}-(\d{2})-/)?.[1] ?? '');
+  const [day,   setDay]   = useState<string>(() => value.match(/\d{4}-\d{2}-(\d{2})$/)?.[1] ?? '');
+
+  // Sync from parent when value changes externally (e.g. form reset)
+  useEffect(() => {
+    const p = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (p) {
+      setYear(p[1]); setMonth(p[2]); setDay(p[3]);
+    } else if (!value) {
+      setYear(''); setMonth(''); setDay('');
+    }
+  }, [value]);
 
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: currentYear - 1920 + 1 }, (_, i) => currentYear - i);
 
-  // How many days in the selected month/year?
-  const daysInMonth = curYear && curMonth
-    ? new Date(parseInt(curYear), parseInt(curMonth), 0).getDate()
+  // Days in the selected month/year — updates when month or year changes
+  const daysInMonth = year && month
+    ? new Date(parseInt(year), parseInt(month), 0).getDate()
     : 31;
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
-  const emit = (y: string, m: string, d: string) => {
-    if (y && m && d) onChange(`${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`);
-    else onChange('');
+  // Notify parent only when all three fields are complete
+  const notify = (y: string, m: string, d: string) => {
+    if (y && m && d) {
+      // Clamp day if switching to a shorter month
+      const maxDay = new Date(parseInt(y), parseInt(m), 0).getDate();
+      const clampedDay = Math.min(parseInt(d), maxDay).toString().padStart(2, '0');
+      onChange(`${y}-${m.padStart(2, '0')}-${clampedDay}`);
+    } else {
+      onChange('');
+    }
   };
 
-  const selectCls = `px-3 py-2.5 text-sm rounded-xl border border-border/80 bg-background
-    text-foreground focus:outline-none focus:ring-2 focus:ring-teal-500/30
-    focus:border-teal-500 transition-all duration-150 appearance-none`;
+  const handleYear = (y: string) => {
+    setYear(y);
+    // Clamp day when year changes (leap year edge case)
+    const clampedDay = (y && month && day)
+      ? Math.min(parseInt(day), new Date(parseInt(y), parseInt(month), 0).getDate()).toString().padStart(2, '0')
+      : day;
+    if (clampedDay !== day) setDay(clampedDay);
+    notify(y, month, clampedDay);
+  };
+
+  const handleMonth = (m: string) => {
+    setMonth(m);
+    // Clamp day when month changes (e.g. was day 31, switching to Feb)
+    const clampedDay = (year && m && day)
+      ? Math.min(parseInt(day), new Date(parseInt(year), parseInt(m), 0).getDate()).toString().padStart(2, '0')
+      : day;
+    if (clampedDay !== day) setDay(clampedDay);
+    notify(year, m, clampedDay);
+  };
+
+  const handleDay = (d: string) => {
+    setDay(d);
+    notify(year, month, d);
+  };
+
+  const selectCls = 'w-full px-3 py-2.5 text-sm rounded-xl border border-border/80 bg-background ' +
+    'text-foreground focus:outline-none focus:ring-2 focus:ring-teal-500/30 ' +
+    'focus:border-teal-500 transition-all duration-150';
 
   return (
     <div className="space-y-1.5">
@@ -396,33 +443,21 @@ function DOBPicker({
       </label>
       <div className="grid grid-cols-3 gap-2">
         {/* Year */}
-        <select
-          value={curYear}
-          onChange={e => emit(e.target.value, curMonth, curDay)}
-          className={selectCls}
-        >
+        <select value={year} onChange={e => handleYear(e.target.value)} className={selectCls}>
           <option value="">Year</option>
           {years.map(y => (
             <option key={y} value={String(y)}>{y}</option>
           ))}
         </select>
         {/* Month */}
-        <select
-          value={curMonth}
-          onChange={e => emit(curYear, e.target.value, curDay)}
-          className={selectCls}
-        >
+        <select value={month} onChange={e => handleMonth(e.target.value)} className={selectCls}>
           <option value="">Month</option>
           {MONTHS.map((name, i) => (
             <option key={i} value={String(i + 1).padStart(2, '0')}>{name}</option>
           ))}
         </select>
         {/* Day */}
-        <select
-          value={curDay}
-          onChange={e => emit(curYear, curMonth, e.target.value)}
-          className={selectCls}
-        >
+        <select value={day} onChange={e => handleDay(e.target.value)} className={selectCls}>
           <option value="">Day</option>
           {days.map(d => (
             <option key={d} value={String(d).padStart(2, '0')}>{d}</option>
