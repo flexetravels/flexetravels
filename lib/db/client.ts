@@ -270,6 +270,14 @@ export const db = {
     },
   },
 
+  // ── Passengers (PII — stored for booking verification) ────────────────────
+  passengers: {
+    async insertMany(rows: Omit<PassengerRow, 'id' | 'created_at'>[]): Promise<void> {
+      if (!rows.length) return;
+      await rest('POST', 'passengers', { body: rows as unknown as Json[] });
+    },
+  },
+
   // ── Execution Logs ─────────────────────────────────────────────────────────
   executionLogs: {
     async create(data: Partial<ExecutionLogRow>): Promise<ExecutionLogRow | null> {
@@ -412,6 +420,22 @@ export interface UserSessionRow {
   total_bookings:   number;
   metadata:         Record<string, unknown> | null;
   created_at:       string;
+}
+
+export interface PassengerRow {
+  id:            string;
+  session_id:    string;
+  booking_id:    string | null;
+  type:          'adult' | 'child' | 'infant';
+  title:         string | null;
+  first_name:    string;
+  last_name:     string;
+  date_of_birth: string;
+  gender:        string | null;
+  nationality:   string | null;
+  email:         string | null;
+  phone:         string | null;
+  created_at:    string;
 }
 
 export interface ExecutionLogRow {

@@ -239,8 +239,8 @@ function WelcomeScreen({ onSend }: { onSend: (msg: string) => void }) {
 
       {/* Legal disclaimer */}
       <p className="mt-4 text-[0.7rem] text-muted-foreground/50 text-center max-w-[420px] leading-relaxed">
-        FlexeTravels is a technology platform, not a licensed travel agent (no IATA/CPBC).
-        Flights booked via Duffel (IATA-accredited). Prices from multiple engines — always verify before payment.
+        FlexeTravels is a technology platform. Flights are booked through IATA-accredited channels.
+        Live prices — always confirm before payment.
       </p>
     </div>
   );

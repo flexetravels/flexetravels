@@ -837,9 +837,9 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
         </div>
         <p className="text-[10px] text-muted-foreground/60">
           {stripeTotal > 0
-            ? `${formatPrice(stripeTotal / 100, stripeCurrency)} charged via Stripe`
+            ? `${formatPrice(stripeTotal / 100, stripeCurrency)} charged securely`
             : `Service fee of ${feeDisplay} processed`
-          } · Powered by Stripe
+          } · PCI-DSS compliant payment
         </p>
         <p className="text-[10px] text-muted-foreground/60 mt-2">
           Questions or complaints? Contact us at{' '}
@@ -1098,6 +1098,21 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
             {/* Scrollable form area — button stays visible below */}
             <div className="space-y-5 overflow-y-auto max-h-[52vh] pr-1
                             [scrollbar-width:thin] [scrollbar-color:theme(colors.border)_transparent]">
+              {/* Passport accuracy disclaimer */}
+              <div className="rounded-xl border border-amber-400/30 bg-amber-50/60 dark:bg-amber-950/20 px-4 py-3">
+                <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-1 flex items-center gap-1.5">
+                  <svg className="w-3.5 h-3.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd"/>
+                  </svg>
+                  Enter details exactly as they appear on your passport
+                </p>
+                <p className="text-[10px] text-amber-700/80 dark:text-amber-400/80 leading-relaxed">
+                  Name spelling, date of birth, and gender must match your travel document precisely.
+                  Incorrect information may result in denied boarding or refused check-in.
+                  FlexeTravels cannot be held responsible for errors entered by the traveller.
+                </p>
+              </div>
+
               {/* Privacy notice — PIPEDA/CCPA compliance */}
               <p className="text-[10px] text-muted-foreground/70 leading-relaxed px-1">
                 Your personal information is collected to process your booking and is handled in accordance with our{' '}
@@ -1578,7 +1593,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                 : formatPrice((flight?.price ?? 0) + 20, flight?.currency ?? 'USD')} securely
             </button>
             <p className="text-center text-[10px] text-muted-foreground/50">
-              Powered by Stripe · PCI-DSS compliant · We never store your card details
+              256-bit encrypted payment · PCI-DSS compliant · Card details never stored
             </p>
           </div>
         )}
@@ -1658,7 +1673,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
               </button>
             )}
             <p className="text-center text-[10px] text-muted-foreground/50">
-              Hotel payment processed by LiteAPI · Powered by Stripe
+              Hotel payment processed securely · 256-bit encrypted · PCI-DSS compliant
             </p>
           </div>
         )}

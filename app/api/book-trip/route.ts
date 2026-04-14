@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { book } from '@/lib/orchestrator';
 import { getPaymentIntent } from '@/lib/stripe';
+import { db } from '@/lib/db/client';
 
 // ─── Request schema ────────────────────────────────────────────────────────────
 
@@ -180,6 +181,45 @@ export async function POST(req: Request) {
   }
 
   const d = result.data!;
+
+  // ── Persist passenger data for verification (chargebacks, airline disputes) ─
+  // Non-blocking — booking already confirmed, we just log to DB.
+  if (d.success) {
+    const sid = sessionId ?? 'anon';
+    const passengerRows = [
+      ...passengers.map(p => ({
+        session_id:    sid,
+        booking_id:    null as string | null, // FK populated by webhook when booking row is created
+        type:          'adult' as const,
+        title:         (p.title ?? null) as string | null,
+        first_name:    p.firstName,
+        last_name:     p.lastName,
+        date_of_birth: p.dateOfBirth,
+        gender:        (p.gender ?? null) as string | null,
+        nationality:   guestNationality ?? null,
+        email:         p.email,
+        phone:         p.phone,
+      })),
+      ...childPassengers.map(c => ({
+        session_id:    sid,
+        booking_id:    null as string | null,
+        type:          'child' as const,
+        title:         null as string | null,
+        first_name:    c.firstName,
+        last_name:     c.lastName,
+        date_of_birth: c.dateOfBirth,
+        gender:        (c.gender ?? null) as string | null,
+        nationality:   guestNationality ?? null,
+        email:         null as string | null,
+        phone:         null as string | null,
+      })),
+    ];
+
+    db.passengers.insertMany(passengerRows).catch(e =>
+      console.warn('[book-trip] Passenger DB write failed (non-critical):', String(e))
+    );
+  }
+
   return NextResponse.json({
     success:              d.success,
     priceChanged:         d.priceChanged,

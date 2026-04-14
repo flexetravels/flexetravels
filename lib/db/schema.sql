@@ -194,6 +194,35 @@ create policy payments_service_only      on payments      for all to service_rol
 create policy search_logs_service_only   on search_logs   for all to service_role using (true) with check (true);
 create policy user_sessions_service_only on user_sessions for all to service_role using (true) with check (true);
 
+-- ─── passengers ──────────────────────────────────────────────────────────────
+-- Stores passenger details for every confirmed booking.
+-- Retained for verification (chargeback disputes, airline/hotel identity checks).
+-- Sensitive — protected by service_role RLS only.
+create table if not exists passengers (
+  id              uuid primary key default gen_random_uuid(),
+  session_id      text not null,
+  booking_id      uuid references bookings(id) on delete set null,
+  type            text not null default 'adult'
+                  check (type in ('adult','child','infant')),
+  title           text check (title in ('mr','ms','mrs','miss','dr')),
+  first_name      text not null,
+  last_name       text not null,
+  date_of_birth   date not null,
+  gender          text check (gender in ('m','f')),
+  nationality     text,
+  email           text,
+  phone           text,
+  created_at      timestamptz not null default now()
+);
+
+create index if not exists passengers_session_id_idx on passengers(session_id);
+create index if not exists passengers_booking_id_idx on passengers(booking_id);
+
+-- RLS: service_role only — passengers data is PII, never exposed to anon/public
+alter table passengers enable row level security;
+drop policy if exists passengers_service_only on passengers;
+create policy passengers_service_only on passengers for all to service_role using (true) with check (true);
+
 -- ─── Setup instructions ───────────────────────────────────────────────────────
 -- 1. Go to supabase.com → New project
 -- 2. SQL Editor → Paste this file → Run

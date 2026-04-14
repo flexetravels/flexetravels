@@ -254,23 +254,23 @@ function Hero({ onPrompt }: { onPrompt: (p: string) => void }) {
           <div className="inline-flex items-center gap-2 bg-teal-500/10 border border-teal-500/25
                           rounded-full px-4 py-1.5 text-teal-300 text-xs font-semibold mb-8">
             <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse" />
-            Revolutionising how the world books travel
+            The travel app that actually books your trip
           </div>
 
           <h1 className="text-[2rem] sm:text-5xl md:text-6xl xl:text-[4.25rem] font-extrabold
                          text-white leading-[1.08] tracking-tight mb-5">
-            Book your entire trip.
+            Stop searching.
             <br />
             <span className="bg-gradient-to-r from-teal-400 via-cyan-300 to-teal-500
                              bg-clip-text text-transparent">
-              In one conversation.
+              Start going.
             </span>
           </h1>
 
           <p className="text-white/55 text-base sm:text-xl max-w-[500px] leading-relaxed mb-8">
-            Tell our AI what you&apos;re dreaming of. It searches real flights and hotels in seconds —
-            then books and pays for everything right here.
-            No tabs. No redirects. No OTA markups.
+            Tell us where you want to go. We search real flights and hotels, then
+            confirm your booking right here — flight ref, hotel voucher, done.
+            No tabs. No redirects. No hidden fees.
           </p>
 
           <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 mb-8">
@@ -393,7 +393,7 @@ function StatsRibbon() {
           {[
             { val: '200+',  lbl: 'Airlines worldwide',      icon: <Plane className="w-5 h-5" /> },
             { val: '1M+',   lbl: 'Hotels worldwide',        icon: <MapPin className="w-5 h-5" /> },
-            { val: '3 AIs', lbl: 'Working in parallel',     icon: <Sparkles className="w-5 h-5" /> },
+            { val: '<5 min', lbl: 'From chat to confirmed',    icon: <Sparkles className="w-5 h-5" /> },
             { val: '$20',   lbl: 'Flat fee, every booking', icon: <CreditCard className="w-5 h-5" /> },
           ].map(s => (
             <div key={s.lbl} className="flex items-center gap-3">
@@ -435,7 +435,7 @@ function HowItWorks() {
             { n: '01', grad: 'from-teal-500 to-cyan-500', icon: <Sparkles className="w-6 h-6 text-white" />,
               title: 'Describe your vibe', desc: 'Tell the AI what kind of trip you\'re dreaming of — no forms, just conversation.' },
             { n: '02', grad: 'from-violet-500 to-purple-500', icon: <Zap className="w-6 h-6 text-white" />,
-              title: 'AI searches everything', desc: '3 AIs fan out in parallel — real confirmed flights, live hotel rates, local experiences. Results in seconds.' },
+              title: 'We search everything', desc: 'Real confirmed flights, live hotel rates, local experiences — all searched simultaneously. Results in seconds, not minutes.' },
             { n: '03', grad: 'from-amber-500 to-orange-500', icon: <Star className="w-6 h-6 text-white" />,
               title: 'Pick your favourites', desc: 'Browse rich flight and hotel cards. The AI remembers your preferences throughout.' },
             { n: '04', grad: 'from-rose-500 to-pink-500', icon: <CheckCircle2 className="w-6 h-6 text-white" />,
@@ -500,8 +500,8 @@ function WhyDifferent() {
               title: 'Real bookings, not referrals',
               desc: 'Most AI travel tools give you links and send you to Booking.com. We process the booking — flight confirmation, hotel voucher — right here in the chat.' },
             { col: 'text-violet-400 bg-violet-400/10 border-violet-400/20', icon: <Zap className="w-6 h-6" />,
-              title: 'Three AIs, one answer',
-              desc: 'Our multi-model AI fan-out searches everything at once — flight pricing, destination guides, experience recommendations. Three specialists, one conversation.' },
+              title: 'Instant answers, zero waiting',
+              desc: 'Flights, destination intel, hotel rates, local experiences — everything searched at once. You get a complete picture in one reply, not a list of links.' },
             { col: 'text-amber-400 bg-amber-400/10 border-amber-400/20', icon: <CreditCard className="w-6 h-6" />,
               title: 'One flat fee. Always.',
               desc: 'We charge a flat $20 service fee per booking. No commissions inflating hotel prices, no per-passenger fees. What you see is what you pay.' },
@@ -711,8 +711,7 @@ function VerifiedDestinations({ onPrompt }: { onPrompt: (p: string) => void }) {
               End-to-end bookable destinations
             </h2>
             <p className="text-white/35 text-sm mt-2 max-w-lg">
-              Every card below is verified — Duffel flights confirmed from major Canadian airports,
-              LiteAPI hotel inventory confirmed. Click any card to start your booking.
+              Every destination below is end-to-end bookable — confirmed flights from major Canadian airports, live hotel rates. Tap any card to start.
             </p>
           </div>
           <Link href="/chat"
@@ -963,9 +962,8 @@ export default function LandingPage() {
 
           <div className="border-t border-white/[0.05] pt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
             <p className="text-white/18 text-[10px] max-w-2xl leading-relaxed text-center sm:text-left">
-              FlexeTravels is a technology platform, not a licensed travel agent (no IATA/CPBC).
-              Flights processed via Duffel (IATA-accredited). Flat $20 service fee per booking.
-              Always verify prices before payment.
+              FlexeTravels is a technology platform. Flights are booked through IATA-accredited channels.
+              Flat $20 service fee per booking. Prices are live at time of search — always confirm before payment.
             </p>
             <p className="text-white/18 text-[10px] flex-shrink-0">
               © {new Date().getFullYear()} FlexeTravels
