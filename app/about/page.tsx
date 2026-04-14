@@ -299,7 +299,10 @@ export default function AboutPage() {
               </Link>
             ))}
           </div>
-          <p className="text-white/18 text-[10px]">© {new Date().getFullYear()} FlexeTravels</p>
+          <p className="text-white/18 text-[10px]">
+            © {new Date().getFullYear()} FlexeTravels &nbsp;·&nbsp;{' '}
+            <a href="tel:+17789016639" className="hover:text-white/40 transition-colors">+1 778-901-6639</a>
+          </p>
         </div>
       </footer>
     </div>

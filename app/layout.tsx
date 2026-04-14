@@ -34,6 +34,21 @@ export const viewport: Viewport = {
   viewportFit: 'cover',
 };
 
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'TravelAgency',
+  name: 'FlexeTravels',
+  url: 'https://www.flexetravels.com',
+  telephone: '+17789016639',
+  email: 'support@flexetravels.com',
+  address: {
+    '@type': 'PostalAddress',
+    addressRegion: 'BC',
+    addressCountry: 'CA',
+  },
+  description: 'AI-powered travel booking platform. Book flights and hotels with a flat $20 service fee.',
+};
+
 export default function RootLayout({
   children,
 }: {
@@ -42,6 +57,10 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning className={inter.variable}>
       <body>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
