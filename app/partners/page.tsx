@@ -1,6 +1,6 @@
 // ─── FlexeTravels — Partners Page ────────────────────────────────────────────
 // B2B pitch to API vendors, aggregators, and technology partners.
-// Positioned for Duffel, LiteAPI, Stripe, Amadeus, new providers.
+// Positioned for Duffel, LiteAPI, Stripe, and new providers.
 
 import Link from 'next/link';
 import {
@@ -273,7 +273,7 @@ export default function PartnersPage() {
 
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
               {[
-                { step: '01', label: 'AI Conversation', sub: 'Claude + Grok + Claude Haiku', color: 'from-teal-500 to-cyan-500' },
+                { step: '01', label: 'AI Conversation', sub: 'Claude (Anthropic)', color: 'from-teal-500 to-cyan-500' },
                 { step: '02', label: 'Live Search',     sub: 'Duffel · LiteAPI · FSQ', color: 'from-violet-500 to-purple-500' },
                 { step: '03', label: 'Card Selection',  sub: 'UI + booking state machine', color: 'from-amber-500 to-orange-500' },
                 { step: '04', label: 'Stripe Payment',  sub: 'Webhook verification',   color: 'from-rose-500 to-pink-500' },

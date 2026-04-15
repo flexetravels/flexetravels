@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 // ─── Types (mirrors lib/logger.ts) ────────────────────────────────────────────
 
 type LogLevel  = 'info' | 'warn' | 'error';
-type ApiSource = 'duffel' | 'liteapi' | 'amadeus' | 'stripe' | 'gemini' | 'grok' | 'opentripmap' | 'foursquare' | 'unsplash' | 'system';
+type ApiSource = 'duffel' | 'liteapi' | 'stripe' | 'opentripmap' | 'foursquare' | 'unsplash' | 'system';
 type EventType = 'flight_search' | 'hotel_search' | 'experience_search' | 'flight_booking'
   | 'hotel_prebook' | 'hotel_booking' | 'stripe_payment' | 'offer_verify' | 'api_error' | 'system';
 
@@ -43,7 +43,7 @@ interface Stats {
   window:   string;
   total:    number;
   memory:   number;
-  apis:     { duffel: ApiStats; liteapi: ApiStats; amadeus: ApiStats; stripe: ApiStats };
+  apis:     { duffel: ApiStats; liteapi: ApiStats; stripe: ApiStats };
   searches: { flights: number; hotels: number; experiences: number };
   bookings: {
     flights: { total: number; ok: number; failed: number };
@@ -380,7 +380,6 @@ export default function AdminPage() {
         <div style={{ padding: '16px 24px', display: 'flex', gap: 12, flexWrap: 'wrap', borderBottom: '1px solid #1e293b' }}>
           <ApiCard name="Duffel"  stats={stats.apis.duffel}  />
           <ApiCard name="LiteAPI" stats={stats.apis.liteapi} />
-          <ApiCard name="Amadeus" stats={stats.apis.amadeus} />
           <ApiCard name="Stripe"  stats={stats.apis.stripe}  />
           <div style={{ background: '#1e293b', borderRadius: 8, padding: '14px 18px', minWidth: 140 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#94a3b8', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 }}>Searches (1h)</div>

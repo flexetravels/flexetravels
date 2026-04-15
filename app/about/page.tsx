@@ -97,8 +97,8 @@ export default function AboutPage() {
                 },
                 {
                   icon: <Brain className="w-5 h-5" />, color: 'text-violet-400 bg-violet-400/10 border-violet-400/20',
-                  title: 'Three AIs, one answer',
-                  desc: 'Claude orchestrates the conversation, Grok surfaces price intelligence, Claude Haiku writes your destination guide — fast and cheap for travel content.',
+                  title: 'AI-powered, end-to-end',
+                  desc: 'Claude handles the entire conversation — searching flights, hotels, and destination guides — all in one seamless booking experience.',
                 },
               ].map(item => (
                 <div key={item.title}
@@ -174,18 +174,6 @@ export default function AboutPage() {
                 name: 'Claude (Anthropic)',
                 role: 'Orchestration AI',
                 desc: 'Primary conversation AI. Manages trip qualification, tool dispatch, and booking state machine. Warm, Layla-inspired personality.',
-              },
-              {
-                icon: <Zap className="w-6 h-6 text-white" />, grad: 'from-rose-500 to-pink-600',
-                name: 'Grok (xAI)',
-                role: 'Price intelligence',
-                desc: 'Real-time market context — "is this a good deal?", seasonal price trends, festival and event impact on hotel rates.',
-              },
-              {
-                icon: <Sparkles className="w-6 h-6 text-white" />, grad: 'from-emerald-500 to-teal-600',
-                name: 'Claude Haiku',
-                role: 'Destination guides',
-                desc: 'Fast, lightweight Claude model for destination guides — best time to visit, neighbourhood breakdowns, visa info, currency tips, and alternative suggestions.',
               },
             ].map(item => (
               <div key={item.name}

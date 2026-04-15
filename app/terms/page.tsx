@@ -364,9 +364,6 @@ export default function TermsPage() {
             </p>
             <div className="space-y-2 text-white/70">
               <p><span className="text-teal-400 font-semibold">Email:</span> support@flexetravels.com</p>
-              <p><span className="text-teal-400 font-semibold">Phone:</span>{' '}
-                <a href="tel:+17789016639" className="hover:text-teal-300 transition-colors">+1 778-901-6639</a>
-              </p>
               <p><span className="text-teal-400 font-semibold">Subject Line:</span> Terms Inquiry</p>
               <p className="text-sm mt-4">
                 We aim to respond to all inquiries within 2 business days.
