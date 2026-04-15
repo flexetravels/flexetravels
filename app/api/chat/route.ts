@@ -16,7 +16,7 @@
 // Optimizations: Dynamic state-specific prompts (browsing vs flight/hotel selected),
 // maxSteps=4 handles complex queries, message compression saves 3-8K tokens/request.
 
-import { streamText, tool } from 'ai';
+import { streamText, tool, createDataStreamResponse } from 'ai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 
 // FLEXE_ANTHROPIC_KEY is used locally because Claude Code CLI shadows ANTHROPIC_API_KEY with ''
@@ -133,29 +133,25 @@ BUDGET ESTIMATION — dynamic split based on route + party:
 • Long-haul (8h+): ~50% flights, ~45% hotel, ~5% fees
 • Always multiply flight cost by passenger count. Example: "$4000 budget, 2 adults, 7 nights to Cancún (medium-haul) → ~$1600 flights (2×$800) + ~$2200 hotel ($314/night) + $20 fee."
 
-RESPONSE ORDER — exact sequence:
-1. ONE warm sentence (max 15 words) introducing results
-2. ALL [FLIGHT_CARD] tags — no text between them
-3. ONE bridge sentence to hotels (max 10 words)
-4. ALL [HOTEL_CARD] tags — no text between them
-5. Regulatory note: "Under US DOT rules, flights can be cancelled free within 24 hours if departing 7+ days out."
-6. 1-2 sentences of commentary + closing question
+RESPONSE AFTER SEARCH — CRITICAL: DO NOT emit [FLIGHT_CARD] or [HOTEL_CARD] tags. These are obsolete. Flight and hotel cards are pushed directly to the user's screen via the data stream and displayed automatically before you write a single word. Emitting card tags wastes tokens, adds 15-20 seconds of delay, and produces nothing new for the user.
 
-CARD FORMAT — copy ALL values EXACTLY:
-[FLIGHT_CARD] {"id":"<id>","airline":"<name>","origin":"<IATA>","destination":"<IATA>","departure":"<ISO>","arrival":"<ISO>","duration":"<Xh Ym>","stops":<N>,"stopAirports":["<IATA>"],"price":<n>,"currency":"<ISO>","cabinClass":"economy","refundable":<bool>,"airlineLogo":"<url>","provider":"duffel","bookingToken":"<exact token>","passengers":<n>,"segments":[{"origin":"<IATA>","destination":"<IATA>","departure":"<ISO>","arrival":"<ISO>","duration":"<Xh Ym>","carrier":"<2-letter>","flightNumber":"<e.g. AC123>","operatingCarrier":"<2-letter or empty>"}],"flexibilityScore":<n>,"flexibilityLabel":"<label>","flexibilitySummary":"<text>"}
-CRITICAL: Copy FULL segments array exactly. NEVER emit segments:[].
-[HOTEL_CARD] {"id":"<id>","name":"<name>","location":"<city>","city":"<city>","stars":<N>,"pricePerNight":<n>,"totalPrice":<n>,"currency":"USD","image":"<url>","images":["<url>"],"rating":<n>,"amenities":[],"checkIn":"<date>","checkOut":"<date>","cancellation":"<policy>","isSample":<bool>,"provider":"liteapi","bookingToken":"<exact token>"}
+Write a SHORT conversational summary (3–5 sentences total):
+1. ONE warm intro sentence mentioning the destination, flight count, and hotel count
+2. Reference the cheapest flight AND cheapest hotel with EXACT values from the tool result summaries — copy prices and airline/hotel names verbatim, no rounding, no changes
+3. Regulatory note: "Under US DOT rules, flights can be cancelled free within 24 hours if departing 7+ days out."
+4. End with: "Just a flat $20 service fee — no surprises. Which catches your eye?"
 
-SHOWING RESULTS:
-• Emit ALL cards from tool results — never skip any.
-• After cards: "Just a flat $20 service fee — no surprises. Which catches your eye?"
+ACCURACY RULE: ONLY use the exact prices, airline names, and hotel names from the tool result summaries. NEVER invent, round, or modify these values. If the tool says "$489 Air Canada non-stop", write "$489 Air Canada non-stop" exactly.
+
+[EXPERIENCE_CARD] format (emit these as usual — experiences still go through Claude):
+[EXPERIENCE_CARD] {"id":"<id>","name":"<name>","category":"<cat>","description":"<desc>","location":"<loc>","rating":<n>,"price":"<price>","image":"<url>","provider":"foursquare"}
 
 SMART SEARCH: Region destinations auto-search districts. Fewer than 4 hotels → call searchNearbyHotels.
 Region mappings: Bali→Seminyak,Ubud,Nusa Dua,Canggu | Phuket→Patong,Karon,Kata | Dubai→Dubai Marina,Deira,Downtown Dubai,Jumeirah | Santorini→Fira,Oia | Goa→Panjim,Calangute
 
 NL FILTERING: "under $X"→maxPrice. "5-star"/"luxury"→stars=5. "budget"→maxPrice=100. "show me more"→searchNearbyHotels.
 
-HOTEL RULES: count>0+isSample=false→emit all. isSample=true→note "indicative pricing". count=0→suggest alt dates/areas.
+HOTEL RULES: isSample=true→note "indicative pricing" in your response. count=0→suggest alt dates/areas. Cards are displayed automatically — do not re-describe them.
 
 ERROR RECOVERY:
 • If searchFlights returns 0 results but searchHotels works: show hotels, tell user "Flight search returned no results for these dates. Try adjusting dates, checking a nearby airport, or a different cabin class."
@@ -349,14 +345,18 @@ export async function POST(req: Request) {
     ? lastUserMsg.content
     : '';
 
-  const result = streamText({
-    model:     anthropic('claude-sonnet-4-6'),
-    system:    buildSystem(lastUserContent, conversationState),
-    messages:  compressedMessages,
-    maxTokens: 5000,
-    maxSteps:  4,
+  return createDataStreamResponse({
+    execute: async (dataStream) => {
+      const requestStart = Date.now();
 
-    tools: {
+      const result = streamText({
+        model:     anthropic('claude-sonnet-4-6'),
+        system:    buildSystem(lastUserContent, conversationState),
+        messages:  compressedMessages,
+        maxTokens: 5000,
+        maxSteps:  4,
+
+        tools: {
 
       // ── Multi-source flight search ──────────────────────────────────────────
       searchFlights: tool({
@@ -399,14 +399,33 @@ export async function POST(req: Request) {
               latency_ms:       r.latencyMs,
             }).catch(() => {});
           }
-          return {
-            flights:        r.flights,
-            count:          r.flights.length,
-            totalAvailable: r.flights.length,
-            sources:        r.sources,
-            errors:         r.errors.length > 0 ? r.errors : undefined,
-            latencyMs:      r.latencyMs,
+          // Push full data to frontend via side channel (bypasses token generation).
+          // JSON.parse/stringify strips undefined fields so the value satisfies JSONValue.
+          dataStream.writeData(JSON.parse(JSON.stringify({ type: 'flights', data: r.flights })));
+          console.log(`[timing] searchFlights done in ${Date.now() - requestStart}ms, ${r.flights.length} results`);
+
+          // Return only a compact summary to Claude — no full card JSON
+          if (r.flights.length === 0) {
+            return { summary: `No flights found for ${params.origin}→${params.destination} on ${params.departureDate}. Try adjusting dates or nearby airports.`, flightCount: 0 };
+          }
+          type FlightItem = typeof r.flights[0];
+          const byPrice = [...r.flights].sort((a: FlightItem, b: FlightItem) => a.price - b.price);
+          const cheapestF = byPrice[0];
+          const toMin = (d: string) => {
+            const h = parseInt(d.match(/(\d+)h/)?.[1] ?? '0');
+            const m = parseInt(d.match(/(\d+)m/)?.[1] ?? '0');
+            return h * 60 + m;
           };
+          const fastestF = r.flights.reduce(
+            (best: FlightItem, cur: FlightItem) => toMin(cur.duration) < toMin(best.duration) ? cur : best,
+            r.flights[0]
+          );
+          let flightSummary = `Found ${r.flights.length} flights for ${params.origin}→${params.destination}. Cheapest: $${cheapestF.price} ${cheapestF.currency} on ${cheapestF.airline} (${cheapestF.stops === 0 ? 'non-stop' : cheapestF.stops + ' stop'}, ${cheapestF.duration}).`;
+          if (fastestF.id !== cheapestF.id) {
+            flightSummary += ` Fastest: $${fastestF.price} ${fastestF.currency} on ${fastestF.airline} (${fastestF.duration}).`;
+          }
+          flightSummary += ` All ${r.flights.length} cards shown to user. Use ONLY these exact prices/airlines in your response.`;
+          return { summary: flightSummary, flightCount: r.flights.length };
         },
       }),
 
@@ -426,7 +445,7 @@ export async function POST(req: Request) {
         }),
         execute: async (params) => {
           const token = process.env.DUFFEL_ACCESS_TOKEN;
-          if (!token) return { flights: [], error: 'Duffel not configured' };
+          if (!token) return { summary: 'Duffel not configured.', flightCount: 0 };
           try {
             const duffel  = new DuffelProvider(token);
             const raw     = await duffel.searchFlights(params);
@@ -469,9 +488,19 @@ export async function POST(req: Request) {
                 } : {}),
               };
             });
-            return { flights, count: raw.length };
+            // Push to frontend and return summary
+            dataStream.writeData(JSON.parse(JSON.stringify({ type: 'flights', data: flights })));
+            if (flights.length === 0) {
+              return { summary: `No bookable flights found for ${params.origin}→${params.destination}.`, flightCount: 0 };
+            }
+            type RetryFlight = typeof flights[0];
+            const cheapestR = [...flights].sort((a: RetryFlight, b: RetryFlight) => a.price - b.price)[0];
+            return {
+              summary: `Found ${flights.length} bookable flights. Cheapest: $${cheapestR.price} ${cheapestR.currency} on ${cheapestR.airline} (${cheapestR.stops === 0 ? 'non-stop' : cheapestR.stops + ' stop'}, ${cheapestR.duration}). Cards shown to user.`,
+              flightCount: flights.length,
+            };
           } catch (err) {
-            return { flights: [], error: String(err) };
+            return { summary: `Flight search failed: ${String(err)}`, flightCount: 0 };
           }
         },
       }),
@@ -500,14 +529,15 @@ export async function POST(req: Request) {
           const r       = await Promise.race([search, timeout]);
 
           if (!r) {
-            // Timeout — no fabricated data. Tell the AI there are no results.
+            // Timeout — push empty array to frontend, return summary to Claude
+            dataStream.writeData(JSON.parse(JSON.stringify({ type: 'hotels', data: [] })));
             const msg = `Hotel search timed out for ${params.destination}. No hotel options available right now — please try again in a moment.`;
             logger.search({
               event: 'hotel_search', api: 'liteapi', sessionId,
               params: params as Record<string, unknown>,
-              resultCount: 0, sources: [], errors: ['Hotel search timed out after 15s'],
+              resultCount: 0, sources: [], errors: ['Hotel search timed out after 8s'],
             });
-            return { hotels: [], count: 0, sources: [], isSample: false, noResultsMessage: msg };
+            return { summary: msg, hotelCount: 0 };
           }
 
           logger.search({
@@ -532,7 +562,7 @@ export async function POST(req: Request) {
             }).catch(() => {});
           }
 
-          // Return only fields needed for [HOTEL_CARD] — strip bulk LiteAPI internal data
+          // Strip bulk LiteAPI internal data — keep only card fields
           const hotels = r.hotels.map(h => ({
             id:           h.id,
             name:         h.name,
@@ -553,13 +583,25 @@ export async function POST(req: Request) {
             provider:     h.provider,
             bookingToken: h.bookingToken,
           }));
-          return {
-            hotels,
-            count:            hotels.length,
-            isSample:         r.isSample,
-            noResultsMessage: r.noResultsMessage,
-            IMPORTANT:        `You MUST emit exactly ${hotels.length} [HOTEL_CARD] tags — one per hotel in the list above. Do NOT skip, filter, or select a subset. Show every single hotel regardless of star rating. The user can filter themselves using the UI.`,
-          };
+
+          // Push full data to frontend via side channel (bypasses token generation)
+          dataStream.writeData(JSON.parse(JSON.stringify({ type: 'hotels', data: hotels })));
+          console.log(`[timing] searchHotels done in ${Date.now() - requestStart}ms, ${hotels.length} results`);
+
+          // Return only a compact summary to Claude — no full card JSON
+          if (hotels.length === 0) {
+            return { summary: r.noResultsMessage ?? `No hotels found for ${params.destination}. Try nearby areas or different dates.`, hotelCount: 0 };
+          }
+          type HotelItem = typeof hotels[0];
+          const cheapestH = [...hotels].sort((a: HotelItem, b: HotelItem) => a.pricePerNight - b.pricePerNight)[0];
+          const bestRatedH = [...hotels].sort((a: HotelItem, b: HotelItem) => b.rating - a.rating)[0];
+          let hotelSummary = `Found ${hotels.length} hotels in ${params.destination}. Cheapest: $${cheapestH.pricePerNight}/night ${cheapestH.name} ${cheapestH.stars}★.`;
+          if (bestRatedH.id !== cheapestH.id) {
+            hotelSummary += ` Best rated: ${bestRatedH.name} (${bestRatedH.rating}★, $${bestRatedH.pricePerNight}/night).`;
+          }
+          if (r.isSample) hotelSummary += ` Note: indicative pricing.`;
+          hotelSummary += ` All ${hotels.length} cards shown to user. Use ONLY these exact names/prices in your response.`;
+          return { summary: hotelSummary, hotelCount: hotels.length };
         },
       }),
 
@@ -651,14 +693,23 @@ export async function POST(req: Request) {
             sources: [...new Set(allSources)],
           });
 
-          return {
-            hotels,
-            count:           hotels.length,
-            cities_searched: searchedCities,
-            isSample:        anySample,
-            sources:         [...new Set(allSources)],
-            IMPORTANT:       `You MUST emit exactly ${hotels.length} [HOTEL_CARD] tags — one per hotel. Do NOT skip any.`,
-          };
+          // Push full data to frontend via side channel
+          dataStream.writeData(JSON.parse(JSON.stringify({ type: 'hotels', data: hotels })));
+          console.log(`[timing] searchNearbyHotels done in ${Date.now() - requestStart}ms, ${hotels.length} results across ${searchedCities.join(', ')}`);
+
+          if (hotels.length === 0) {
+            return { summary: `No hotels found in nearby areas: ${searchedCities.join(', ')}. Try different areas or dates.`, hotelCount: 0 };
+          }
+          const cheapestNH = hotels[0]; // already sorted by price
+          type NearbyHotel = typeof hotels[0];
+          const bestRatedNH = [...hotels].sort((a: NearbyHotel, b: NearbyHotel) => b.rating - a.rating)[0];
+          let nearbySummary = `Found ${hotels.length} hotels across ${searchedCities.join(', ')}. Cheapest: $${cheapestNH.pricePerNight}/night ${cheapestNH.name} ${cheapestNH.stars}★.`;
+          if (bestRatedNH.id !== cheapestNH.id) {
+            nearbySummary += ` Best rated: ${bestRatedNH.name} (${bestRatedNH.rating}★, $${bestRatedNH.pricePerNight}/night).`;
+          }
+          if (anySample) nearbySummary += ` Note: indicative pricing.`;
+          nearbySummary += ` All ${hotels.length} cards shown to user. Use ONLY these exact names/prices in your response.`;
+          return { summary: nearbySummary, hotelCount: hotels.length };
         },
       }),
 
@@ -741,8 +792,11 @@ export async function POST(req: Request) {
       }),
     },
 
-    toolChoice: 'auto',
-  });
+        toolChoice: 'auto',
+      });
 
-  return result.toDataStreamResponse();
+      result.mergeIntoDataStream(dataStream);
+      console.log(`[timing] Stream piped to response in ${Date.now() - requestStart}ms`);
+    },
+  });
 }

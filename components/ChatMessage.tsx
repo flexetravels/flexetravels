@@ -749,6 +749,10 @@ interface ChatMessageProps {
   content: string;
   streaming?: boolean;
   toolCalls?: Array<{ toolName: string; state: 'call' | 'result' }>;
+  /** Side-channel flight cards pushed directly from the API data stream (bypasses LLM token generation) */
+  sideChannelFlights?: FlightResult[];
+  /** Side-channel hotel cards pushed directly from the API data stream (bypasses LLM token generation) */
+  sideChannelHotels?: HotelResult[];
   onSelectFlight?: (f: FlightResult) => void;
   onSelectHotel?:  (h: HotelResult)  => void;
   onOpenHotelDetail?: (h: HotelResult) => void;
@@ -759,6 +763,8 @@ export function ChatMessage({
   content,
   streaming = false,
   toolCalls,
+  sideChannelFlights,
+  sideChannelHotels,
   onSelectFlight,
   onSelectHotel,
   onOpenHotelDetail,
@@ -793,11 +799,12 @@ export function ChatMessage({
     const activeTools    = (toolCalls ?? []).filter(tc => tc.state === 'call').map(tc => tc.toolName);
     const toolsRunning   = activeTools.length > 0;
 
-    // Show skeletons whenever the corresponding tool was called AND we're still streaming
-    // (they stay visible until the full burst-reveal replaces them on streaming=false)
-    const showFlightSkel = hadFlightTool;
-    const showHotelSkel  = hadHotelTool;
-    const showExpSkel    = hadExpTool;
+    // Show real cards from side-channel as soon as data arrives; fall back to skeletons
+    const showFlightCards = (sideChannelFlights?.length ?? 0) > 0;
+    const showHotelCards  = (sideChannelHotels?.length  ?? 0) > 0;
+    const showFlightSkel  = hadFlightTool && !showFlightCards;
+    const showHotelSkel   = hadHotelTool  && !showHotelCards;
+    const showExpSkel     = hadExpTool;
 
     return (
       <div className="msg-row-bot">
@@ -826,12 +833,15 @@ export function ChatMessage({
             <ProgressStepper toolCalls={toolCalls ?? []} />
           )}
 
-          {/* Skeleton placeholders — stay visible during entire streaming phase.
-              On streaming=false the complete block below replaces these with real cards
-              all at once, creating the burst-reveal effect. */}
-          {(showFlightSkel || showHotelSkel || showExpSkel) && (
+          {/* Cards: real data from side-channel as soon as it arrives, skeletons while waiting */}
+          {(showFlightCards || showFlightSkel || showHotelCards || showHotelSkel || showExpSkel) && (
             <div className="flex flex-col gap-3">
-              {showFlightSkel && (
+              {/* Flights: real cards from side-channel or skeleton while loading */}
+              {showFlightCards ? (
+                <div className="animate-card-burst">
+                  <FlightResultsPanel flights={sideChannelFlights!} onSelect={onSelectFlight} />
+                </div>
+              ) : showFlightSkel && (
                 <div>
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-semibold mb-2">
                     <Plane className="w-3 h-3" />
@@ -846,7 +856,12 @@ export function ChatMessage({
                   </div>
                 </div>
               )}
-              {showHotelSkel && (
+              {/* Hotels: real cards from side-channel or skeleton while loading */}
+              {showHotelCards ? (
+                <div className="animate-card-burst">
+                  <HotelResultsPanel hotels={sideChannelHotels!} onSelect={onSelectHotel} onOpenDetail={onOpenHotelDetail} />
+                </div>
+              ) : showHotelSkel && (
                 <div>
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-semibold mb-2">
                     <Building2 className="w-3 h-3" />
@@ -870,12 +885,18 @@ export function ChatMessage({
   }
 
   // ── Assistant bubble — COMPLETE state ─────────────────────────────────────
-  // Only reached once streaming=false, so all card JSON is fully formed.
+  // parseEmbeddedCards still runs for experience/booking/payment card types.
+  // For flights and hotels: use side-channel data if available (new flow),
+  // fall back to parseEmbeddedCards (legacy messages that still have card JSON).
   const cards      = parseEmbeddedCards(content);
   const renderText = stripCardTags(content);
 
-  const flightCards       = cards.filter(c => c.type === 'flight').map(c => c.data as FlightResult);
-  const hotelCards        = cards.filter(c => c.type === 'hotel').map(c => c.data as HotelResult);
+  const flightCards = (sideChannelFlights && sideChannelFlights.length > 0)
+    ? sideChannelFlights
+    : cards.filter(c => c.type === 'flight').map(c => c.data as FlightResult);
+  const hotelCards  = (sideChannelHotels && sideChannelHotels.length > 0)
+    ? sideChannelHotels
+    : cards.filter(c => c.type === 'hotel').map(c => c.data as HotelResult);
   const experienceCards   = cards.filter(c => c.type === 'experience').map(c => c.data as ExperienceResult);
   const bookingCards      = cards.filter(c => c.type === 'booking_confirmed').map(c => ({ data: c.data as BookingConfirmation, type: 'booking_confirmed' }));
   const hotelBookingCards = cards.filter(c => c.type === 'hotel_booking_confirmed').map(c => ({ data: c.data as BookingConfirmation, type: 'hotel_booking_confirmed' }));

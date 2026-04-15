@@ -358,6 +358,19 @@ export default function ChatPage() {
   const [cartChildren,  setCartChildren]  = useState<{ count: number; ages: number[] } | null>(null);
   const [detailHotel,   setDetailHotel]   = useState<HotelResult  | null>(null);
 
+  // ── Side-channel card data: keyed by message ID (populated from data stream) ─
+  // Cards are pushed from the API before Claude writes text — shown immediately.
+  // Keyed per-message so old results survive when new searches start.
+  const [msgSideChannel, setMsgSideChannel] = useState<Record<string, {
+    flights?: FlightResult[];
+    hotels?: HotelResult[];
+  }>>({});
+  const processedDataCountRef = useRef(0);
+  const pendingFlightsRef = useRef<FlightResult[] | null>(null);
+  const pendingHotelsRef  = useRef<HotelResult[]  | null>(null);
+  // Incremented when pending data arrives — triggers the assignment effect
+  const [pendingDataVersion, setPendingDataVersion] = useState(0);
+
   const messagesEndRef  = useRef<HTMLDivElement>(null);
   const chatAreaRef     = useRef<HTMLDivElement>(null);
   // true while the user has scrolled up — suppresses auto-scroll until they
@@ -382,8 +395,8 @@ export default function ChatPage() {
 
   // ── useChat ─────────────────────────────────────────────────────────────
   const {
-    messages, input, handleInputChange, handleSubmit,
-    isLoading, stop, setInput, setMessages, append,
+    messages, input, handleInputChange,
+    isLoading, stop, setInput, setMessages, append, data,
   } = useChat({
     api: '/api/chat',
     body: { sessionId: getSessionId() },
@@ -421,6 +434,11 @@ export default function ChatPage() {
   useHotkey('k', useCallback(() => {
     setMessages([]); setItinerary(null); setApiError(null);
     setCartFlight(null); setCartHotel(null); setCartChildren(null);
+    setMsgSideChannel({});
+    processedDataCountRef.current = 0;
+    pendingFlightsRef.current = null;
+    pendingHotelsRef.current  = null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setMessages]));
 
   // Itinerary extractor
@@ -440,6 +458,49 @@ export default function ChatPage() {
       if (parsed.count > 0) setCartChildren(parsed);
     } catch { /* skip */ }
   }, []);
+
+  // ── Side-channel data stream processing ─────────────────────────────────────
+  // Step 1: Parse new data items from the stream into pending refs
+  useEffect(() => {
+    if (!data || data.length <= processedDataCountRef.current) return;
+    const newItems = (data as Array<{ type?: string; data?: unknown }>)
+      .slice(processedDataCountRef.current);
+    processedDataCountRef.current = data.length;
+    let hasNew = false;
+    for (const item of newItems) {
+      if (item.type === 'flights' && Array.isArray(item.data)) {
+        pendingFlightsRef.current = item.data as FlightResult[];
+        hasNew = true;
+      }
+      if (item.type === 'hotels' && Array.isArray(item.data)) {
+        pendingHotelsRef.current = item.data as HotelResult[];
+        hasNew = true;
+      }
+    }
+    if (hasNew) setPendingDataVersion(v => v + 1);
+  }, [data]);
+
+  // Step 2: Assign pending data to the current assistant message once it appears
+  useEffect(() => {
+    if (!pendingFlightsRef.current && !pendingHotelsRef.current) return;
+    const lastAssistant = messages.slice().reverse().find(m => m.role === 'assistant');
+    if (!lastAssistant) return;
+    const flights = pendingFlightsRef.current;
+    const hotels  = pendingHotelsRef.current;
+    pendingFlightsRef.current = null;
+    pendingHotelsRef.current  = null;
+    setMsgSideChannel(prev => ({
+      ...prev,
+      [lastAssistant.id]: {
+        ...(prev[lastAssistant.id] ?? {}),
+        ...(flights ? { flights } : {}),
+        ...(hotels  ? { hotels  } : {}),
+      },
+    }));
+  // pendingDataVersion triggers this when new data arrives; messages triggers it when the
+  // assistant message appears (data often arrives before the assistant turn starts streaming)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingDataVersion, messages]);
 
   // Card selection — stores flight/hotel in cart and sends a selection message.
   // Once both are chosen, a "Proceed to Booking" CTA appears above the input bar.
@@ -500,10 +561,14 @@ export default function ChatPage() {
   }, [setInput]);
 
   const doSubmit = useCallback(() => {
+    if (!input.trim()) return;
     setApiError(null);
     userScrolledUp.current = false;   // always follow the new response
-    handleSubmit(new Event('submit') as unknown as React.FormEvent);
-  }, [handleSubmit]);
+    // Use append() directly to avoid React 19 "Failed to find Server Action" error
+    // that handleSubmit(new Event('submit')) can trigger.
+    append({ role: 'user', content: input });
+    setInput('');
+  }, [input, append, setInput]);
 
   // ── Auto-send prompt from landing page card clicks ─────────────────────────
   // APPROACH: read sessionStorage in useState initializer (runs exactly once —
@@ -607,6 +672,10 @@ export default function ChatPage() {
                   onClick={() => {
                     setMessages([]); setItinerary(null); setApiError(null);
                     setCartFlight(null); setCartHotel(null);
+                    setMsgSideChannel({});
+                    processedDataCountRef.current = 0;
+                    pendingFlightsRef.current = null;
+                    pendingHotelsRef.current  = null;
                   }}
                   className="p-2 rounded-xl hover:bg-black/[.06] dark:hover:bg-white/[.08]
                              text-muted-foreground hover:text-foreground transition-colors"
@@ -640,6 +709,7 @@ export default function ChatPage() {
                         state: (ti.state === 'result' ? 'result' : 'call') as 'call' | 'result',
                       })
                     ) ?? [];
+                    const sideData = msgSideChannel[msg.id];
                     return (
                       <ChatMessage
                         key={msg.id}
@@ -647,7 +717,8 @@ export default function ChatPage() {
                         content={msg.content}
                         streaming={isStreaming}
                         toolCalls={toolCalls}
-
+                        sideChannelFlights={sideData?.flights}
+                        sideChannelHotels={sideData?.hotels}
                         onSelectFlight={handleSelectFlight}
                         onSelectHotel={handleSelectHotel}
                         onOpenHotelDetail={setDetailHotel}
