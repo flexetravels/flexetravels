@@ -1,7 +1,6 @@
 // ─── FlexeTravels AI Chat Route ────────────────────────────────────────────────
-// Primary model:   Claude (anthropic)  — orchestrates all tools and conversation
-// Market intel:    Grok (xAI)          — price comparison & market insights
-// Destination AI:  Claude (Anthropic)     — travel guides & alternative suggestions
+// Primary model:   Claude (Anthropic)  — orchestrates all tools and conversation
+// Destination AI:  Claude Haiku        — travel guides & alternative suggestions
 // Flights:         Duffel (bookable, IATA-accredited)
 // Hotels:          LiteAPI (live rates) + sample fallback
 // Experiences:     OpenTripMap (POI discovery) → Viator (bookable, coming soon)
@@ -28,7 +27,6 @@ import { z } from 'zod';
 import { aggregateFlights, aggregateHotels, aggregateExperiences } from '@/lib/search/aggregator';
 import { DuffelProvider } from '@/lib/search/duffel';
 // liteApiPrebook / liteApiBook removed — hotel booking goes through /api/book-trip only
-import { grokPriceInsight } from '@/lib/ai/grok';
 import { geminiDestinationGuide, geminiAlternatives } from '@/lib/ai/gemini';
 import { compressMessageHistory } from '@/lib/utils';
 import { logger } from '@/lib/logger';
@@ -682,30 +680,7 @@ export async function POST(req: Request) {
         },
       }),
 
-      // ── Grok price intelligence ────────────────────────────────────────────
-      getPriceInsight: tool({
-        description:
-          'Ask Grok AI for market intelligence on whether a price is a good deal. Call when user asks "is this good value?" or "can I get cheaper?"',
-        parameters: z.object({
-          type:        z.enum(['flight', 'hotel']),
-          origin:      z.string().optional().describe('Origin city/airport (flights only)'),
-          destination: z.string().describe('Destination city'),
-          dates:       z.string().describe('Travel date range e.g. "Jun 12–19, 2026"'),
-          price:       z.number().describe('Price amount'),
-          currency:    z.string().default('USD'),
-          provider:    z.string().describe('Source e.g. "Duffel", "LiteAPI"'),
-        }),
-        execute: async (params) => {
-          try {
-            const insight = await grokPriceInsight(params);
-            return { insight, source: 'Grok (xAI)' };
-          } catch (err) {
-            return { error: String(err), insight: null };
-          }
-        },
-      }),
-
-      // ── Gemini destination guide ───────────────────────────────────────────
+      // ── Destination guide ──────────────────────────────────────────────────
       getDestinationGuide: tool({
         description:
           'Get a concise travel guide — best neighbourhoods, activities, food, tips. Call in parallel with searchFlights/searchHotels.',
@@ -721,14 +696,14 @@ export async function POST(req: Request) {
               geminiDestinationGuide(destination, travelDates, interests),
               new Promise<null>((_, reject) => setTimeout(() => reject(new Error('guide_timeout')), 12_000)),
             ]);
-            return { guide, source: 'Gemini (Google)' };
+            return { guide, source: 'Claude (Anthropic)' };
           } catch (err) {
             return { guide: null, error: String(err) };
           }
         },
       }),
 
-      // ── Gemini alternative destinations ───────────────────────────────────
+      // ── Alternative destinations ───────────────────────────────────────────
       getSimilarDestinations: tool({
         description:
           'Suggest alternative destinations with better value or easier access from North America. Call on /alternatives command or "suggest something similar".',
@@ -743,7 +718,7 @@ export async function POST(req: Request) {
             const alternatives = await geminiAlternatives(
               params.originalDestination, params.budget, params.interests, params.departureCity,
             );
-            return { alternatives, source: 'Gemini (Google)' };
+            return { alternatives, source: 'Claude (Anthropic)' };
           } catch (err) {
             return { alternatives: null, error: String(err) };
           }

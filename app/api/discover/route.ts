@@ -86,7 +86,7 @@ function detectRegion(req: NextRequest): string {
   );
 }
 
-// ── Gemini generation ────────────────────────────────────────────────────────
+// ── Content generation ───────────────────────────────────────────────────────
 interface RawCard {
   title:       string;
   subtitle:    string;
@@ -99,13 +99,13 @@ interface RawCard {
   prompt:      string;
 }
 
-interface GeminiDiscoverResponse {
+interface DiscoverResponse {
   destinations: RawCard[];
   events:       RawCard[];
   experiences:  RawCard[];
 }
 
-async function generateFromClaude(region: string, today: string): Promise<GeminiDiscoverResponse> {
+async function generateFromClaude(region: string, today: string): Promise<DiscoverResponse> {
   const regionLabel =
     region === 'CA' ? 'Canada' :
     region === 'US' ? 'United States' :
@@ -180,12 +180,12 @@ Rules:
     .replace(/```\s*$/i, '')
     .trim();
 
-  return JSON.parse(cleaned) as GeminiDiscoverResponse;
+  return JSON.parse(cleaned) as DiscoverResponse;
 }
 
 // ── Build DiscoverData from raw cards + Unsplash images ──────────────────────
 async function buildDiscoverData(region: string, today: string): Promise<DiscoverData> {
-  let raw: GeminiDiscoverResponse;
+  let raw: DiscoverResponse;
   try {
     raw = await generateFromClaude(region, today);
   } catch (err) {
