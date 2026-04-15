@@ -358,18 +358,17 @@ export default function ChatPage() {
   const [cartChildren,  setCartChildren]  = useState<{ count: number; ages: number[] } | null>(null);
   const [detailHotel,   setDetailHotel]   = useState<HotelResult  | null>(null);
 
-  // ── Side-channel card data: keyed by message ID (populated from data stream) ─
-  // Cards are pushed from the API before Claude writes text — shown immediately.
-  // Keyed per-message so old results survive when new searches start.
-  const [msgSideChannel, setMsgSideChannel] = useState<Record<string, {
+  // ── Side-channel card data: keyed by message INDEX (stable, append-only array) ─
+  // Keyed by index NOT id — @ai-sdk/react mutates message IDs from a provisional
+  // client-generated value to the server-assigned value when streaming ends, which
+  // broke the old id-keyed lookup (cards appeared briefly then vanished).
+  const [positionalCards, setPositionalCards] = useState<Record<number, {
     flights?: FlightResult[];
     hotels?: HotelResult[];
   }>>({});
   const processedDataCountRef = useRef(0);
   const pendingFlightsRef = useRef<FlightResult[] | null>(null);
   const pendingHotelsRef  = useRef<HotelResult[]  | null>(null);
-  // Incremented when pending data arrives — triggers the assignment effect
-  const [pendingDataVersion, setPendingDataVersion] = useState(0);
 
   const messagesEndRef  = useRef<HTMLDivElement>(null);
   const chatAreaRef     = useRef<HTMLDivElement>(null);
@@ -434,7 +433,7 @@ export default function ChatPage() {
   useHotkey('k', useCallback(() => {
     setMessages([]); setItinerary(null); setApiError(null);
     setCartFlight(null); setCartHotel(null); setCartChildren(null);
-    setMsgSideChannel({});
+    setPositionalCards({});
     processedDataCountRef.current = 0;
     pendingFlightsRef.current = null;
     pendingHotelsRef.current  = null;
@@ -460,47 +459,48 @@ export default function ChatPage() {
   }, []);
 
   // ── Side-channel data stream processing ─────────────────────────────────────
-  // Step 1: Parse new data items from the stream into pending refs
+  // Single effect: process new stream data AND assign to the last assistant message.
+  // Using message INDEX as key (not id) because @ai-sdk/react mutates the assistant
+  // message id from a provisional value to the server-assigned value when streaming
+  // ends — an id-keyed lookup breaks exactly at that moment (flash-then-disappear bug).
   useEffect(() => {
-    if (!data || data.length <= processedDataCountRef.current) return;
-    const newItems = (data as Array<{ type?: string; data?: unknown }>)
-      .slice(processedDataCountRef.current);
-    processedDataCountRef.current = data.length;
-    let hasNew = false;
-    for (const item of newItems) {
-      if (item.type === 'flights' && Array.isArray(item.data)) {
-        pendingFlightsRef.current = item.data as FlightResult[];
-        hasNew = true;
-      }
-      if (item.type === 'hotels' && Array.isArray(item.data)) {
-        pendingHotelsRef.current = item.data as HotelResult[];
-        hasNew = true;
+    // Process any new data items from the stream into pending refs
+    if (data && data.length > processedDataCountRef.current) {
+      const newItems = (data as Array<{ type?: string; data?: unknown }>)
+        .slice(processedDataCountRef.current);
+      processedDataCountRef.current = data.length;
+      for (const item of newItems) {
+        if (item.type === 'flights' && Array.isArray(item.data)) {
+          pendingFlightsRef.current = item.data as FlightResult[];
+        }
+        if (item.type === 'hotels' && Array.isArray(item.data)) {
+          pendingHotelsRef.current = item.data as HotelResult[];
+        }
       }
     }
-    if (hasNew) setPendingDataVersion(v => v + 1);
-  }, [data]);
-
-  // Step 2: Assign pending data to the current assistant message once it appears
-  useEffect(() => {
+    // Assign pending data to the last assistant message's stable array index.
+    // If no assistant message exists yet (data arrived before the turn started),
+    // bail — this effect will re-run when messages updates and the message appears.
     if (!pendingFlightsRef.current && !pendingHotelsRef.current) return;
-    const lastAssistant = messages.slice().reverse().find(m => m.role === 'assistant');
-    if (!lastAssistant) return;
+    let lastAssistantIdx = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant') { lastAssistantIdx = i; break; }
+    }
+    if (lastAssistantIdx === -1) return;
     const flights = pendingFlightsRef.current;
     const hotels  = pendingHotelsRef.current;
     pendingFlightsRef.current = null;
     pendingHotelsRef.current  = null;
-    setMsgSideChannel(prev => ({
+    setPositionalCards(prev => ({
       ...prev,
-      [lastAssistant.id]: {
-        ...(prev[lastAssistant.id] ?? {}),
+      [lastAssistantIdx]: {
+        ...(prev[lastAssistantIdx] ?? {}),
         ...(flights ? { flights } : {}),
         ...(hotels  ? { hotels  } : {}),
       },
     }));
-  // pendingDataVersion triggers this when new data arrives; messages triggers it when the
-  // assistant message appears (data often arrives before the assistant turn starts streaming)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingDataVersion, messages]);
+  }, [data, messages]);
 
   // Card selection — stores flight/hotel in cart and sends a selection message.
   // Once both are chosen, a "Proceed to Booking" CTA appears above the input bar.
@@ -672,7 +672,7 @@ export default function ChatPage() {
                   onClick={() => {
                     setMessages([]); setItinerary(null); setApiError(null);
                     setCartFlight(null); setCartHotel(null);
-                    setMsgSideChannel({});
+                    setPositionalCards({});
                     processedDataCountRef.current = 0;
                     pendingFlightsRef.current = null;
                     pendingHotelsRef.current  = null;
@@ -709,7 +709,7 @@ export default function ChatPage() {
                         state: (ti.state === 'result' ? 'result' : 'call') as 'call' | 'result',
                       })
                     ) ?? [];
-                    const sideData = msgSideChannel[msg.id];
+                    const sideData = positionalCards[idx];
                     return (
                       <ChatMessage
                         key={msg.id}
