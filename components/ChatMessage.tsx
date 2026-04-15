@@ -780,31 +780,14 @@ export function ChatMessage({
   }
 
   // ── Assistant bubble — STREAMING state ────────────────────────────────────
-  // ALL-AT-ONCE REVEAL: During streaming we show the ProgressStepper + animated
-  // skeletons. Cards are intentionally NOT rendered one-by-one. Instead they burst
-  // in simultaneously the moment streaming ends (streaming → false below).
-  // This eliminates the "card pop-in" jitter and creates a clean reveal moment.
-  // The skeleton count mirrors the expected result count so the layout doesn't jump.
+  // Cards are intentionally withheld during streaming to prevent layout shifts
+  // as the summary text grows above them. The text (~2s) settles first, then
+  // cards burst in all-at-once the moment streaming ends (streaming → false below).
   if (streaming) {
     const streamingText = stripCardTags(content).trim();
 
-    // Detect which search tools were called (any state — call or result)
-    // so we can show the right skeleton placeholders throughout streaming.
-    const calledTools    = (toolCalls ?? []).map(tc => tc.toolName);
-    const hadFlightTool  = calledTools.some(t => t === 'searchFlights' || t === 'searchBookableFlights');
-    const hadHotelTool   = calledTools.some(t => t === 'searchHotels'  || t === 'searchNearbyHotels');
-    const hadExpTool     = calledTools.some(t => t === 'searchExperiences');
-
     // Tools still actively running (not yet returned results)
-    const activeTools    = (toolCalls ?? []).filter(tc => tc.state === 'call').map(tc => tc.toolName);
-    const toolsRunning   = activeTools.length > 0;
-
-    // Show real cards from side-channel as soon as data arrives; fall back to skeletons
-    const showFlightCards = (sideChannelFlights?.length ?? 0) > 0;
-    const showHotelCards  = (sideChannelHotels?.length  ?? 0) > 0;
-    const showFlightSkel  = hadFlightTool && !showFlightCards;
-    const showHotelSkel   = hadHotelTool  && !showHotelCards;
-    const showExpSkel     = hadExpTool;
+    const toolsRunning = (toolCalls ?? []).some(tc => tc.state === 'call');
 
     return (
       <div className="msg-row-bot">
@@ -821,7 +804,7 @@ export function ChatMessage({
             </div>
           )}
 
-          {/* Progress stepper (tools running) or text bubble (Claude composing) */}
+          {/* Progress stepper while tools run; summary text once Claude starts writing */}
           {streamingText && !toolsRunning ? (
             <div className="bubble-bot">
               <div className="prose-chat">
@@ -832,53 +815,7 @@ export function ChatMessage({
           ) : (
             <ProgressStepper toolCalls={toolCalls ?? []} />
           )}
-
-          {/* Cards: real data from side-channel as soon as it arrives, skeletons while waiting */}
-          {(showFlightCards || showFlightSkel || showHotelCards || showHotelSkel || showExpSkel) && (
-            <div className="flex flex-col gap-3">
-              {/* Flights: real cards from side-channel or skeleton while loading */}
-              {showFlightCards ? (
-                <div className="animate-card-burst">
-                  <FlightResultsPanel flights={sideChannelFlights!} onSelect={onSelectFlight} />
-                </div>
-              ) : showFlightSkel && (
-                <div>
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-semibold mb-2">
-                    <Plane className="w-3 h-3" />
-                    <span className="animate-pulse">Finding best flights…</span>
-                  </div>
-                  <div className="flex gap-3 overflow-x-hidden">
-                    {[0,1,2].map(i => (
-                      <div key={i} className="flex-none w-[min(85vw,300px)] sm:w-[300px]">
-                        <SkeletonFlightCard />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {/* Hotels: real cards from side-channel or skeleton while loading */}
-              {showHotelCards ? (
-                <div className="animate-card-burst">
-                  <HotelResultsPanel hotels={sideChannelHotels!} onSelect={onSelectHotel} onOpenDetail={onOpenHotelDetail} />
-                </div>
-              ) : showHotelSkel && (
-                <div>
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-semibold mb-2">
-                    <Building2 className="w-3 h-3" />
-                    <span className="animate-pulse">Searching hotels…</span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {[0,1,2].map(i => <SkeletonHotelCard key={i} />)}
-                  </div>
-                </div>
-              )}
-              {showExpSkel && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {[0,1].map(i => <SkeletonExperienceCard key={i} />)}
-                </div>
-              )}
-            </div>
-          )}
+          {/* No cards or skeletons here — cards render only after streaming ends */}
         </div>
       </div>
     );

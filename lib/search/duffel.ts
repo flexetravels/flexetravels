@@ -45,13 +45,18 @@ export interface EnrichedFlight extends NormalizedFlight {
   _flexObj:   FlexibilityScore; // Full scored object
 }
 
-/** Convert Duffel ISO 8601 duration (PT14H20M) → "14h 20m" */
+/** Convert Duffel ISO 8601 duration → "14h 20m"
+ *  Handles: PT14H20M, PT5H15M, PT45M, P1DT50M, P1DT2H30M
+ *  Day values are converted to hours (P1DT50M → 24h 50m). */
 function fmtDuration(iso: string): string {
-  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?/);
-  if (!m) return iso;
-  const h   = m[1] ? `${m[1]}h` : '';
-  const min = m[2] ? ` ${m[2]}m` : '';
-  return `${h}${min}`.trim() || iso;
+  const m = iso.match(/P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?/);
+  if (!m || (!m[1] && !m[2] && !m[3])) return iso;
+  const totalHours = (parseInt(m[1] ?? '0') * 24) + parseInt(m[2] ?? '0');
+  const mins       = parseInt(m[3] ?? '0');
+  const parts: string[] = [];
+  if (totalHours > 0) parts.push(`${totalHours}h`);
+  if (mins        > 0) parts.push(`${mins}m`);
+  return parts.join(' ') || iso;
 }
 
 function mapOffer(offer: DuffelOffer, cabinClass: string, totalPassengers: number): EnrichedFlight {
