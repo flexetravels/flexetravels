@@ -119,7 +119,8 @@ PROACTIVE QUESTIONING:
 • "flexible" dates → pick best 7-day window in next 6-8 weeks, explain why.
 
 SEARCH EXECUTION — once you have origin, destination, dates, party size:
-Call ALL simultaneously in ONE turn: searchFlights + searchHotels + searchExperiences + getDestinationGuide.
+Always call searchFlights + searchHotels + searchExperiences in one parallel batch.
+OPTIONAL: Also call getDestinationGuide in the same batch ONLY when the user is exploring or clearly unsure about the destination (e.g. "what's Cancún like?", "is Bali good for families?"). SKIP getDestinationGuide when the user already knows their destination and is ready to book (e.g. they gave specific origin + destination + dates).
 CRITICAL: Single parallel batch. Never sequential. cabinClass='economy' unless specified.
 
 CHILDREN & INFANTS:
@@ -691,10 +692,10 @@ export async function POST(req: Request) {
         }),
         execute: async ({ destination, travelDates, interests }) => {
           try {
-            // Hard 12s cap — destination guide is secondary to flights/hotels
+            // Hard 6s cap — destination guide is optional context, not blocking
             const guide = await Promise.race([
               geminiDestinationGuide(destination, travelDates, interests),
-              new Promise<null>((_, reject) => setTimeout(() => reject(new Error('guide_timeout')), 12_000)),
+              new Promise<null>((_, reject) => setTimeout(() => reject(new Error('guide_timeout')), 6_000)),
             ]);
             return { guide, source: 'Claude (Anthropic)' };
           } catch (err) {
