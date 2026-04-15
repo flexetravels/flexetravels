@@ -1,5 +1,35 @@
 # FlexeTravels Changelog
 
+## [v0.9.0] — 2026-04-14
+
+### Architecture: Side-Channel Card Streaming
+- **Side-channel data push** — flight/hotel card data now streams directly to the frontend via AI SDK data stream, completely bypassing LLM token generation for card content. Cards render at ~8-10s instead of ~30s.
+- System prompt updated: Claude now writes short commentary only (no more `[FLIGHT_CARD]`/`[HOTEL_CARD]` JSON tags in the LLM output). Tags are assembled server-side from tool results and pushed via the data channel.
+
+### Performance
+- Destination guide (Gemini) timeout reduced from 12s to 6s
+- Guide fetch is now optional for direct bookings — no longer blocks the response
+
+### Bug Fixes
+| Fix | Detail |
+|-----|--------|
+| **Flight duration display** | ISO 8601 durations like `P1DT50M` now correctly display as "24h 50m" instead of raw string |
+| **Card layout shift** | Cards now render after summary text completes — no more mid-stream flickering |
+| **Side-channel card persistence** | Cards no longer disappear when message ID changes post-streaming (stable key strategy) |
+| **handleSubmit Server Action** | Fixed React 19 compatibility bug where `handleSubmit` was being used as a Server Action incorrectly |
+
+### Content Audit
+- Removed all Amadeus, Grok, and Gemini references from public-facing pages
+- Phone number moved to Contact page only — removed from all footers
+- Contact page created with phone number, email (`support@flexetravels.com`), address, and business hours
+- Contact link added to footer navigation across all pages
+- Sitewide email changed from personal address to `support@flexetravels.com`
+
+> ⚠️ **NOTE: Payment/checkout flow has NOT been tested after the side-channel architecture change.**
+> Card selection → checkout → Stripe payment flow needs end-to-end verification before going to production.
+
+---
+
 ## [Unreleased] — 2026-04-14
 
 ### Added
