@@ -9,7 +9,7 @@
 
 | Item | Value |
 |---|---|
-| Owner | Suman (sumanthumboli@gmail.com) |
+| Owner | Suman (support@flexetravels.com) |
 | Brand | FlexeTravels |
 | Target Market | North America (Canada + USA) |
 | Business Model | $20 flat service fee per booking (CAD for CA customers, USD for US customers) |

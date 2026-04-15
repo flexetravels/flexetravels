@@ -78,10 +78,10 @@ export default function ContactPage() {
                 For booking inquiries, we reply within 1 business day.
               </p>
               <a
-                href="mailto:sumanthumboli@gmail.com"
+                href="mailto:support@flexetravels.com"
                 className="text-cyan-400 font-semibold hover:text-cyan-300 transition-colors break-all"
               >
-                sumanthumboli@gmail.com
+                support@flexetravels.com
               </a>
             </div>
 
