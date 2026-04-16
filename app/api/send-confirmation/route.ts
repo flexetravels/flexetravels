@@ -5,6 +5,24 @@
 import { NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 import { z } from 'zod';
+import { db, DB_AVAILABLE } from '@/lib/db/client';
+
+// ─── In-memory rate limit: max 3 emails per sessionId per hour ───────────────
+const rateLimitMap = new Map<string, { count: number; windowStart: number }>();
+const RATE_LIMIT_MAX     = 3;
+const RATE_LIMIT_WINDOW  = 3600_000; // 1 hour in ms
+
+function checkRateLimit(sessionId: string): boolean {
+  const now  = Date.now();
+  const entry = rateLimitMap.get(sessionId);
+  if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW) {
+    rateLimitMap.set(sessionId, { count: 1, windowStart: now });
+    return true; // within limit
+  }
+  if (entry.count >= RATE_LIMIT_MAX) return false; // exceeded
+  entry.count++;
+  return true;
+}
 
 // ─── Env ─────────────────────────────────────────────────────────────────────
 
@@ -50,6 +68,10 @@ const HotelSchema = z.object({
 }).optional().nullable();
 
 const BodySchema = z.object({
+  // Auth fields — at least one required to verify a real booking exists
+  tripId:          z.string().optional(),
+  paymentIntentId: z.string().optional(),
+  sessionId:       z.string().optional().default('unknown'),
   flightRef: z.string().optional().default(''),
   hotelRef:  z.string().optional().default(''),
   flight:    FlightSchema,
@@ -290,6 +312,38 @@ export async function POST(req: Request) {
   }
 
   const data = parsed.data;
+  const { tripId, paymentIntentId, sessionId } = data;
+
+  // ── Booking existence verification ───────────────────────────────────────────
+  // Require a real booking to exist before sending any email.
+  if (DB_AVAILABLE) {
+    if (!tripId && !paymentIntentId) {
+      return NextResponse.json(
+        { error: 'A tripId or paymentIntentId is required to send confirmation' },
+        { status: 400 },
+      );
+    }
+    let verified = false;
+    if (tripId) {
+      const trip = await db.trips.get(tripId).catch(() => null);
+      verified = !!(trip && trip.session_id === sessionId);
+    }
+    if (!verified && paymentIntentId) {
+      const payment = await db.payments.getByIntentId(paymentIntentId).catch(() => null);
+      verified = !!payment;
+    }
+    if (!verified) {
+      console.warn('[send-confirmation] No verified booking found — rejecting email request');
+      return NextResponse.json({ error: 'No verified booking found' }, { status: 403 });
+    }
+  }
+
+  // ── Rate limit ────────────────────────────────────────────────────────────────
+  if (!checkRateLimit(sessionId)) {
+    console.warn('[send-confirmation] Rate limit exceeded for session', sessionId);
+    return NextResponse.json({ error: 'Too many confirmation emails. Try again later.' }, { status: 429 });
+  }
+
   const toEmail = data.passengers[0]?.email;
   if (!toEmail) {
     return NextResponse.json({ error: 'No passenger email found' }, { status: 400 });

@@ -9,7 +9,7 @@ const SERVICE_KEY  =
   process.env.SUPABASE_SERVICE_KEY ??
   process.env.SUPABASE_SERVICE_ROLE_KEY ??
   '';
-const ANON_KEY     = process.env.SUPABASE_ANON_KEY ?? SERVICE_KEY;
+const ANON_KEY     = process.env.SUPABASE_ANON_KEY ?? '';
 
 export const DB_AVAILABLE = !!(SUPABASE_URL && SERVICE_KEY);
 

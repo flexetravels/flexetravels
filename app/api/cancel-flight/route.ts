@@ -232,6 +232,37 @@ export async function POST(req: Request) {
 
   console.log('[cancel-flight] Request received', { orderId, sessionId });
 
+  // ── Ownership verification — ensure this session owns the booking ──────────
+  // Only enforced when the DB is available. In dev/sandbox (no DB), we skip.
+  if (DB_AVAILABLE) {
+    try {
+      const booking = await db.bookings.getByRef(orderId);
+      if (!booking) {
+        console.warn('[cancel-flight] No booking found for order', orderId);
+        return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
+      }
+      // Check metadata.sessionId first (set by complete-hotel-booking and orchestrator)
+      const metaSessionId = (booking.metadata as Record<string, unknown> | null)?.sessionId as string | undefined;
+      if (metaSessionId) {
+        if (metaSessionId !== sessionId) {
+          console.warn('[cancel-flight] Session mismatch (metadata) for order', orderId, '— rejecting');
+          return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+        }
+      } else {
+        // Fall back to joining via trip.session_id
+        const trip = await db.trips.get(booking.trip_id);
+        if (trip && trip.session_id !== sessionId) {
+          console.warn('[cancel-flight] Session mismatch (trip) for order', orderId, '— rejecting');
+          return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+        }
+      }
+    } catch (e) {
+      console.error('[cancel-flight] Ownership check DB error:', e);
+      // If we can't check ownership, reject to be safe
+      return NextResponse.json({ error: 'Could not verify booking ownership' }, { status: 503 });
+    }
+  }
+
   // ── Call Duffel cancellation API ───────────────────────────────────────────
   const result = await duffelCancel(orderId);
 

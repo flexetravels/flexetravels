@@ -61,6 +61,34 @@ export async function POST(req: Request) {
 
   console.log('[complete-hotel-booking] prebookId:', prebookId, '| transactionId present:', !!transactionId);
 
+  // ── Session / payment verification ──────────────────────────────────────────
+  // Verify that the requesting session has a real trip in the DB before confirming
+  // the hotel booking. This ensures the transactionId comes from a legitimate
+  // paying customer session that went through /api/book-trip.
+  if (DB_AVAILABLE) {
+    let verified = false;
+
+    if (tripId) {
+      // Verify the tripId belongs to this session
+      const trip = await db.trips.get(tripId).catch(() => null);
+      verified = !!(trip && trip.session_id === sessionId);
+    }
+
+    if (!verified && sessionId && sessionId !== 'unknown') {
+      // Fall back: check if any trip exists for this session
+      const trip = await db.trips.getBySession(sessionId).catch(() => null);
+      verified = !!trip;
+    }
+
+    if (!verified) {
+      console.warn('[complete-hotel-booking] No verified session/trip — rejecting for prebookId:', prebookId);
+      return NextResponse.json(
+        { success: false, error: 'Payment verification failed' },
+        { status: 402 },
+      );
+    }
+  }
+
   const result = await liteApiBook({
     prebookId,
     transactionId,

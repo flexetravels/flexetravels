@@ -8,6 +8,7 @@
 // Gated behind ADMIN_SECRET — safe to leave deployed.
 
 import { NextResponse } from 'next/server';
+import { checkAdminAuth } from '@/lib/auth';
 
 const DUFFEL_BASE = 'https://api.duffel.com';
 
@@ -131,14 +132,8 @@ async function testSearch(
 }
 
 export async function GET(req: Request) {
-  // ── Auth gate ────────────────────────────────────────────────────────────────
-  const adminSecret = process.env.ADMIN_SECRET;
-  if (adminSecret) {
-    const { searchParams } = new URL(req.url);
-    const provided = req.headers.get('x-admin-secret') ?? searchParams.get('secret');
-    if (provided !== adminSecret) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+  if (!checkAdminAuth(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const token = process.env.DUFFEL_ACCESS_TOKEN;

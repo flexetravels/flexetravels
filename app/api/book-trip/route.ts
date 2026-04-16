@@ -126,6 +126,36 @@ export async function POST(req: Request) {
           { status: 402 },
         );
       }
+
+      // ── Metadata integrity checks — prevent price tampering ──────────────────
+      // Verify the PI amount matches what was stored in metadata at creation time
+      const expectedAmount = pi.metadata?.expected_amount;
+      if (expectedAmount !== undefined && parseInt(expectedAmount, 10) !== pi.amount) {
+        console.error(
+          '[book-trip] PI amount mismatch — tampering detected!',
+          'pi.amount:', pi.amount,
+          'metadata.expected_amount:', expectedAmount,
+        );
+        return NextResponse.json(
+          { success: false, error: 'Payment verification failed' },
+          { status: 402 },
+        );
+      }
+
+      // Verify the flight offer ID matches what was priced at PI creation time
+      const piOfferId = pi.metadata?.flight_offer_id;
+      if (piOfferId && flightOfferId && piOfferId !== flightOfferId) {
+        console.error(
+          '[book-trip] Flight offer ID mismatch — tampering detected!',
+          'request flightOfferId:', flightOfferId,
+          'metadata.flight_offer_id:', piOfferId,
+        );
+        return NextResponse.json(
+          { success: false, error: 'Payment verification failed' },
+          { status: 402 },
+        );
+      }
+
       console.log('[book-trip] Payment verified ✓', paymentIntentId, `$${(pi.amount / 100).toFixed(2)} ${pi.currency.toUpperCase()}`);
     } catch (verifyErr) {
       console.error('[book-trip] Payment verification error:', verifyErr);

@@ -177,8 +177,15 @@ export async function createPaymentIntent(params: {
 /**
  * Retrieve a Stripe PaymentIntent and verify it has been paid.
  * Used by /api/book-trip to gate bookings behind confirmed payment.
+ * Returns metadata so the caller can cross-verify expected_amount and flight_offer_id.
  */
-export async function getPaymentIntent(id: string): Promise<{ id: string; status: string; amount: number; currency: string }> {
+export async function getPaymentIntent(id: string): Promise<{
+  id: string;
+  status: string;
+  amount: number;
+  currency: string;
+  metadata: Record<string, string>;
+}> {
   const secretKey = process.env.STRIPE_SECRET_KEY;
   if (!secretKey) throw new Error('Stripe not configured');
 
@@ -192,7 +199,13 @@ export async function getPaymentIntent(id: string): Promise<{ id: string; status
     throw new Error(`Stripe PI lookup failed (${res.status}): ${err.error?.message ?? 'unknown'}`);
   }
 
-  const pi = await res.json() as { id: string; status: string; amount: number; currency: string };
+  const pi = await res.json() as {
+    id: string;
+    status: string;
+    amount: number;
+    currency: string;
+    metadata: Record<string, string>;
+  };
   return pi;
 }
 
@@ -228,6 +241,10 @@ export async function verifyWebhookSignature(
   const timestamp = parts['t'];
   const expectedSig = parts['v1'];
   if (!timestamp || !expectedSig) return false;
+
+  // Reject webhooks older than 5 minutes to prevent replay attacks
+  const ts = parseInt(timestamp, 10);
+  if (isNaN(ts) || Math.abs(Date.now() / 1000 - ts) > 300) return false;
 
   // HMAC-SHA256(timestamp.payload, secret)
   const signedPayload = `${timestamp}.${payload}`;
