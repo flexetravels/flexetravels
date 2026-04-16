@@ -8,6 +8,7 @@ import {
   ChevronDown, ChevronLeft, ChevronRight, Compass, ThumbsUp, ThumbsDown,
 } from 'lucide-react';
 import { cn, parseEmbeddedCards, stripCardTags } from '@/lib/utils';
+import { sanitizeMarkdownHref } from '@/lib/security/input-sanitizer';
 import { FlightCard } from './FlightCard';
 import { HotelCard } from './HotelCard';
 import { ExperienceCard } from './ExperienceCard';
@@ -808,7 +809,16 @@ export function ChatMessage({
           {streamingText && !toolsRunning ? (
             <div className="bubble-bot">
               <div className="prose-chat">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingText}</ReactMarkdown>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    a({ href, children }) {
+                      const safeHref = sanitizeMarkdownHref(href);
+                      if (!safeHref) return <span className="line-through text-muted-foreground">{children}</span>;
+                      return <a href={safeHref} target="_blank" rel="noopener noreferrer">{children}</a>;
+                    },
+                  }}
+                >{streamingText}</ReactMarkdown>
               </div>
               <span className="inline-block w-2 h-4 bg-current opacity-70 animate-pulse ml-1 align-middle" />
             </div>
@@ -882,8 +892,15 @@ export function ChatMessage({
                     );
                   },
                   a({ href, children }) {
+                    // Block javascript:, data:, vbscript:, blob: URI schemes.
+                    // sanitizeMarkdownHref returns null for dangerous hrefs.
+                    const safeHref = sanitizeMarkdownHref(href);
+                    if (!safeHref) {
+                      // Render as plain text — no clickable link for dangerous URLs
+                      return <span className="line-through text-muted-foreground">{children}</span>;
+                    }
                     return (
-                      <a href={href} target="_blank" rel="noopener noreferrer">
+                      <a href={safeHref} target="_blank" rel="noopener noreferrer">
                         {children}
                       </a>
                     );
