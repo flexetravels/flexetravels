@@ -59,6 +59,23 @@ const nextConfig = {
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
           // Basic XSS protection (belt + suspenders alongside CSP)
           { key: 'X-XSS-Protection', value: '1; mode=block' },
+          // HSTS — force HTTPS for 1 year, including subdomains
+          { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains; preload' },
+          // Content Security Policy — scoped to allow Stripe Elements and LiteAPI payment SDK
+          {
+            key: 'Content-Security-Policy',
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://payment-wrapper.liteapi.travel",
+              "style-src 'self' 'unsafe-inline'",
+              "img-src 'self' data: https: blob:",
+              "font-src 'self' data:",
+              "connect-src 'self' https://api.stripe.com https://*.supabase.co https://payment-wrapper.liteapi.travel",
+              "frame-src https://js.stripe.com https://hooks.stripe.com https://payment-wrapper.liteapi.travel",
+              "object-src 'none'",
+              "base-uri 'self'",
+            ].join('; '),
+          },
         ],
       },
       {

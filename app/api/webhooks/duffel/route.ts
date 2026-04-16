@@ -66,6 +66,10 @@ function verifyDuffelSignature(
   const v1        = parts['v1'];
   if (!timestamp || !v1) return false;
 
+  // Reject webhooks older than 5 minutes to prevent replay attacks
+  const ts = parseInt(timestamp, 10);
+  if (isNaN(ts) || Math.abs(Date.now() / 1000 - ts) > 300) return false;
+
   // Signed payload: "<timestamp>.<rawBody>"
   const signedPayload = `${timestamp}.${rawBody}`;
   const expected = createHmac('sha256', secret)

@@ -1056,6 +1056,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
         body: JSON.stringify({
           bookingReference:  `pre_${Date.now()}`,
           customerEmail:     passengers[0]?.email,
+          flightOfferId:     flight?.id ?? undefined,
           flightPriceCents,
           flightCurrency,
           flightDescription: flightDesc,

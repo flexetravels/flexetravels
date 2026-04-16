@@ -4,19 +4,10 @@
 
 import { NextResponse } from 'next/server';
 import { queryLogs, loadLogsFromFile, type EventType, type ApiSource } from '@/lib/logger';
-
-function checkAuth(req: Request): boolean {
-  const secret = process.env.ADMIN_SECRET;
-  if (!secret) return true; // no secret set → allow (dev mode)
-
-  const headerSecret = req.headers.get('x-admin-secret');
-  const url          = new URL(req.url);
-  const querySecret  = url.searchParams.get('secret');
-  return headerSecret === secret || querySecret === secret;
-}
+import { checkAdminAuth } from '@/lib/auth';
 
 export async function GET(req: Request) {
-  if (!checkAuth(req)) {
+  if (!checkAdminAuth(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -53,7 +44,7 @@ export async function GET(req: Request) {
 
 // DELETE — clear in-memory logs
 export async function DELETE(req: Request) {
-  if (!checkAuth(req)) {
+  if (!checkAdminAuth(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   // We can only clear memory (file is append-only for safety)
