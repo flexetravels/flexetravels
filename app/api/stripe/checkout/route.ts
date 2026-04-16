@@ -46,7 +46,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ url, sessionId });
   } catch (err) {
-    console.error('[/api/stripe/checkout] Error:', err);
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    console.error('[stripe/checkout] Error:', err);
+    return NextResponse.json({ error: 'An error occurred. Please try again.' }, { status: 500 });
   }
 }

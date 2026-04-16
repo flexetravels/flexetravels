@@ -10,8 +10,14 @@
 
 import { NextResponse }          from 'next/server';
 import { liteApiGetHotelDetail } from '@/lib/search/liteapi';
+import { rateLimit, getClientIp } from '@/lib/rate-limit';
 
 export async function GET(req: Request) {
+  const ip = getClientIp(req);
+  if (!rateLimit(`ip:hotel-detail:${ip}`, 20, 60_000)) {
+    return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
+  }
+
   const { searchParams } = new URL(req.url);
   const hotelId = searchParams.get('hotelId')?.trim();
 

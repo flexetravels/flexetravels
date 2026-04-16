@@ -11,7 +11,6 @@
 import { NextResponse } from 'next/server';
 import { verifyWebhookSignature } from '@/lib/stripe';
 import { db, DB_AVAILABLE } from '@/lib/db/client';
-import { confirmedPayments } from '@/lib/confirmed-payments';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,23 +56,30 @@ export async function POST(req: Request) {
     const bookingRef = session.metadata?.booking_reference ?? '';
     console.log('[webhook/stripe] checkout.session.completed | session:', session.id, '| ref:', bookingRef);
 
-    if (bookingRef) {
-      confirmedPayments.set(session.id, { paidAt: new Date().toISOString(), bookingRef });
+    if (bookingRef && DB_AVAILABLE) {
+      // Idempotency: skip if a payment for this booking ref already exists
+      try {
+        const existing = await db.payments.getByRef(bookingRef);
+        if (existing) {
+          console.log('[webhook/stripe] checkout.session.completed duplicate — already processed session:', session.id);
+          return NextResponse.json({ received: true });
+        }
+      } catch (e) {
+        console.error('[webhook/stripe] idempotency check failed (non-fatal):', e);
+      }
 
       // Persist to payments table
-      if (DB_AVAILABLE) {
-        try {
-          await db.payments.create({
-            stripe_session_id: session.id,
-            booking_ref:       bookingRef,
-            amount_cents:      session.amount_total ?? 2000,
-            currency:          session.currency ?? 'USD',
-            status:            'succeeded',
-            paid_at:           new Date().toISOString(),
-          });
-        } catch (e) {
-          console.error('[webhook/stripe] payments insert failed (non-fatal):', e);
-        }
+      try {
+        await db.payments.create({
+          stripe_session_id: session.id,
+          booking_ref:       bookingRef,
+          amount_cents:      session.amount_total ?? 2000,
+          currency:          session.currency ?? 'USD',
+          status:            'succeeded',
+          paid_at:           new Date().toISOString(),
+        });
+      } catch (e) {
+        console.error('[webhook/stripe] payments insert failed (non-fatal):', e);
       }
     }
 
@@ -83,11 +89,6 @@ export async function POST(req: Request) {
   // ── payment_intent.succeeded ─────────────────────────────────────────────────
   if (event.type === 'payment_intent.succeeded') {
     console.log('[webhook/stripe] payment_intent.succeeded | intent:', intent.id, '| ref:', bookingRef, '| amount:', intent.amount, intent.currency);
-
-    // Mark in-memory so the frontend can poll for confirmation (legacy path)
-    if (bookingRef) {
-      confirmedPayments.set(intent.id, { paidAt: new Date().toISOString(), bookingRef });
-    }
 
     // Update booking row in DB — find by booking_ref (the PNR / LiteAPI bookingId)
     if (DB_AVAILABLE && bookingRef) {

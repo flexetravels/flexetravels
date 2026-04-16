@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { geminiGenerate } from '@/lib/ai/gemini';
+import { z } from 'zod';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -86,18 +87,27 @@ function detectRegion(req: NextRequest): string {
   );
 }
 
+// ── Zod schema for AI output validation ─────────────────────────────────────
+const RawCardSchema = z.object({
+  title:       z.string(),
+  subtitle:    z.string(),
+  destination: z.string(),
+  country:     z.string(),
+  imageQuery:  z.string(),
+  duration:    z.string().optional(),
+  badge:       z.string().optional(),
+  tags:        z.array(z.string()).default([]),
+  prompt:      z.string(),
+});
+
+const DiscoverResponseSchema = z.object({
+  destinations: z.array(RawCardSchema),
+  events:       z.array(RawCardSchema),
+  experiences:  z.array(RawCardSchema),
+});
+
 // ── Content generation ───────────────────────────────────────────────────────
-interface RawCard {
-  title:       string;
-  subtitle:    string;
-  destination: string;
-  country:     string;
-  imageQuery:  string;
-  duration?:   string;
-  badge?:      string;
-  tags:        string[];
-  prompt:      string;
-}
+type RawCard = z.infer<typeof RawCardSchema>;
 
 interface DiscoverResponse {
   destinations: RawCard[];
@@ -180,7 +190,13 @@ Rules:
     .replace(/```\s*$/i, '')
     .trim();
 
-  return JSON.parse(cleaned) as DiscoverResponse;
+  const parsed = JSON.parse(cleaned);
+  const validated = DiscoverResponseSchema.safeParse(parsed);
+  if (!validated.success) {
+    console.error('[discover] AI output failed Zod validation:', validated.error.issues.length, 'issue(s)');
+    throw new Error('AI response failed schema validation');
+  }
+  return validated.data as DiscoverResponse;
 }
 
 // ── Build DiscoverData from raw cards + Unsplash images ──────────────────────

@@ -56,7 +56,7 @@ const nextConfig = {
           // Limit referrer info sent to third-party sites
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           // Disable unnecessary browser features
-          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
           // Basic XSS protection (belt + suspenders alongside CSP)
           { key: 'X-XSS-Protection', value: '1; mode=block' },
         ],

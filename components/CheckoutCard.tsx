@@ -783,6 +783,9 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
         if (existing) { resolve(); return; }
         const s = document.createElement('script');
         s.src = 'https://payment-wrapper.liteapi.travel/dist/liteAPIPayment.js?v=a1';
+        s.crossOrigin = 'anonymous';
+        // TODO: Add s.integrity = 'sha384-<hash>' for SRI protection — compute with:
+        // curl -s https://payment-wrapper.liteapi.travel/dist/liteAPIPayment.js | openssl dgst -sha384 -binary | openssl base64 -A
         s.onload  = () => resolve();
         s.onerror = () => reject(new Error('LiteAPI payment SDK failed to load'));
         document.head.appendChild(s);

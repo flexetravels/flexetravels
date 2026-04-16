@@ -11,6 +11,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { db, DB_AVAILABLE } from '@/lib/db/client';
+import { rateLimit, getClientIp } from '@/lib/rate-limit';
 
 // ─── Request schema ───────────────────────────────────────────────────────────
 
@@ -204,6 +205,11 @@ async function duffelCancel(
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
+  const ip = getClientIp(req);
+  if (!rateLimit(`ip:cancel-flight:${ip}`, 5, 60_000)) {
+    return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
+  }
+
   let raw: unknown;
   try {
     raw = await req.json();

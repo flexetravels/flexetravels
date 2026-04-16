@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { book } from '@/lib/orchestrator';
 import { getPaymentIntent } from '@/lib/stripe';
 import { db } from '@/lib/db/client';
+import { rateLimit, getClientIp } from '@/lib/rate-limit';
 
 // ─── Request schema ────────────────────────────────────────────────────────────
 
@@ -76,6 +77,11 @@ function isPlaceholder(id: string | undefined): boolean {
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
+  const ip = getClientIp(req);
+  if (!rateLimit(`ip:book-trip:${ip}`, 3, 60_000)) {
+    return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
+  }
+
   let raw: unknown;
   try {
     raw = await req.json();

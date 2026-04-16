@@ -14,6 +14,7 @@ import { NextResponse } from 'next/server';
 import { z }            from 'zod';
 import { liteApiBook }  from '@/lib/search/liteapi';
 import { db, DB_AVAILABLE } from '@/lib/db/client';
+import { rateLimit, getClientIp } from '@/lib/rate-limit';
 
 const BodySchema = z.object({
   prebookId:      z.string().min(1),
@@ -32,6 +33,11 @@ const BodySchema = z.object({
 });
 
 export async function POST(req: Request) {
+  const ip = getClientIp(req);
+  if (!rateLimit(`ip:complete-hotel-booking:${ip}`, 3, 60_000)) {
+    return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
+  }
+
   let raw: unknown;
   try {
     raw = await req.json();

@@ -18,6 +18,7 @@
 
 import { streamText, tool, createDataStreamResponse } from 'ai';
 import { createAnthropic } from '@ai-sdk/anthropic';
+import { rateLimit, getClientIp } from '@/lib/rate-limit';
 
 // FLEXE_ANTHROPIC_KEY is used locally because Claude Code CLI shadows ANTHROPIC_API_KEY with ''
 const anthropic = createAnthropic({
@@ -64,13 +65,12 @@ function buildSystem(lastUserMsg?: string, state?: string): string {
   let isFlightSelected = false;
   let isHotelSelected = false;
 
-  if (state) {
-    isFlightSelected = state === 'flight_selected';
-    isHotelSelected = state === 'hotel_selected';
-  } else {
-    isFlightSelected = msg.includes('[flight_selected]');
-    isHotelSelected = msg.includes('[hotel_selected]');
-  }
+  // Only trust the server-provided conversationState param — never derive state
+  // from user message content to prevent prompt-injection via [FLIGHT_SELECTED] tags.
+  const VALID_STATES = new Set(['browsing', 'flight_selected', 'hotel_selected']);
+  const safeState = state && VALID_STATES.has(state) ? state : undefined;
+  isFlightSelected = safeState === 'flight_selected';
+  isHotelSelected  = safeState === 'hotel_selected';
 
   // Detect destination-specific context needs
   const isDubai = /dubai|uae|abu.?dhabi/i.test(msg);
@@ -312,8 +312,15 @@ export async function POST(req: Request) {
     });
   }
 
-  // Rate limit: 15 req/min per session
+  // Rate limit: 15 req/min per session AND 20 req/min per IP
+  // Reject if EITHER limit is exceeded to prevent session rotation abuse
   if (!checkRateLimit(sessionId, 15)) {
+    return new Response(JSON.stringify({ error: 'Rate limit exceeded. Please wait a moment.' }), {
+      status: 429, headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  const ip = getClientIp(req);
+  if (!rateLimit(`ip:chat:${ip}`, 20, 60_000)) {
     return new Response(JSON.stringify({ error: 'Rate limit exceeded. Please wait a moment.' }), {
       status: 429, headers: { 'Content-Type': 'application/json' },
     });

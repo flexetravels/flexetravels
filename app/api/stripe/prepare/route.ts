@@ -20,6 +20,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createPaymentIntent } from '@/lib/stripe';
+import { rateLimit, getClientIp } from '@/lib/rate-limit';
 
 const SERVICE_FEE_CENTS = 2000; // $20.00
 
@@ -35,6 +36,11 @@ const schema = z.object({
 });
 
 export async function POST(req: Request) {
+  const ip = getClientIp(req);
+  if (!rateLimit(`ip:stripe/prepare:${ip}`, 5, 60_000)) {
+    return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
+  }
+
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey?.trim()) {
     return NextResponse.json(
@@ -110,7 +116,7 @@ export async function POST(req: Request) {
       },
     });
   } catch (err) {
-    console.error('[/api/stripe/prepare]', err);
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    console.error('[stripe/prepare] Error:', err);
+    return NextResponse.json({ error: 'An error occurred. Please try again.' }, { status: 500 });
   }
 }

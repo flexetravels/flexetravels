@@ -53,14 +53,14 @@ export async function GET() {
     const rows = await res.json() as unknown[];
 
     return NextResponse.json({
-      ok:           true,
-      db:           true,
-      supabase_url: supabaseUrl.slice(0, 40) + '…',
-      trips_ping:   `${rows.length} row(s) sampled`,
+      ok:         true,
+      db:         true,
+      trips_ping: `${rows.length} row(s) sampled`,
     });
   } catch (e) {
+    console.error('[health] Unexpected error:', e);
     return NextResponse.json(
-      { ok: false, error: String(e) },
+      { ok: false, error: 'Health check failed' },
       { status: 500 },
     );
   }
