@@ -25,6 +25,14 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'hotelId query param required' }, { status: 400 });
   }
 
+  // LiteAPI property IDs are alphanumeric (plus hyphens/underscores), 1-50 chars.
+  // Reject anything else before forwarding to LiteAPI — prevents probing with
+  // path-traversal sequences or oversized strings.
+  const HOTEL_ID_RE = /^[a-zA-Z0-9_-]{1,50}$/;
+  if (!HOTEL_ID_RE.test(hotelId)) {
+    return NextResponse.json({ error: 'Invalid hotelId format' }, { status: 400 });
+  }
+
   console.log('[hotel-detail] fetching', hotelId);
 
   const detail = await liteApiGetHotelDetail(hotelId);

@@ -154,8 +154,21 @@ export const db = {
         filter: { session_id: `eq.${sessionId}`, status: 'eq.available' },
       }) ?? [];
     },
-    async redeem(id: string): Promise<void> {
-      await rest('PATCH', 'credits', { filter: { id: `eq.${id}` }, body: { status: 'redeemed', redeemed_at: new Date().toISOString() } });
+    /**
+     * Atomically redeem a credit by filtering on both id AND status = 'available'.
+     * Returns true if the credit was successfully redeemed, false if it was
+     * already redeemed by a concurrent request (race condition defence).
+     *
+     * The PostgREST PATCH only touches rows matching ALL filter conditions, so
+     * two concurrent calls for the same id will produce at most one winner.
+     */
+    async redeem(id: string): Promise<boolean> {
+      const rows = await rest<CreditRow[]>('PATCH', 'credits', {
+        filter: { id: `eq.${id}`, status: 'eq.available' },  // conditional on still-available
+        body: { status: 'redeemed', redeemed_at: new Date().toISOString() },
+        returning: true,
+      });
+      return !!(rows && rows.length > 0);
     },
   },
 

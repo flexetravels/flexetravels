@@ -87,11 +87,16 @@ export const creditAgent = {
 
   /**
    * Redeem (consume) a specific credit.
+   * Returns ok=false if the credit was already redeemed (concurrent request won the race).
    */
   async redeem(creditId: string): Promise<AgentResult<void>> {
     const t0 = Date.now();
     try {
-      await db.credits.redeem(creditId);
+      const redeemed = await db.credits.redeem(creditId);
+      if (!redeemed) {
+        console.warn('[credit-agent] credit already redeemed (race condition) —', creditId);
+        return { ok: false, error: 'Credit already redeemed', durationMs: Date.now() - t0 };
+      }
       console.log('[credit-agent] redeemed credit', creditId);
       return { ok: true, durationMs: Date.now() - t0 };
     } catch (e) {
@@ -125,8 +130,12 @@ export const creditAgent = {
         if (remaining <= 0) break;
         const use = Math.min(credit.amountCents, remaining);
         if (use === credit.amountCents) {
-          // Fully consume this credit
-          await db.credits.redeem(credit.id);
+          // Atomically redeem — returns false if another request already won the race
+          const didRedeem = await db.credits.redeem(credit.id);
+          if (!didRedeem) {
+            console.warn('[credit-agent] skipping already-redeemed credit (concurrent request)', credit.id);
+            continue;
+          }
           redeemed.push(credit.id);
           applied   += use;
           remaining -= use;
@@ -158,8 +167,9 @@ export const creditAgent = {
 
       for (const row of rows) {
         if (row.expires_at && new Date(row.expires_at).getTime() < now) {
-          // Mark expired
-          await db.credits.redeem(row.id); // reuse redeem to update status
+          // Mark expired — db.credits.redeem filters on status='available' so it's
+          // safe to call here even if the credit was already redeemed concurrently.
+          await db.credits.redeem(row.id);
           expiredCount++;
         }
       }

@@ -241,6 +241,24 @@ export async function POST(req: Request) {
         console.warn('[cancel-flight] No booking found for order', orderId);
         return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
       }
+
+      // ── Idempotency: reject if already cancelled ──────────────────────────────
+      // Without this check, two concurrent requests can both pass the ownership
+      // check before either has written status='cancelled' back to the DB, leading
+      // to two Duffel cancel API calls for the same order (and potential double-
+      // refund or a confusing Duffel error on the second call).
+      if (booking.status === 'cancelled') {
+        console.log('[cancel-flight] Booking already cancelled —', orderId);
+        return NextResponse.json(
+          {
+            success: false,
+            voidable: false,
+            error: 'This booking has already been cancelled.',
+          },
+          { status: 409 },
+        );
+      }
+
       // Check metadata.sessionId first (set by complete-hotel-booking and orchestrator)
       const metaSessionId = (booking.metadata as Record<string, unknown> | null)?.sessionId as string | undefined;
       if (metaSessionId) {

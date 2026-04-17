@@ -87,13 +87,32 @@ const BodySchema = z.object({
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/**
+ * Escape HTML special characters in any user-supplied string before
+ * interpolating it into the email HTML template.
+ *
+ * Attack prevented: a passenger could set firstName to
+ *   '<a href="https://evil.com">Refund here</a>'
+ * or inject a tracking pixel '<img src="https://tracker.evil.com/px">'.
+ * Without escaping, these render in the recipient's email client.
+ */
+function esc(s: string | null | undefined): string {
+  if (!s) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
+
 function fmtDate(iso: string): string {
   try { return new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }); }
-  catch { return iso; }
+  catch { return esc(iso); }
 }
 function fmtTime(iso: string): string {
   try { return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }); }
-  catch { return iso; }
+  catch { return esc(iso); }
 }
 function fmtPrice(amount: number, currency = 'USD'): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount);
@@ -112,28 +131,30 @@ function buildEmailHtml(d: z.infer<typeof BodySchema>): string {
   const hotelCost  = ht?.totalPrice ?? 0;
   const total = flightCost + hotelCost + d.serviceFee;
 
+  // All values interpolated into HTML are run through esc() to prevent HTML
+  // injection via passenger names, hotel names, or other user/API-sourced strings.
   const segmentsHtml = fl?.segments?.map(s => `
     <tr>
-      <td style="padding:6px 8px;font-family:monospace;font-weight:bold;font-size:13px;color:#0d9488">${s.flightNumber}</td>
-      <td style="padding:6px 8px;font-size:13px">${s.origin} → ${s.destination}</td>
+      <td style="padding:6px 8px;font-family:monospace;font-weight:bold;font-size:13px;color:#0d9488">${esc(s.flightNumber)}</td>
+      <td style="padding:6px 8px;font-size:13px">${esc(s.origin)} → ${esc(s.destination)}</td>
       <td style="padding:6px 8px;font-size:13px">${fmtTime(s.departure)} — ${fmtTime(s.arrival)}</td>
-      <td style="padding:6px 8px;font-size:13px;color:#6b7280">${s.duration}</td>
+      <td style="padding:6px 8px;font-size:13px;color:#6b7280">${esc(s.duration)}</td>
     </tr>
   `).join('') ?? '';
 
   const passengersHtml = d.passengers.map((p, i) => `
     <tr>
-      <td style="padding:6px 8px;font-size:13px;font-weight:600">${p.firstName} ${p.lastName}</td>
+      <td style="padding:6px 8px;font-size:13px;font-weight:600">${esc(p.firstName)} ${esc(p.lastName)}</td>
       <td style="padding:6px 8px;font-size:13px;color:#6b7280">Adult ${i + 1}</td>
       <td style="padding:6px 8px;font-size:13px">${fmtDate(p.dateOfBirth)}</td>
-      <td style="padding:6px 8px;font-size:13px">${p.email}</td>
-      <td style="padding:6px 8px;font-size:13px">${p.phone}</td>
+      <td style="padding:6px 8px;font-size:13px">${esc(p.email)}</td>
+      <td style="padding:6px 8px;font-size:13px">${esc(p.phone)}</td>
     </tr>
   `).join('');
 
   const childrenHtml = d.childPassengers.map((c, i) => `
     <tr>
-      <td style="padding:6px 8px;font-size:13px;font-weight:600">${c.firstName} ${c.lastName}</td>
+      <td style="padding:6px 8px;font-size:13px;font-weight:600">${esc(c.firstName)} ${esc(c.lastName)}</td>
       <td style="padding:6px 8px;font-size:13px;color:#d97706">Child ${i + 1}</td>
       <td style="padding:6px 8px;font-size:13px">${fmtDate(c.dateOfBirth)}</td>
       <td style="padding:6px 8px;font-size:13px" colspan="2">—</td>
@@ -159,12 +180,12 @@ function buildEmailHtml(d: z.infer<typeof BodySchema>): string {
       ${d.flightRef ? `
       <div style="flex:1;background:#f0fdfa;border:1px solid #99f6e4;border-radius:12px;padding:12px;text-align:center">
         <p style="font-size:10px;color:#0d9488;text-transform:uppercase;letter-spacing:1.5px;margin:0 0 4px">Flight Reference</p>
-        <p style="font-size:22px;font-weight:900;font-family:monospace;color:#0f766e;margin:0">${d.flightRef}</p>
+        <p style="font-size:22px;font-weight:900;font-family:monospace;color:#0f766e;margin:0">${esc(d.flightRef)}</p>
       </div>` : ''}
       ${d.hotelRef ? `
       <div style="flex:1;background:#f0fdfa;border:1px solid #99f6e4;border-radius:12px;padding:12px;text-align:center">
         <p style="font-size:10px;color:#0d9488;text-transform:uppercase;letter-spacing:1.5px;margin:0 0 4px">Hotel Booking ID</p>
-        <p style="font-size:22px;font-weight:900;font-family:monospace;color:#0f766e;margin:0">${d.hotelRef}</p>
+        <p style="font-size:22px;font-weight:900;font-family:monospace;color:#0f766e;margin:0">${esc(d.hotelRef)}</p>
       </div>` : ''}
     </div>
 
@@ -177,15 +198,15 @@ function buildEmailHtml(d: z.infer<typeof BodySchema>): string {
       <table style="width:100%;border-collapse:collapse">
         <tr>
           <td style="padding:4px 0;font-size:13px;color:#6b7280">Airline</td>
-          <td style="padding:4px 0;font-size:13px;font-weight:600">${fl.airline}</td>
+          <td style="padding:4px 0;font-size:13px;font-weight:600">${esc(fl.airline)}</td>
           <td style="padding:4px 0;font-size:13px;color:#6b7280">Class</td>
-          <td style="padding:4px 0;font-size:13px;font-weight:600">${fl.cabinClass?.charAt(0).toUpperCase()}${fl.cabinClass?.slice(1)}</td>
+          <td style="padding:4px 0;font-size:13px;font-weight:600">${esc(fl.cabinClass?.charAt(0).toUpperCase())}${esc(fl.cabinClass?.slice(1))}</td>
         </tr>
         <tr>
           <td style="padding:4px 0;font-size:13px;color:#6b7280">Route</td>
-          <td style="padding:4px 0;font-size:13px;font-weight:600">${fl.origin} → ${fl.destination}</td>
+          <td style="padding:4px 0;font-size:13px;font-weight:600">${esc(fl.origin)} → ${esc(fl.destination)}</td>
           <td style="padding:4px 0;font-size:13px;color:#6b7280">Duration</td>
-          <td style="padding:4px 0;font-size:13px;font-weight:600">${fl.duration}</td>
+          <td style="padding:4px 0;font-size:13px;font-weight:600">${esc(fl.duration)}</td>
         </tr>
         <tr>
           <td style="padding:4px 0;font-size:13px;color:#6b7280">Departure</td>
@@ -199,8 +220,8 @@ function buildEmailHtml(d: z.infer<typeof BodySchema>): string {
           <td style="padding:4px 0;font-size:13px;color:#6b7280">Fare</td>
           <td style="padding:4px 0;font-size:13px;font-weight:600">${fmtPrice(fl.price, fl.currency)} per person</td>
         </tr>
-        ${fl.baggage ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280">Baggage</td><td colspan="3" style="padding:4px 0;font-size:13px">${fl.baggage}</td></tr>` : ''}
-        ${fl.flexibilityLabel ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280">Flexibility</td><td colspan="3" style="padding:4px 0;font-size:13px;color:#0d9488;font-weight:600">${fl.flexibilityLabel}</td></tr>` : ''}
+        ${fl.baggage ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280">Baggage</td><td colspan="3" style="padding:4px 0;font-size:13px">${esc(fl.baggage)}</td></tr>` : ''}
+        ${fl.flexibilityLabel ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280">Flexibility</td><td colspan="3" style="padding:4px 0;font-size:13px;color:#0d9488;font-weight:600">${esc(fl.flexibilityLabel)}</td></tr>` : ''}
       </table>
 
       ${segmentsHtml ? `
@@ -218,13 +239,13 @@ function buildEmailHtml(d: z.infer<typeof BodySchema>): string {
         🏨 Hotel Accommodation
       </h2>
       <table style="width:100%;border-collapse:collapse">
-        <tr><td style="padding:4px 0;font-size:13px;color:#6b7280">Hotel</td><td colspan="3" style="padding:4px 0;font-size:13px;font-weight:600">${ht.name}${ht.stars ? ` ${'★'.repeat(ht.stars)}` : ''}</td></tr>
-        ${ht.address ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280">Address</td><td colspan="3" style="padding:4px 0;font-size:13px">${ht.address}</td></tr>` : ''}
+        <tr><td style="padding:4px 0;font-size:13px;color:#6b7280">Hotel</td><td colspan="3" style="padding:4px 0;font-size:13px;font-weight:600">${esc(ht.name)}${ht.stars ? ` ${'★'.repeat(ht.stars)}` : ''}</td></tr>
+        ${ht.address ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280">Address</td><td colspan="3" style="padding:4px 0;font-size:13px">${esc(ht.address)}</td></tr>` : ''}
         <tr>
           <td style="padding:4px 0;font-size:13px;color:#6b7280">Check-in</td>
-          <td style="padding:4px 0;font-size:13px;font-weight:600">${fmtDate(ht.checkIn)}${ht.checkinTime ? ` · ${ht.checkinTime}` : ''}</td>
+          <td style="padding:4px 0;font-size:13px;font-weight:600">${fmtDate(ht.checkIn)}${ht.checkinTime ? ` · ${esc(ht.checkinTime)}` : ''}</td>
           <td style="padding:4px 0;font-size:13px;color:#6b7280">Check-out</td>
-          <td style="padding:4px 0;font-size:13px;font-weight:600">${fmtDate(ht.checkOut)}${ht.checkoutTime ? ` · ${ht.checkoutTime}` : ''}</td>
+          <td style="padding:4px 0;font-size:13px;font-weight:600">${fmtDate(ht.checkOut)}${ht.checkoutTime ? ` · ${esc(ht.checkoutTime)}` : ''}</td>
         </tr>
         <tr>
           <td style="padding:4px 0;font-size:13px;color:#6b7280">Duration</td>
@@ -232,8 +253,8 @@ function buildEmailHtml(d: z.infer<typeof BodySchema>): string {
           <td style="padding:4px 0;font-size:13px;color:#6b7280">Rate</td>
           <td style="padding:4px 0;font-size:13px;font-weight:600">${fmtPrice(ht.pricePerNight, ht.currency)}/night · ${fmtPrice(ht.totalPrice, ht.currency)} total</td>
         </tr>
-        ${ht.boardName ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280">Board</td><td colspan="3" style="padding:4px 0;font-size:13px">${ht.boardName}</td></tr>` : ''}
-        ${ht.cancellation ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280">Cancellation</td><td colspan="3" style="padding:4px 0;font-size:13px;color:#16a34a;font-weight:600">${ht.cancellation}</td></tr>` : ''}
+        ${ht.boardName ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280">Board</td><td colspan="3" style="padding:4px 0;font-size:13px">${esc(ht.boardName)}</td></tr>` : ''}
+        ${ht.cancellation ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280">Cancellation</td><td colspan="3" style="padding:4px 0;font-size:13px;color:#16a34a;font-weight:600">${esc(ht.cancellation)}</td></tr>` : ''}
       </table>
     </div>` : ''}
 
@@ -272,8 +293,8 @@ function buildEmailHtml(d: z.infer<typeof BodySchema>): string {
     <div style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:12px;padding:16px;margin-bottom:16px">
       <p style="font-size:12px;font-weight:700;color:#0d9488;margin:0 0 8px">Important Information</p>
       <ul style="margin:0;padding:0 0 0 16px;font-size:12px;color:#374151;line-height:1.8">
-        ${d.flightRef ? `<li>Use reference <strong style="font-family:monospace">${d.flightRef}</strong> for airline check-in and boarding.</li>` : ''}
-        ${d.hotelRef ? `<li>Present booking ID <strong style="font-family:monospace">${d.hotelRef}</strong> at the hotel front desk.</li>` : ''}
+        ${d.flightRef ? `<li>Use reference <strong style="font-family:monospace">${esc(d.flightRef)}</strong> for airline check-in and boarding.</li>` : ''}
+        ${d.hotelRef ? `<li>Present booking ID <strong style="font-family:monospace">${esc(d.hotelRef)}</strong> at the hotel front desk.</li>` : ''}
         <li>Ensure all passenger names match your travel document (passport/ID) exactly.</li>
         <li>For changes or cancellations, contact FlexeTravels support with your booking reference.</li>
         <li><strong>24-Hour Cancellation:</strong> Under US DOT rules, you may cancel your flight free of charge within 24 hours of booking, provided your departure is 7+ days away. Contact support@flexetravels.com to cancel.</li>
