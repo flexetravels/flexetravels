@@ -223,6 +223,57 @@ alter table passengers enable row level security;
 drop policy if exists passengers_service_only on passengers;
 create policy passengers_service_only on passengers for all to service_role using (true) with check (true);
 
+-- ─── rate_limits ─────────────────────────────────────────────────────────────
+-- Persistent sliding-window rate limit counters.
+-- Survives process restarts; works across multiple Railway instances.
+-- Written by lib/security/persistent-rate-limiter.ts.
+create table if not exists rate_limits (
+  key             text primary key,
+  count           integer not null default 0,
+  window_start    timestamptz not null default now(),
+  block_until     timestamptz,                      -- null = not blocked
+  violation_count integer not null default 0,       -- escalating penalty counter
+  updated_at      timestamptz not null default now()
+);
+
+create index if not exists rate_limits_block_until_idx
+  on rate_limits(block_until)
+  where block_until is not null;
+
+alter table rate_limits enable row level security;
+drop policy if exists rate_limits_service_only on rate_limits;
+create policy rate_limits_service_only on rate_limits
+  for all to service_role using (true) with check (true);
+
+-- ─── security_logs ────────────────────────────────────────────────────────────
+-- Security event log: rate limit hits, bot blocks, burst detections, honeypot
+-- hits, circuit-breaker events, and concurrent-drop events.
+-- Written by lib/security/request-logger.ts.
+-- No PII stored — only metadata (IP, path, method, event details).
+create table if not exists security_logs (
+  id          uuid primary key default gen_random_uuid(),
+  event_type  text not null,    -- 'rate_limit' | 'bot_block' | 'geo_block' |
+                                -- 'burst_block' | 'size_block' | 'honeypot' |
+                                -- 'circuit_open' | 'concurrent_drop'
+  ip          text,
+  path        text,
+  method      text,
+  status_code integer,
+  latency_ms  integer,
+  session_id  text,
+  details     jsonb,
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists security_logs_ip_idx         on security_logs(ip);
+create index if not exists security_logs_event_type_idx on security_logs(event_type);
+create index if not exists security_logs_created_at_idx on security_logs(created_at desc);
+
+alter table security_logs enable row level security;
+drop policy if exists security_logs_service_only on security_logs;
+create policy security_logs_service_only on security_logs
+  for all to service_role using (true) with check (true);
+
 -- ─── Setup instructions ───────────────────────────────────────────────────────
 -- 1. Go to supabase.com → New project
 -- 2. SQL Editor → Paste this file → Run
