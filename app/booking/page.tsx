@@ -180,6 +180,7 @@ const CART_STALE_MS = 4 * 60 * 1000; // 4 minutes
 interface CartData {
   flight:     FlightResult | null;
   hotel:      HotelResult  | null;
+  adults?:    number;    // adults count from search — pre-fills checkout forms
   children?:  { count: number; ages: number[] } | null;
   savedAt?:   number;    // epoch ms — for stale-rate detection
   sessionId?: string;    // chat session ID — for DB persistence
@@ -293,7 +294,7 @@ function CheckoutView() {
           hotel={cart.hotel}
           onClose={handleClose}
           onConfirmed={handleConfirmed}
-          initialAdults={cart.flight?.passengers ?? 1}
+          initialAdults={cart.adults ?? cart.flight?.passengers ?? cart.hotel?.searchedAdults ?? 1}
           initialChildren={cart.children?.count ?? 0}
           sessionId={cart.sessionId}
         />

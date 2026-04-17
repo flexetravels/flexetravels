@@ -10,9 +10,10 @@
 import Image from 'next/image';
 import {
   MapPin, Wifi, Car, UtensilsCrossed, Waves,
-  ChevronLeft, ChevronRight, Check, BedDouble, Eye,
+  ChevronLeft, ChevronRight, Check, BedDouble, Eye, ChevronDown, ChevronUp,
+  Users, ShieldCheck, ShieldOff,
 } from 'lucide-react';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { cn, formatPrice, formatDate } from '@/lib/utils';
 import type { HotelResult } from '@/lib/types';
 
@@ -35,6 +36,25 @@ const BOARD_LABELS: Record<string, string> = {
   RO: 'Room Only', BB: 'Bed & Breakfast', HB: 'Half Board',
   FB: 'Full Board', AI: 'All Inclusive',
 };
+
+// ── Room type helpers ─────────────────────────────────────────────────────────
+type RoomTypeRate = NonNullable<NonNullable<HotelResult['allRoomTypes']>[number]['rates']>[number];
+type RoomType = NonNullable<HotelResult['allRoomTypes']>[number];
+
+/** Pick the cheapest rate for a room type */
+function cheapestRate(room: RoomType): RoomTypeRate | undefined {
+  return (room.rates ?? []).reduce<RoomTypeRate | undefined>((best, r) => {
+    if (!best) return r;
+    return (r.price ?? Infinity) < (best.price ?? Infinity) ? r : best;
+  }, undefined);
+}
+
+/** Derive a booking token from a room type — mirrors liteapi.ts bookingToken logic */
+function roomBookingToken(room: RoomType): string {
+  const rate = cheapestRate(room);
+  const raw = room.offerId ?? rate?.rateId ?? '';
+  return raw ? `liteapi_${raw}` : '';
+}
 
 // ── Star row ──────────────────────────────────────────────────────────────────
 function Stars({ count }: { count: number }) {
@@ -149,6 +169,133 @@ function HeroGallery({
   );
 }
 
+// ── Room type selector component ──────────────────────────────────────────────
+function RoomSelector({
+  rooms,
+  selectedOfferId,
+  onSelectRoom,
+  nights,
+  currency,
+}: {
+  rooms: NonNullable<HotelResult['allRoomTypes']>;
+  selectedOfferId: string;
+  onSelectRoom: (room: RoomType) => void;
+  nights: number;
+  currency: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = rooms.slice(0, 6); // cap at 6 room types
+
+  return (
+    <div className="border border-border/50 rounded-xl overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center justify-between px-3 py-2.5
+                   bg-muted/30 hover:bg-muted/50 text-xs font-semibold
+                   text-foreground transition-colors"
+      >
+        <span className="flex items-center gap-1.5">
+          <BedDouble className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+          Room options
+          <span className="font-normal text-muted-foreground">({visible.length} available)</span>
+        </span>
+        {expanded
+          ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" />
+          : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
+      </button>
+
+      {expanded && (
+        <div className="divide-y divide-border/40">
+          {visible.map((room, i) => {
+            const rate     = cheapestRate(room);
+            const token    = roomBookingToken(room);
+            const isActive = token === selectedOfferId || (!selectedOfferId && i === 0);
+            const ppn      = rate?.price != null && nights > 0
+              ? Math.round(rate.price / nights * 100) / 100
+              : undefined;
+            const board = rate?.boardName ?? (rate?.boardType ? BOARD_LABELS[rate.boardType] ?? rate.boardType : null);
+            const refundable = rate?.refundable;
+
+            return (
+              <button
+                key={room.offerId ?? i}
+                type="button"
+                onClick={() => onSelectRoom(room)}
+                className={cn(
+                  'w-full text-left px-3 py-2.5 flex items-start gap-2.5 transition-colors text-xs',
+                  isActive
+                    ? 'bg-teal-50 dark:bg-teal-900/20'
+                    : 'bg-background hover:bg-muted/40'
+                )}
+              >
+                {/* Selection indicator */}
+                <div className={cn(
+                  'mt-0.5 w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center flex-shrink-0',
+                  isActive ? 'border-teal-500 bg-teal-500' : 'border-border'
+                )}>
+                  {isActive && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                </div>
+
+                {/* Room info */}
+                <div className="flex-1 min-w-0">
+                  <p className={cn('font-semibold leading-tight', isActive ? 'text-teal-700 dark:text-teal-300' : 'text-foreground')}>
+                    {room.name ?? `Room Type ${i + 1}`}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                    {room.maxOccupancy && (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full
+                                       bg-muted text-muted-foreground text-[10px] font-medium">
+                        <Users className="w-2.5 h-2.5" />
+                        {room.maxOccupancy} max
+                      </span>
+                    )}
+                    {board && (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full
+                                       bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400
+                                       text-[10px] font-medium">
+                        <UtensilsCrossed className="w-2.5 h-2.5" />
+                        {board}
+                      </span>
+                    )}
+                    {refundable != null && (
+                      refundable ? (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full
+                                         bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400
+                                         text-[10px] font-medium">
+                          <ShieldCheck className="w-2.5 h-2.5" />
+                          Refundable
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full
+                                         bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400
+                                         text-[10px] font-medium">
+                          <ShieldOff className="w-2.5 h-2.5" />
+                          Non-refundable
+                        </span>
+                      )
+                    )}
+                  </div>
+                </div>
+
+                {/* Price */}
+                {ppn != null && (
+                  <div className="text-right flex-shrink-0">
+                    <p className={cn('font-black text-sm', isActive ? 'text-teal-700 dark:text-teal-300' : 'text-foreground')}>
+                      {formatPrice(ppn, rate?.currency ?? currency)}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">/night</p>
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, isBestDeal }: HotelCardProps) {
   const nights =
@@ -160,15 +307,47 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
 
   const galleryImages = hotel.images?.length ? hotel.images : hotel.image ? [hotel.image] : [];
 
+  // Track the currently-selected room type (defaults to hotel.bookingToken = cheapest room)
+  const [selectedToken, setSelectedToken] = useState<string>(hotel.bookingToken ?? '');
+
+  // Build the hotel object for the Select callback, swapping in the chosen room's token
+  const effectiveHotel = useMemo<HotelResult>(() => {
+    if (!selectedToken || selectedToken === hotel.bookingToken) return hotel;
+    // Find the room matching the selected token and update price fields
+    const room = (hotel.allRoomTypes ?? []).find(r => roomBookingToken(r) === selectedToken);
+    if (!room) return { ...hotel, bookingToken: selectedToken };
+    const rate = cheapestRate(room);
+    const total = rate?.price;
+    const ppn = total != null && nights > 0 ? Math.round(total / nights * 100) / 100 : hotel.pricePerNight;
+    const boardType = rate?.boardType ?? hotel.boardType;
+    const boardName = rate?.boardName ?? hotel.boardName;
+    const refundable = rate?.refundable;
+    return {
+      ...hotel,
+      bookingToken: selectedToken,
+      pricePerNight: ppn,
+      totalPrice: total ?? hotel.totalPrice,
+      boardType,
+      boardName,
+      cancellation: refundable === true ? 'Free cancellation' : refundable === false ? undefined : hotel.cancellation,
+    };
+  }, [hotel, selectedToken, nights]);
+
   const handleSelect = useCallback(() => {
-    onSelect?.(hotel);
-  }, [hotel, onSelect]);
+    onSelect?.(effectiveHotel);
+  }, [effectiveHotel, onSelect]);
+
+  const handleSelectRoom = useCallback((room: RoomType) => {
+    const token = roomBookingToken(room);
+    if (token) setSelectedToken(token);
+  }, []);
 
   const amenities = hotel.amenities ?? [];
+  const hasRoomOptions = (hotel.allRoomTypes?.length ?? 0) > 1;
 
-  // Board label for the default rate
-  const boardDisplay = hotel.boardName
-    ?? (hotel.boardType ? BOARD_LABELS[hotel.boardType] ?? hotel.boardType : null);
+  // Board label for the effective (selected-room) rate
+  const boardDisplay = effectiveHotel.boardName
+    ?? (effectiveHotel.boardType ? BOARD_LABELS[effectiveHotel.boardType] ?? effectiveHotel.boardType : null);
 
   // ── Compact variant ────────────────────────────────────────────────────────
   if (compact) {
@@ -194,7 +373,7 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
     );
   }
 
-  const ariaLabel = `${hotel.name}, ${hotel.stars} stars, ${formatPrice(hotel.pricePerNight, hotel.currency)} per night in ${hotel.location}`;
+  const ariaLabel = `${hotel.name}, ${hotel.stars} stars, ${formatPrice(effectiveHotel.pricePerNight, effectiveHotel.currency)} per night in ${hotel.location}`;
 
   return (
     <div
@@ -261,14 +440,25 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
           </div>
         )}
 
-        {/* Board type badge */}
-        {boardDisplay && (
+        {/* Board type badge — only shown when no room selector (avoids duplication) */}
+        {boardDisplay && !hasRoomOptions && (
           <div className="flex items-center gap-1.5">
             <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full
                              bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">
               <UtensilsCrossed className="w-2.5 h-2.5" /> {boardDisplay}
             </span>
           </div>
+        )}
+
+        {/* ── Room type selector ──────────────────────────────────────────── */}
+        {!hotel.isSample && hasRoomOptions && hotel.allRoomTypes && (
+          <RoomSelector
+            rooms={hotel.allRoomTypes}
+            selectedOfferId={selectedToken}
+            onSelectRoom={handleSelectRoom}
+            nights={nights}
+            currency={hotel.currency}
+          />
         )}
 
         {/* Amenities (first 5) */}
@@ -311,23 +501,23 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
           <div>
             <div className="flex items-baseline gap-1.5">
               <span className="text-2xl font-black text-foreground tracking-tight leading-none">
-                {formatPrice(hotel.pricePerNight, hotel.currency)}
+                {formatPrice(effectiveHotel.pricePerNight, effectiveHotel.currency)}
               </span>
               <span className="text-xs text-muted-foreground">/night</span>
             </div>
             {hotel.roomCount && hotel.roomCount > 1 && (
               <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium mt-0.5">
-                {hotel.roomCount} rooms · {formatPrice(Math.round(hotel.pricePerNight / hotel.roomCount * 100) / 100, hotel.currency)}/room
+                {hotel.roomCount} rooms · {formatPrice(Math.round(effectiveHotel.pricePerNight / hotel.roomCount * 100) / 100, effectiveHotel.currency)}/room
               </p>
             )}
             {nights && (
               <p className="text-[11px] text-muted-foreground/80 mt-0.5">
-                {formatPrice(hotel.totalPrice, hotel.currency)} total
+                {formatPrice(effectiveHotel.totalPrice, effectiveHotel.currency)} total
               </p>
             )}
-            {hotel.cancellation ? (
+            {effectiveHotel.cancellation ? (
               <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5 font-medium">
-                ✓ {hotel.cancellation}
+                ✓ {effectiveHotel.cancellation}
               </p>
             ) : (
               <p className="text-[10px] text-rose-500 dark:text-rose-400 mt-0.5 font-medium">
@@ -344,7 +534,7 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
           ) : (
             <button
               onClick={handleSelect}
-              aria-label={`Select ${hotel.name} in ${hotel.location} for ${formatPrice(hotel.pricePerNight, hotel.currency)} per night`}
+              aria-label={`Select ${hotel.name} in ${hotel.location} for ${formatPrice(effectiveHotel.pricePerNight, effectiveHotel.currency)} per night`}
               className={cn(
                 'px-4 py-2.5 rounded-xl text-[13px] font-bold transition-all duration-150 flex items-center gap-1.5',
                 selected

@@ -113,6 +113,8 @@ export interface NormalizedHotel {
   // Cancellation detail
   cancelPolicies?: Array<{ cancelTime?: string; amount?: number; currency?: string; type?: string; timezone?: string }>;
   refundableTag?: string;      // "RFN" = refundable | "NRFN" = non-refundable
+  // Adults count from the search that produced this hotel (used for checkout pre-fill)
+  searchedAdults?: number;
   // All room types (for future room-selection UX)
   allRoomTypes?: Array<{
     offerId?:      string;

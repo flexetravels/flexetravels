@@ -94,6 +94,7 @@ export interface HotelResult {
     rates?: Array<{ rateId?: string; name?: string; boardType?: string; boardName?: string; price?: number; currency?: string; commission?: number; refundable?: boolean }>;
   }>;
   roomCount?:      number;     // number of rooms needed for the searched party (ceil(adults/2))
+  searchedAdults?: number;     // adults count from search — used to pre-fill checkout passenger forms
 }
 
 export interface Experience {

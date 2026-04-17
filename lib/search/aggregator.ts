@@ -266,15 +266,28 @@ export async function aggregateHotels(params: HotelSearchParams): Promise<HotelA
 
   console.log(`[aggregateHotels] raw=${allHotels.length}, deduped=${deduped.length}, filtered=${filtered.length}, maxPrice=${params.maxPrice ?? 'none'}, stars=${params.stars ?? 'none'}`);
 
-  // Filters eliminated everything but raw results exist — relax filters
+  // Filters eliminated everything — try relaxing in order: price first, then stars.
   if (filtered.length === 0 && deduped.length > 0) {
+    // Try relaxing only the price filter (keep stars intact)
+    const noPriceFilter = deduped
+      .filter(h => !params.stars || h.stars >= params.stars)
+      .sort((a, b) => a.pricePerNight - b.pricePerNight)
+      .slice(0, 10);
+    if (noPriceFilter.length > 0) {
+      return {
+        hotels: noPriceFilter, sources, errors, isSample: false,
+        latencyMs: Date.now() - start,
+        noResultsMessage: `No hotels found within your budget for ${params.stars ? `${params.stars}+ stars` : 'these criteria'}, but here are the closest available options:`,
+      };
+    }
+    // Last resort — relax both price and stars filters
     const relaxed = deduped
       .sort((a, b) => a.pricePerNight - b.pricePerNight)
       .slice(0, 10);
     return {
       hotels: relaxed, sources, errors, isSample: false,
       latencyMs: Date.now() - start,
-      noResultsMessage: `No hotels matched your exact budget/star filters, but here are the best available options:`,
+      noResultsMessage: `No hotels matched your exact filters — here are the best available options nearby:`,
     };
   }
 

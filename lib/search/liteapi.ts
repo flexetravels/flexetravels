@@ -599,8 +599,9 @@ export class LiteApiProvider implements SearchProvider {
 
       const pricePerNight = totalPrice / nights;
 
-      // Filtering is handled by the aggregator — provider returns all results
-      const stars = info.starRating ?? 3;
+      // Filtering is handled by the aggregator — provider returns all results.
+      // Coerce to number — LiteAPI occasionally returns starRating as a string.
+      const stars = Number(info.starRating ?? 3) || 3;
 
       // LiteAPI v3.0 tags: "RFN" = refundable, "NRFN" = non-refundable
       const refundableTag = cheapestRate.cancellationPolicies?.refundableTag ?? '';
@@ -666,6 +667,8 @@ export class LiteApiProvider implements SearchProvider {
         allRoomTypes,
         // Number of rooms needed for this party size (ceil(adults/2))
         roomCount: Math.ceil((params.adults ?? 2) / 2),
+        // Adults count — passed through for checkout passenger form pre-fill
+        searchedAdults: params.adults ?? 2,
         address: info.address ?? (info.location as { address?: string } | undefined)?.address,
       });
     }

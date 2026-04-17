@@ -621,7 +621,7 @@ export default function ChatPage() {
     // savedAt timestamp lets the booking page warn if rates have gone stale.
     // sessionId is persisted so the booking page can tie the booking to this chat session.
     try {
-      const cartData = { flight: cartFlight, hotel: h, children: cartChildren, savedAt: Date.now(), sessionId: getSessionId() };
+      const cartData = { flight: cartFlight, hotel: h, adults: cartFlight?.passengers ?? h.searchedAdults, children: cartChildren, savedAt: Date.now(), sessionId: getSessionId() };
       sessionStorage.setItem('ft_cart', JSON.stringify(cartData));
     } catch { /* ignore */ }
     const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: h.currency ?? 'USD' }).format(n);
@@ -641,7 +641,7 @@ export default function ChatPage() {
     try {
       // Re-stamp savedAt at navigate time so the TTL clock is accurate.
       // Include sessionId so the booking page can persist it with the DB row.
-      sessionStorage.setItem('ft_cart', JSON.stringify({ flight: cartFlight, hotel: cartHotel, children: cartChildren, savedAt: Date.now(), sessionId: getSessionId() }));
+      sessionStorage.setItem('ft_cart', JSON.stringify({ flight: cartFlight, hotel: cartHotel, adults: cartFlight?.passengers ?? cartHotel?.searchedAdults, children: cartChildren, savedAt: Date.now(), sessionId: getSessionId() }));
     } catch { /* ignore */ }
     router.push('/booking');
   }, [cartFlight, cartHotel, cartChildren, router]);
