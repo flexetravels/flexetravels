@@ -424,8 +424,13 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
               {formatPrice(flight.price, flight.currency)}
             </p>
             <p className="text-[10px] text-muted-foreground mt-0.5">
-              {flight.isRoundTrip ? 'per person · round-trip' : 'per person'}
+              {flight.isRoundTrip ? 'total · round-trip' : 'total for all passengers'}
             </p>
+            {flight.passengers && flight.passengers > 1 && (
+              <p className="text-[10px] text-muted-foreground/70">
+                {formatPrice(Math.round(flight.price / flight.passengers * 100) / 100, flight.currency)} per person
+              </p>
+            )}
           </div>
           <button
             onClick={() => onSelect?.(flight)}
