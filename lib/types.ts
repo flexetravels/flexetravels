@@ -41,6 +41,16 @@ export interface FlightResult {
   // ── Child / infant fare transparency ──────────────────────────────────────
   childFareNote?: string;             // Set when airline doesn't price children in search;
                                       // adult fare shown — child seat confirmed at booking
+  // ── Round-trip return leg ─────────────────────────────────────────────────
+  isRoundTrip?: boolean;              // true when offer has 2 slices (outbound + return)
+  returnOrigin?: string;              // IATA — return leg origin (= main destination)
+  returnDestination?: string;         // IATA — return leg destination (= main origin)
+  returnDeparture?: string;           // ISO8601 — return leg departure time
+  returnArrival?: string;             // ISO8601 — return leg arrival time
+  returnDuration?: string;            // e.g. "22h 10m"
+  returnStops?: number;               // stops on the return leg
+  returnStopAirports?: string[];      // stop airport codes on the return leg
+  returnSegments?: FlightSegment[];   // full segment breakdown of the return leg
 }
 
 export interface HotelResult {
