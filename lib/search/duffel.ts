@@ -236,10 +236,20 @@ export class DuffelProvider implements SearchProvider {
           const fallbackOffers = fallbackJson.data?.offers ?? [];
           if (fallbackOffers.length > 0) {
             console.log('[duffel] adults-only fallback returned', fallbackOffers.length, 'offers — tagging with childFareNote');
+            const seenFallback = new Set<string>();
             return fallbackOffers
               .sort((a, b) => parseFloat(a.total_amount) - parseFloat(b.total_amount))
-              .slice(0, 10)
-              .map(o => ({ ...mapOffer(o, params.cabinClass, params.adults), childFareNote: note }));
+              .map(o => ({ ...mapOffer(o, params.cabinClass, params.adults), childFareNote: note }))
+              .filter(f => {
+                const key = [
+                  f.segments.map(s => s.flightNumber).join('|'),
+                  f.departure.slice(0, 16),
+                ].join('::');
+                if (seenFallback.has(key)) return false;
+                seenFallback.add(key);
+                return true;
+              })
+              .slice(0, 10);
           }
         }
       } catch (err) {
@@ -247,10 +257,26 @@ export class DuffelProvider implements SearchProvider {
       }
     }
 
+    // Deduplicate by (flight numbers + departure time) BEFORE slicing so that
+    // multiple fare classes for the same physical flight (WestJet basic/standard/flex
+    // all share the same key) are collapsed to the cheapest option first.
+    // Without this, the top-10 cheapest offers could all be one airline's fare
+    // classes for a single daily non-stop, leaving other carriers (e.g. AA at $886)
+    // completely outside the window.
+    const seenOffers = new Set<string>();
     return offers
       .sort((a, b) => parseFloat(a.total_amount) - parseFloat(b.total_amount))
-      .slice(0, 10)  // Fetch more so ranking agent has options to sort
-      .map(o => mapOffer(o, params.cabinClass, totalPassengers));
+      .map(o => mapOffer(o, params.cabinClass, totalPassengers))
+      .filter(f => {
+        const key = [
+          f.segments.map(s => s.flightNumber).join('|'),
+          f.departure.slice(0, 16),
+        ].join('::');
+        if (seenOffers.has(key)) return false;
+        seenOffers.add(key);
+        return true;
+      })
+      .slice(0, 10);
   }
 
   // Duffel doesn't have a hotel search API — return empty, Amadeus handles hotels

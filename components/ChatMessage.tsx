@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -235,6 +235,12 @@ function FlightResultsPanel({
     price: 'Price', duration: 'Duration', stops: 'Stops',
   };
 
+  // Reset scroll to start whenever the user changes sort or stop filter so the
+  // reordered cards are visible from position 0 rather than wherever they scrolled to.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ left: 0, behavior: 'smooth' });
+  }, [sort, stopFilter]);
+
   const scroll = (dir: -1 | 1) => {
     scrollRef.current?.scrollBy({ left: dir * 300, behavior: 'smooth' });
   };
@@ -411,6 +417,11 @@ function HotelResultsPanel({
       return count > 0 && count < hotels.length;
     })
   );
+
+  // Reset scroll to start whenever sort or star filter changes.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ left: 0, behavior: 'smooth' });
+  }, [sort, starFilter]);
 
   const scroll = (dir: -1 | 1) => {
     scrollRef.current?.scrollBy({ left: dir * 280, behavior: 'smooth' });
