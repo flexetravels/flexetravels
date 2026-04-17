@@ -147,10 +147,10 @@ export async function aggregateFlights(params: FlightSearchParams): Promise<{
     return { flights: [], sources: [], errors: ['No flight providers configured'], latencyMs: 0 };
   }
 
-  // ── Hard 8 s wall-clock cap — Duffel typically responds in 2-6s.
-  // Cutting from 16s → 8s shaves ~8s off the worst-case TTFC (Time To First Card).
-  // Providers still in-flight at 8s resolve as empty and are dropped silently.
-  const FLIGHT_WALL_CLOCK_MS = 8_000;
+  // ── Hard 15 s wall-clock cap — matches Duffel's own 15s timeout in duffel.ts.
+  // Live API responses can take up to 12-15s; 15s gives full opportunity to return results.
+  // Providers still in-flight at 15s resolve as empty and are dropped silently.
+  const FLIGHT_WALL_CLOCK_MS = 15_000;
 
   const withCap = (p: Promise<SearchResult<NormalizedFlight>>, provider: string): Promise<SearchResult<NormalizedFlight>> =>
     new Promise(resolve => {

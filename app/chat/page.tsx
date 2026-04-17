@@ -357,6 +357,7 @@ export default function ChatPage() {
   const [cartHotel,     setCartHotel]     = useState<HotelResult  | null>(null);
   const [cartChildren,  setCartChildren]  = useState<{ count: number; ages: number[] } | null>(null);
   const [detailHotel,   setDetailHotel]   = useState<HotelResult  | null>(null);
+  const [conversationState, setConversationState] = useState<string>('browsing');
 
   // ── Side-channel card data: keyed by message INDEX (stable, append-only array) ─
   // Keyed by index NOT id — @ai-sdk/react mutates message IDs from a provisional
@@ -398,7 +399,7 @@ export default function ChatPage() {
     isLoading, stop, setInput, setMessages, append, data,
   } = useChat({
     api: '/api/chat',
-    body: { sessionId: getSessionId() },
+    body: { sessionId: getSessionId(), conversationState },
     onError: (err) => {
       setApiError(err?.message ?? 'Unknown error');
     },
@@ -470,10 +471,10 @@ export default function ChatPage() {
         .slice(processedDataCountRef.current);
       processedDataCountRef.current = data.length;
       for (const item of newItems) {
-        if (item.type === 'flights' && Array.isArray(item.data)) {
+        if (item.type === 'flights' && Array.isArray(item.data) && item.data.length > 0) {
           pendingFlightsRef.current = item.data as FlightResult[];
         }
-        if (item.type === 'hotels' && Array.isArray(item.data)) {
+        if (item.type === 'hotels' && Array.isArray(item.data) && item.data.length > 0) {
           pendingHotelsRef.current = item.data as HotelResult[];
         }
       }
@@ -495,8 +496,8 @@ export default function ChatPage() {
       ...prev,
       [lastAssistantIdx]: {
         ...(prev[lastAssistantIdx] ?? {}),
-        ...(flights ? { flights } : {}),
-        ...(hotels  ? { hotels  } : {}),
+        ...(flights && flights.length > 0 ? { flights } : {}),
+        ...(hotels  && hotels.length  > 0 ? { hotels  } : {}),
       },
     }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -506,6 +507,7 @@ export default function ChatPage() {
   // Once both are chosen, a "Proceed to Booking" CTA appears above the input bar.
   const handleSelectFlight = useCallback((f: FlightResult) => {
     setCartFlight(f);
+    setConversationState('flight_selected');
     const price = new Intl.NumberFormat('en-US', { style: 'currency', currency: f.currency }).format(f.price);
     const dep   = new Date(f.departure).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     // Offer ID is intentionally NOT included here — the checkout card owns it.
@@ -519,6 +521,7 @@ export default function ChatPage() {
 
   const handleSelectHotel = useCallback((h: HotelResult) => {
     setCartHotel(h);
+    setConversationState('hotel_selected');
     // Persist cart so /booking page can read it after navigation.
     // savedAt timestamp lets the booking page warn if rates have gone stale.
     // sessionId is persisted so the booking page can tie the booking to this chat session.

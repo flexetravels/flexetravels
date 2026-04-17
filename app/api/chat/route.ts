@@ -123,6 +123,7 @@ PROACTIVE QUESTIONING:
 • "we/couple/us" → adults=2. "family" → ask kids count+ages.
 • "flexible" dates → pick best 7-day window in next 6-8 weeks, explain why.
 • ROUND-TRIP: If user mentions "return", "round trip", "back on [date]", "returning [date]", or gives both a departure and a return date, always pass returnDate= to searchFlights. One-way is the default only when user explicitly says "one way" or gives only a departure date with no mention of returning.
+• PRESENTING RESULTS: Always highlight non-stop and cheapest options. For round-trips, ensure your summary mentions direct/non-stop options for BOTH the outbound AND return legs if available — do not describe only one direction. Example: "Non-stop options exist both ways from $489 outbound and $412 return."
 
 SEARCH EXECUTION — once you have origin, destination, dates, party size:
 Always call searchFlights + searchHotels + searchExperiences in one parallel batch.
@@ -477,7 +478,9 @@ export async function POST(req: Request) {
           }
           // Push full data to frontend via side channel (bypasses token generation).
           // JSON.parse/stringify strips undefined fields so the value satisfies JSONValue.
-          dataStream.writeData(JSON.parse(JSON.stringify({ type: 'flights', data: r.flights })));
+          if (r.flights && r.flights.length > 0) {
+            dataStream.writeData(JSON.parse(JSON.stringify({ type: 'flights', data: r.flights })));
+          }
           console.log(`[timing] searchFlights done in ${Date.now() - requestStart}ms, ${r.flights.length} results`);
 
           // Return only a compact summary to Claude — no full card JSON
@@ -565,7 +568,9 @@ export async function POST(req: Request) {
               };
             });
             // Push to frontend and return summary
-            dataStream.writeData(JSON.parse(JSON.stringify({ type: 'flights', data: flights })));
+            if (flights && flights.length > 0) {
+              dataStream.writeData(JSON.parse(JSON.stringify({ type: 'flights', data: flights })));
+            }
             if (flights.length === 0) {
               return { summary: `No bookable flights found for ${params.origin}→${params.destination}.`, flightCount: 0 };
             }
@@ -668,7 +673,9 @@ export async function POST(req: Request) {
           }));
 
           // Push full data to frontend via side channel (bypasses token generation)
-          dataStream.writeData(JSON.parse(JSON.stringify({ type: 'hotels', data: hotels })));
+          if (hotels && hotels.length > 0) {
+            dataStream.writeData(JSON.parse(JSON.stringify({ type: 'hotels', data: hotels })));
+          }
           console.log(`[timing] searchHotels done in ${Date.now() - requestStart}ms, ${hotels.length} results`);
 
           // Return only a compact summary to Claude — no full card JSON
