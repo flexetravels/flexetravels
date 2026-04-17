@@ -1,6 +1,7 @@
 'use client';
 
 import { useChat } from 'ai/react';
+import type { Message } from 'ai';
 import {
   useCallback, useEffect, useLayoutEffect, useRef, useState,
 } from 'react';
@@ -36,6 +37,26 @@ function resolveAuthSession() {
       _sid = `user_${session.user.id}`;
     }
   });
+}
+
+// ─── Session-storage helpers ──────────────────────────────────────────────
+function ssGet(key: string): string | null {
+  try { return typeof window !== 'undefined' ? sessionStorage.getItem(key) : null; }
+  catch { return null; }
+}
+function ssSet(key: string, value: string) {
+  try { if (typeof window !== 'undefined') sessionStorage.setItem(key, value); }
+  catch { /* quota or SSR */ }
+}
+function ssRemove(key: string) {
+  try { if (typeof window !== 'undefined') sessionStorage.removeItem(key); }
+  catch { /* ignore */ }
+}
+/** Wipes all persisted chat state for a given session ID. */
+function clearPersistedChat(sid: string) {
+  ssRemove(`ft_messages_${sid}`);
+  ssRemove(`ft_cards_${sid}`);
+  ssRemove(`ft_conv_state_${sid}`);
 }
 
 // ─── Hotkey hook ──────────────────────────────────────────────────────────
@@ -346,18 +367,59 @@ function InputBar({ input, isLoading, onChange, onSubmit, onStop }: InputBarProp
 // ─── Main Page ────────────────────────────────────────────────────────────
 export default function ChatPage() {
   const router = useRouter();
+
+  // ── Restore persisted chat state ─────────────────────────────────────────
+  // Lazy initialisers run exactly once on mount — never called again.
+  // Module-scope _sid persists across client-side navigation, so the same
+  // sessionStorage keys are used whether this is first load or a return from /booking.
+  //
+  // If ft_auto_prompt is set, the user arrived via a homepage chip (new search).
+  // In that case we skip restoration so the old conversation doesn't bleed in.
+  const _sid = getSessionId();
+  const [_initMessages] = useState<Message[]>(() => {
+    if (ssGet('ft_auto_prompt')) return [];
+    const raw = ssGet(`ft_messages_${_sid}`);
+    if (!raw) return [];
+    try { const m = JSON.parse(raw); return Array.isArray(m) ? m : []; }
+    catch { return []; }
+  });
+  const [_initCards] = useState<Record<number, { flights?: FlightResult[]; hotels?: HotelResult[] }>>(() => {
+    if (ssGet('ft_auto_prompt')) return {};
+    const raw = ssGet(`ft_cards_${_sid}`);
+    if (!raw) return {};
+    try { return (JSON.parse(raw) ?? {}) as Record<number, { flights?: FlightResult[]; hotels?: HotelResult[] }>; }
+    catch { return {}; }
+  });
+  const [_initConvState] = useState<string>(() => {
+    if (ssGet('ft_auto_prompt')) return 'browsing';
+    return ssGet(`ft_conv_state_${_sid}`) ?? 'browsing';
+  });
+  const [_initCart] = useState<{
+    flight: FlightResult | null;
+    hotel: HotelResult | null;
+    children: { count: number; ages: number[] } | null;
+  } | null>(() => {
+    if (ssGet('ft_auto_prompt')) return null;
+    const raw = ssGet('ft_cart');
+    if (!raw) return null;
+    try {
+      const c = JSON.parse(raw);
+      return { flight: c.flight ?? null, hotel: c.hotel ?? null, children: c.children ?? null };
+    } catch { return null; }
+  });
+
   const [sidebarOpen, setSidebarOpen]     = useState(false);
   const [ghostEnabled, setGhostEnabled]   = useState(false);
   const [itinerary, setItinerary]         = useState<Itinerary | null>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [apiError, setApiError]           = useState<string | null>(null);
 
-  // ── Cart state (flight + hotel + children selected in chat) ─────────────
-  const [cartFlight,    setCartFlight]    = useState<FlightResult | null>(null);
-  const [cartHotel,     setCartHotel]     = useState<HotelResult  | null>(null);
-  const [cartChildren,  setCartChildren]  = useState<{ count: number; ages: number[] } | null>(null);
+  // ── Cart state — restored from ft_cart if returning from /booking ──────────
+  const [cartFlight,    setCartFlight]    = useState<FlightResult | null>(_initCart?.flight ?? null);
+  const [cartHotel,     setCartHotel]     = useState<HotelResult  | null>(_initCart?.hotel ?? null);
+  const [cartChildren,  setCartChildren]  = useState<{ count: number; ages: number[] } | null>(_initCart?.children ?? null);
   const [detailHotel,   setDetailHotel]   = useState<HotelResult  | null>(null);
-  const [conversationState, setConversationState] = useState<string>('browsing');
+  const [conversationState, setConversationState] = useState<string>(_initConvState);
 
   // ── Side-channel card data: keyed by message INDEX (stable, append-only array) ─
   // Keyed by index NOT id — @ai-sdk/react mutates message IDs from a provisional
@@ -366,7 +428,7 @@ export default function ChatPage() {
   const [positionalCards, setPositionalCards] = useState<Record<number, {
     flights?: FlightResult[];
     hotels?: HotelResult[];
-  }>>({});
+  }>>(_initCards);
   const processedDataCountRef = useRef(0);
   const pendingFlightsRef = useRef<FlightResult[] | null>(null);
   const pendingHotelsRef  = useRef<HotelResult[]  | null>(null);
@@ -399,6 +461,7 @@ export default function ChatPage() {
     isLoading, stop, setInput, setMessages, append, data,
   } = useChat({
     api: '/api/chat',
+    initialMessages: _initMessages,
     body: { sessionId: getSessionId(), conversationState },
     onError: (err) => {
       setApiError(err?.message ?? 'Unknown error');
@@ -434,10 +497,11 @@ export default function ChatPage() {
   useHotkey('k', useCallback(() => {
     setMessages([]); setItinerary(null); setApiError(null);
     setCartFlight(null); setCartHotel(null); setCartChildren(null);
-    setPositionalCards({});
+    setPositionalCards({}); setConversationState('browsing');
     processedDataCountRef.current = 0;
     pendingFlightsRef.current = null;
     pendingHotelsRef.current  = null;
+    clearPersistedChat(getSessionId());
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setMessages]));
 
@@ -502,6 +566,37 @@ export default function ChatPage() {
     }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, messages]);
+
+  // ── Persist messages → sessionStorage ────────────────────────────────────
+  // Runs after every message update. Trims to the last 20 if the payload
+  // exceeds 2 MB to stay within sessionStorage quota.
+  useEffect(() => {
+    const sid = getSessionId();
+    try {
+      const toSave = messages.length > 20 ? messages.slice(-20) : messages;
+      const serialized = JSON.stringify(toSave);
+      ssSet(
+        `ft_messages_${sid}`,
+        serialized.length > 2 * 1024 * 1024
+          ? JSON.stringify(messages.slice(-20))
+          : serialized,
+      );
+    } catch { /* ignore */ }
+  }, [messages]);
+
+  // ── Persist positionalCards → sessionStorage ─────────────────────────────
+  useEffect(() => {
+    const sid = getSessionId();
+    try { ssSet(`ft_cards_${sid}`, JSON.stringify(positionalCards)); }
+    catch { /* ignore */ }
+  }, [positionalCards]);
+
+  // ── Persist conversationState → sessionStorage ───────────────────────────
+  useEffect(() => {
+    const sid = getSessionId();
+    try { ssSet(`ft_conv_state_${sid}`, conversationState); }
+    catch { /* ignore */ }
+  }, [conversationState]);
 
   // Card selection — stores flight/hotel in cart and sends a selection message.
   // Once both are chosen, a "Proceed to Booking" CTA appears above the input bar.
@@ -674,11 +769,12 @@ export default function ChatPage() {
                 <button
                   onClick={() => {
                     setMessages([]); setItinerary(null); setApiError(null);
-                    setCartFlight(null); setCartHotel(null);
-                    setPositionalCards({});
+                    setCartFlight(null); setCartHotel(null); setCartChildren(null);
+                    setPositionalCards({}); setConversationState('browsing');
                     processedDataCountRef.current = 0;
                     pendingFlightsRef.current = null;
                     pendingHotelsRef.current  = null;
+                    clearPersistedChat(getSessionId());
                   }}
                   className="p-2 rounded-xl hover:bg-black/[.06] dark:hover:bg-white/[.08]
                              text-muted-foreground hover:text-foreground transition-colors"
