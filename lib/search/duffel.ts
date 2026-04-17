@@ -59,11 +59,31 @@ function fmtDuration(iso: string): string {
   return parts.join(' ') || iso;
 }
 
+function mapSegment(seg: DuffelSegment) {
+  return {
+    origin:           seg.origin?.iata_code ?? '',
+    destination:      seg.destination?.iata_code ?? '',
+    departure:        seg.departing_at ?? '',
+    arrival:          seg.arriving_at ?? '',
+    duration:         fmtDuration(seg.duration ?? ''),
+    carrier:          seg.marketing_carrier?.iata_code ?? '',
+    operatingCarrier: seg.operating_carrier?.iata_code ?? seg.marketing_carrier?.iata_code ?? '',
+    flightNumber:     `${seg.marketing_carrier?.iata_code ?? ''}${seg.marketing_carrier_flight_number ?? ''}`,
+  };
+}
+
 function mapOffer(offer: DuffelOffer, cabinClass: string, totalPassengers: number): EnrichedFlight {
+  // Outbound slice (always present)
   const slice0 = offer.slices?.[0];
   const segs   = slice0?.segments ?? [];
   const first  = segs[0];
   const last   = segs[segs.length - 1];
+
+  // Return slice (present for round-trip offers)
+  const slice1    = offer.slices?.[1];
+  const retSegs   = slice1?.segments ?? [];
+  const retFirst  = retSegs[0];
+  const retLast   = retSegs[retSegs.length - 1];
 
   // Use the first segment's carrier IATA code for the logo (avs.io CDN — no DNS issues)
   const firstCarrierIata = first?.marketing_carrier?.iata_code ?? '';
@@ -76,7 +96,7 @@ function mapOffer(offer: DuffelOffer, cabinClass: string, totalPassengers: numbe
     id:           offer.id,
     provider:     'duffel',
     airline:      offer.owner?.name ?? 'Unknown',
-    airlineLogo:  airlineLogo(firstCarrierIata), // ← avs.io URL, not Duffel's clearbit URL
+    airlineLogo:  airlineLogo(firstCarrierIata),
     origin:       first?.origin?.iata_code ?? '',
     destination:  last?.destination?.iata_code ?? '',
     departure:    first?.departing_at ?? '',
@@ -90,16 +110,19 @@ function mapOffer(offer: DuffelOffer, cabinClass: string, totalPassengers: numbe
     refundable:   flexObj.refundable,
     bookingToken: offer.id,
     passengers:   totalPassengers,
-    segments:     segs.map(seg => ({
-      origin:       seg.origin?.iata_code ?? '',
-      destination:  seg.destination?.iata_code ?? '',
-      departure:    seg.departing_at ?? '',
-      arrival:      seg.arriving_at ?? '',
-      duration:     fmtDuration(seg.duration ?? ''),
-      carrier:      seg.marketing_carrier?.iata_code ?? '', // IATA code (e.g. "AC"), used for logo lookup
-      operatingCarrier: seg.operating_carrier?.iata_code ?? seg.marketing_carrier?.iata_code ?? '',
-      flightNumber: `${seg.marketing_carrier?.iata_code ?? ''}${seg.marketing_carrier_flight_number ?? ''}`,
-    })),
+    segments:     segs.map(mapSegment),
+    // ── Round-trip return leg (populated when offer has 2 slices) ────────────
+    ...(slice1 ? {
+      isRoundTrip:        true,
+      returnOrigin:       retFirst?.origin?.iata_code ?? '',
+      returnDestination:  retLast?.destination?.iata_code ?? '',
+      returnDeparture:    retFirst?.departing_at ?? '',
+      returnArrival:      retLast?.arriving_at ?? '',
+      returnDuration:     fmtDuration(slice1.duration ?? ''),
+      returnStops:        retSegs.length - 1,
+      returnStopAirports: retSegs.slice(0, -1).map(s => s.destination?.iata_code ?? ''),
+      returnSegments:     retSegs.map(mapSegment),
+    } : {}),
     // ── Enriched flexibility data (consumed by ranking agent) ────────────────
     _flexScore: flexObj.score,
     _flexObj:   flexObj,

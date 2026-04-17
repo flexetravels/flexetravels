@@ -7,7 +7,7 @@
 
 import Image from 'next/image';
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Check, Clock } from 'lucide-react';
+import { ChevronDown, ChevronUp, Check, Clock, Plane } from 'lucide-react';
 import { cn, formatPrice, formatTime, formatDate, airlineLogo, iataToCity } from '@/lib/utils';
 import type { FlightResult } from '@/lib/types';
 import { FlexibilityBadge } from '@/components/FlexibilityBadge';
@@ -69,6 +69,118 @@ function AirlineLogo({ airline, iataCode }: { airline: string; iataCode?: string
   );
 }
 
+/** Render the flight path line (plane icon + stop badges) between two endpoint dots */
+function FlightPathLine({
+  stops,
+  stopAirports,
+  segments,
+}: {
+  stops: number;
+  stopAirports: string[];
+  segments: Array<{ destination: string; arrival: string; departure: string }>;
+}) {
+  const layovers: Array<{ airport: string; duration: string | null }> = segments.length > 1
+    ? segments.slice(0, -1).map((seg, i) => ({
+        airport:  seg.destination,
+        duration: calcLayover(seg.arrival, segments[i + 1].departure),
+      }))
+    : stopAirports.map(ap => ({ airport: ap, duration: null }));
+
+  return (
+    <div className="relative w-full flex items-center">
+      <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-px
+                      bg-gradient-to-r from-teal-400/40 via-teal-500/70 to-teal-400/40" />
+      <div className="relative z-10 w-1.5 h-1.5 rounded-full bg-teal-500 flex-shrink-0" />
+      <div className="flex-1 flex justify-center">
+        {stops === 0 ? (
+          <svg className="w-4 h-4 text-teal-600 dark:text-teal-400 relative z-10 -rotate-45"
+               viewBox="0 0 24 24" fill="currentColor">
+            <path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 00-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>
+          </svg>
+        ) : (
+          <div className="flex items-center gap-1.5 flex-wrap justify-center">
+            {layovers.map((lv, i) => (
+              <div key={i} className="flex flex-col items-center relative z-10">
+                <span className="text-[9px] bg-amber-100 dark:bg-amber-900/30
+                                 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded-full font-bold">
+                  {iataToCity(lv.airport)}
+                </span>
+                {lv.duration && (
+                  <span className="text-[8px] text-muted-foreground/70 mt-0.5 whitespace-nowrap">
+                    {lv.duration}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="relative z-10 w-1.5 h-1.5 rounded-full bg-teal-500 flex-shrink-0" />
+    </div>
+  );
+}
+
+/** Render a timeline list of segments (used in the expandable details pane) */
+function SegmentTimeline({ segs }: { segs: FlightResult['segments'] }) {
+  if (!segs || segs.length === 0) return null;
+  return (
+    <div className="px-3 sm:px-4 py-2.5 sm:py-3 space-y-0">
+      {segs.map((seg, i) => {
+        const layover = i < segs.length - 1
+          ? calcLayover(seg.arrival, segs[i + 1].departure)
+          : null;
+        return (
+          <div key={i}>
+            <div className="flex items-start gap-2 sm:gap-3 text-xs py-2">
+              <div className="flex flex-col items-center pt-1 gap-0 flex-shrink-0">
+                <div className="w-2 h-2 rounded-full bg-teal-500 ring-2 ring-teal-200 dark:ring-teal-700" />
+                {(layover || i < segs.length - 1) && (
+                  <div className="w-px flex-1 min-h-[32px] bg-teal-500/30 mt-1" />
+                )}
+              </div>
+              <div className="flex-1 pb-1">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-bold text-foreground text-[12px]">
+                    {seg.origin} → {seg.destination}
+                  </p>
+                  <span className="font-mono text-[10px] text-muted-foreground/80 bg-muted px-1.5 py-0.5 rounded">
+                    {seg.flightNumber || seg.carrier}
+                  </span>
+                </div>
+                <p className="text-muted-foreground mt-0.5">
+                  {formatDate(seg.departure)} · {formatTime(seg.departure)} – {formatTime(seg.arrival)}
+                </p>
+                <p className="text-muted-foreground/60 text-[10px] mt-0.5 flex items-center gap-1">
+                  <Clock className="w-3 h-3 inline flex-shrink-0" />
+                  Flight time: {seg.duration}
+                </p>
+              </div>
+            </div>
+            {layover && (
+              <div className="flex items-center gap-2 ml-5 mb-1">
+                <div className="flex items-center gap-1.5 bg-amber-50 dark:bg-amber-900/20
+                                border border-amber-200 dark:border-amber-700/50
+                                text-amber-700 dark:text-amber-400
+                                px-2.5 py-1 rounded-full text-[10px] font-semibold">
+                  <Clock className="w-2.5 h-2.5 flex-shrink-0" />
+                  Layover in {iataToCity(seg.destination)} ({seg.destination}): {layover}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {/* Terminal dot */}
+      <div className="flex items-center gap-2 ml-0 pt-0.5 pb-1">
+        <div className="w-2 h-2 rounded-full bg-teal-600 ring-2 ring-teal-200 dark:ring-teal-700 flex-shrink-0" />
+        <p className="text-[11px] font-semibold text-foreground ml-1">
+          {segs[segs.length - 1]?.destination} — {formatTime(segs[segs.length - 1]?.arrival)}, {formatDate(segs[segs.length - 1]?.arrival)}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function FlightCard({ flight, onSelect, selected, compact, isBestValue }: FlightCardProps) {
   const [expanded, setExpanded] = useState(false);
 
@@ -97,7 +209,7 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
     : (flight.stopAirports ?? []).map(ap => ({ airport: ap, duration: null }));
 
   const hasSegments = segs.length > 0;
-  const hasDetails  = hasSegments || layovers.length > 0;
+  const hasDetails  = hasSegments || layovers.length > 0 || (flight.returnSegments?.length ?? 0) > 0;
 
   if (compact) {
     return (
@@ -179,7 +291,13 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
         </div>
       </div>
 
-      {/* ── Hero: departure / animated path / arrival ─────────────────────── */}
+      {/* ── Hero: outbound leg ────────────────────────────────────────────── */}
+      {flight.isRoundTrip && (
+        <div className="mx-4 mt-2 flex items-center gap-2 text-[10px] text-muted-foreground/60 font-semibold uppercase tracking-widest">
+          <Plane className="w-3 h-3 -rotate-45" />
+          <span>Outbound</span>
+        </div>
+      )}
       <div className="px-3 sm:px-4 py-3 sm:py-4 flex items-center gap-2">
         {/* Departure */}
         <div className="flex-shrink-0 text-left">
@@ -199,36 +317,11 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
           <p className="text-[10px] text-muted-foreground mb-1 font-medium tracking-wide">
             {flight.duration}
           </p>
-          <div className="relative w-full flex items-center">
-            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-px
-                            bg-gradient-to-r from-teal-400/40 via-teal-500/70 to-teal-400/40" />
-            <div className="relative z-10 w-1.5 h-1.5 rounded-full bg-teal-500 flex-shrink-0" />
-            <div className="flex-1 flex justify-center">
-              {flight.stops === 0 ? (
-                <svg className="w-4 h-4 text-teal-600 dark:text-teal-400 relative z-10 -rotate-45"
-                     viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 00-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>
-                </svg>
-              ) : (
-                <div className="flex items-center gap-1.5 flex-wrap justify-center">
-                  {layovers.map((lv, i) => (
-                    <div key={i} className="flex flex-col items-center relative z-10">
-                      <span className="text-[9px] bg-amber-100 dark:bg-amber-900/30
-                                       text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded-full font-bold">
-                        {iataToCity(lv.airport)}
-                      </span>
-                      {lv.duration && (
-                        <span className="text-[8px] text-muted-foreground/70 mt-0.5 whitespace-nowrap">
-                          {lv.duration}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="relative z-10 w-1.5 h-1.5 rounded-full bg-teal-500 flex-shrink-0" />
-          </div>
+          <FlightPathLine
+            stops={flight.stops}
+            stopAirports={flight.stopAirports ?? []}
+            segments={segs}
+          />
         </div>
 
         {/* Arrival */}
@@ -244,6 +337,59 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
           </p>
         </div>
       </div>
+
+      {/* ── Return leg (round-trip only) ──────────────────────────────────── */}
+      {flight.isRoundTrip && flight.returnDeparture && (
+        <>
+          {/* Divider */}
+          <div className="mx-4 flex items-center gap-2">
+            <div className="flex-1 h-px bg-border/60 border-dashed" style={{ borderTop: '1px dashed', borderColor: 'var(--border)' }} />
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60 font-semibold uppercase tracking-widest flex-shrink-0">
+              <Plane className="w-3 h-3 rotate-[135deg]" />
+              <span>Return</span>
+            </div>
+            <div className="flex-1 h-px" style={{ borderTop: '1px dashed', borderColor: 'var(--border)' }} />
+          </div>
+
+          {/* Return hero row */}
+          <div className="px-3 sm:px-4 py-3 sm:py-4 flex items-center gap-2">
+            <div className="flex-shrink-0 text-left">
+              <p className="text-xl sm:text-2xl font-black text-foreground tracking-tight leading-none">
+                {formatTime(flight.returnDeparture)}
+              </p>
+              <p className="text-[12px] sm:text-[13px] font-bold text-foreground/70 mt-0.5 uppercase tracking-wider">
+                {flight.returnOrigin}
+              </p>
+              <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                {formatDate(flight.returnDeparture)}
+              </p>
+            </div>
+
+            <div className="flex-1 flex flex-col items-center justify-center px-2 min-w-0">
+              <p className="text-[10px] text-muted-foreground mb-1 font-medium tracking-wide">
+                {flight.returnDuration}
+              </p>
+              <FlightPathLine
+                stops={flight.returnStops ?? 0}
+                stopAirports={flight.returnStopAirports ?? []}
+                segments={flight.returnSegments ?? []}
+              />
+            </div>
+
+            <div className="flex-shrink-0 text-right">
+              <p className="text-xl sm:text-2xl font-black text-foreground tracking-tight leading-none">
+                {formatTime(flight.returnArrival ?? '')}
+              </p>
+              <p className="text-[12px] sm:text-[13px] font-bold text-foreground/70 mt-0.5 uppercase tracking-wider">
+                {flight.returnDestination}
+              </p>
+              <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                {formatDate(flight.returnArrival ?? '')}
+              </p>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ── Child fare disclosure banner ──────────────────────────────────── */}
       {flight.childFareNote && (
@@ -277,7 +423,9 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
             <p className="text-xl font-black text-foreground leading-none">
               {formatPrice(flight.price, flight.currency)}
             </p>
-            <p className="text-[10px] text-muted-foreground mt-0.5">per person</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              {flight.isRoundTrip ? 'per person · round-trip' : 'per person'}
+            </p>
           </div>
           <button
             onClick={() => onSelect?.(flight)}
@@ -306,78 +454,43 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
           >
             {expanded
               ? <><ChevronUp className="w-3 h-3" /> Hide flight details</>
-              : <><ChevronDown className="w-3 h-3" /> Flight details · {segs.length} leg{segs.length !== 1 ? 's' : ''}</>}
+              : <><ChevronDown className="w-3 h-3" /> Flight details{flight.isRoundTrip ? ' · outbound + return' : ` · ${segs.length} leg${segs.length !== 1 ? 's' : ''}`}</>}
           </button>
 
           {expanded && (
             <div className="bg-muted/15 border-t border-border/40">
               {hasSegments ? (
-                <div className="px-3 sm:px-4 py-2.5 sm:py-3 space-y-0">
-                  {segs.map((seg, i) => {
-                    const layover = i < segs.length - 1
-                      ? calcLayover(seg.arrival, segs[i + 1].departure)
-                      : null;
-                    return (
-                      <div key={i}>
-                        {/* Segment row */}
-                        <div className="flex items-start gap-2 sm:gap-3 text-xs py-2">
-                          {/* Timeline dot + line */}
-                          <div className="flex flex-col items-center pt-1 gap-0 flex-shrink-0">
-                            <div className="w-2 h-2 rounded-full bg-teal-500 ring-2 ring-teal-200 dark:ring-teal-700" />
-                            {(layover || i < segs.length - 1) && (
-                              <div className="w-px flex-1 min-h-[32px] bg-teal-500/30 mt-1" />
-                            )}
-                          </div>
-                          {/* Segment info */}
-                          <div className="flex-1 pb-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="font-bold text-foreground text-[12px]">
-                                {seg.origin} → {seg.destination}
-                              </p>
-                              <span className="font-mono text-[10px] text-muted-foreground/80 bg-muted px-1.5 py-0.5 rounded">
-                                {seg.flightNumber || seg.carrier}
-                              </span>
-                            </div>
-                            <p className="text-muted-foreground mt-0.5">
-                              {formatDate(seg.departure)} · {formatTime(seg.departure)} – {formatTime(seg.arrival)}
-                            </p>
-                            <p className="text-muted-foreground/60 text-[10px] mt-0.5 flex items-center gap-1">
-                              <Clock className="w-3 h-3 inline flex-shrink-0" />
-                              Flight time: {seg.duration}
-                            </p>
-                          </div>
-                        </div>
+                <>
+                  {/* Outbound segments */}
+                  {flight.isRoundTrip && (
+                    <div className="px-4 pt-2 pb-0">
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 flex items-center gap-1">
+                        <Plane className="w-3 h-3 -rotate-45" /> Outbound
+                      </p>
+                    </div>
+                  )}
+                  <SegmentTimeline segs={segs} />
 
-                        {/* Layover pill between segments */}
-                        {layover && (
-                          <div className="flex items-center gap-2 ml-5 mb-1">
-                            <div className="flex items-center gap-1.5 bg-amber-50 dark:bg-amber-900/20
-                                            border border-amber-200 dark:border-amber-700/50
-                                            text-amber-700 dark:text-amber-400
-                                            px-2.5 py-1 rounded-full text-[10px] font-semibold">
-                              <Clock className="w-2.5 h-2.5 flex-shrink-0" />
-                              Layover in {iataToCity(seg.destination)} ({seg.destination}): {layover}
-                            </div>
-                          </div>
-                        )}
+                  {/* Return segments */}
+                  {flight.isRoundTrip && flight.returnSegments && flight.returnSegments.length > 0 && (
+                    <>
+                      <div className="mx-4 border-t border-dashed border-border/60" />
+                      <div className="px-4 pt-2 pb-0">
+                        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 flex items-center gap-1">
+                          <Plane className="w-3 h-3 rotate-[135deg]" /> Return
+                        </p>
                       </div>
-                    );
-                  })}
-                  {/* Terminal destination dot */}
-                  <div className="flex items-center gap-2 ml-0 pt-0.5 pb-1">
-                    <div className="w-2 h-2 rounded-full bg-teal-600 ring-2 ring-teal-200 dark:ring-teal-700 flex-shrink-0" />
-                    <p className="text-[11px] font-semibold text-foreground ml-1">
-                      {segs[segs.length - 1]?.destination} — {formatTime(flight.arrival)}, {formatDate(flight.arrival)}
-                    </p>
-                  </div>
-                </div>
+                      <SegmentTimeline segs={flight.returnSegments} />
+                    </>
+                  )}
+                </>
               ) : (
                 /* Fallback: just stopAirports with no times */
                 <div className="px-4 py-3 space-y-1">
-                  {layovers.map((lv, i) => (
+                  {(flight.stopAirports ?? []).map((ap, i) => (
                     <div key={i} className="text-xs text-muted-foreground flex items-center gap-2">
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0" />
-                      Stopover: {lv.airport}
+                      Stopover: {ap}
                     </div>
                   ))}
                 </div>

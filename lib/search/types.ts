@@ -43,6 +43,25 @@ export interface NormalizedFlight {
   passengers?: number;       // number of adult passengers searched for
   childFareNote?: string;    // Set when airline doesn't price children in search API;
                              // adult fare shown — child seat confirmed at booking
+  // ── Round-trip return leg ───────────────────────────────────────────────
+  isRoundTrip?: boolean;
+  returnOrigin?: string;
+  returnDestination?: string;
+  returnDeparture?: string;
+  returnArrival?: string;
+  returnDuration?: string;
+  returnStops?: number;
+  returnStopAirports?: string[];
+  returnSegments?: Array<{
+    origin: string;
+    destination: string;
+    departure: string;
+    arrival: string;
+    duration: string;
+    carrier: string;
+    operatingCarrier?: string;
+    flightNumber: string;
+  }>;
   segments: Array<{
     origin: string;
     destination: string;
