@@ -44,7 +44,7 @@ export const SECURITY_CONFIG = {
   // ── Request body size limits (bytes) ─────────────────────────────────────────
   // Checked via Content-Length header in middleware (before body is parsed).
   requestSizeLimits: {
-    '/api/chat':           10_240,  // 10 KB — chat messages shouldn't be huge
+    '/api/chat':           512_000, // 500 KB — chat history includes flight/hotel data
     '/api/book-trip':      51_200,  // 50 KB — passenger data for multi-pax bookings
     '/api/stripe/prepare': 5_120,   // 5 KB
     default:               20_480,  // 20 KB for all other POST/PUT routes
