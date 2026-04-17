@@ -11,7 +11,7 @@ import Image from 'next/image';
 import {
   MapPin, Wifi, Car, UtensilsCrossed, Waves,
   ChevronLeft, ChevronRight, Check, BedDouble, Eye, ChevronDown, ChevronUp,
-  Users, ShieldCheck, ShieldOff,
+  Users, ShieldCheck, ShieldOff, Loader2,
 } from 'lucide-react';
 import { useState, useCallback, useMemo } from 'react';
 import { cn, formatPrice, formatDate } from '@/lib/utils';
@@ -54,6 +54,18 @@ function roomBookingToken(room: RoomType): string {
   const rate = cheapestRate(room);
   const raw = room.offerId ?? rate?.rateId ?? '';
   return raw ? `liteapi_${raw}` : '';
+}
+
+// ── Inline hotel detail type + module-level cache ────────────────────────────
+interface InlineHotelDetail {
+  images: Array<{ url: string; caption?: string }>;
+  amenities: string[];
+  description?: string;
+}
+const hotelDetailCache = new Map<string, InlineHotelDetail>();
+
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]+>/g, ' ').replace(/\s{2,}/g, ' ').trim();
 }
 
 // ── Star row ──────────────────────────────────────────────────────────────────
@@ -342,6 +354,53 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
     if (token) setSelectedToken(token);
   }, []);
 
+  // ── Inline detail expansion state ─────────────────────────────────────────
+  const [expanded,      setExpanded]      = useState(false);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [inlineDetail,  setInlineDetail]  = useState<InlineHotelDetail | null>(null);
+
+  const handleToggleDetail = useCallback(async () => {
+    if (hotel.isSample) return;
+
+    if (expanded) {
+      setExpanded(false);
+      return;
+    }
+
+    // Serve from cache if available
+    const cached = hotelDetailCache.get(hotel.id);
+    if (cached) {
+      setInlineDetail(cached);
+      setExpanded(true);
+      return;
+    }
+
+    // Fetch from API
+    setExpanded(true);
+    setLoadingDetail(true);
+    try {
+      const res = await fetch(`/api/hotel-detail?hotelId=${encodeURIComponent(hotel.id)}`);
+      if (res.ok) {
+        const data = await res.json() as {
+          images?: Array<{ url: string; caption?: string }>;
+          amenities?: string[];
+          description?: string;
+        };
+        const detail: InlineHotelDetail = {
+          images:      data.images      ?? [],
+          amenities:   data.amenities   ?? [],
+          description: data.description,
+        };
+        hotelDetailCache.set(hotel.id, detail);
+        setInlineDetail(detail);
+      }
+    } catch {
+      // silently degrade — card already shows basics
+    } finally {
+      setLoadingDetail(false);
+    }
+  }, [hotel.id, hotel.isSample, expanded]);
+
   const amenities = hotel.amenities ?? [];
   const hasRoomOptions = (hotel.allRoomTypes?.length ?? 0) > 1;
 
@@ -482,18 +541,105 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
           </div>
         )}
 
-        {/* ── View details button (opens modal) ──────────────────────────── */}
-        {onOpenDetail && !hotel.isSample && (
-          <button
-            onClick={() => onOpenDetail(hotel)}
-            aria-label={`View full details, photos, and room options for ${hotel.name}`}
-            className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl
-                       bg-muted/50 hover:bg-muted/80 text-xs font-medium text-muted-foreground
-                       transition-colors"
-          >
-            <Eye className="w-3.5 h-3.5" />
-            View details, photos & rooms
-          </button>
+        {/* ── Photos & amenities inline toggle ────────────────────────────── */}
+        {!hotel.isSample && (
+          <>
+            <button
+              onClick={handleToggleDetail}
+              aria-expanded={expanded}
+              aria-label={expanded
+                ? `Hide photos and amenities for ${hotel.name}`
+                : `View photos and amenities for ${hotel.name}`}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl
+                         bg-muted/50 hover:bg-muted/80 text-xs font-medium text-muted-foreground
+                         transition-colors"
+            >
+              {loadingDetail
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <ChevronDown className={cn('w-3.5 h-3.5 transition-transform duration-200', expanded && 'rotate-180')} />
+              }
+              {expanded ? 'Hide photos' : 'View photos & amenities'}
+            </button>
+
+            {/* Expanded inline detail panel */}
+            {expanded && (
+              <div className="rounded-xl border border-border/40 bg-muted/20 overflow-hidden">
+                {loadingDetail ? (
+                  <div className="flex items-center justify-center gap-2 py-6">
+                    <Loader2 className="w-4 h-4 animate-spin text-teal-500" />
+                    <span className="text-xs text-muted-foreground">Loading photos…</span>
+                  </div>
+                ) : inlineDetail ? (
+                  <div className="p-3 space-y-3">
+                    {/* Photo grid */}
+                    {inlineDetail.images.length > 0 && (
+                      <div className="grid grid-cols-3 gap-1">
+                        {inlineDetail.images.slice(0, 6).map((img, i) => (
+                          <div key={i} className="relative aspect-square rounded-lg overflow-hidden bg-muted">
+                            <img
+                              src={img.url}
+                              alt={img.caption ?? `Photo ${i + 1}`}
+                              className="w-full h-full object-cover"
+                              loading="lazy"
+                              onError={e => { (e.target as HTMLImageElement).style.opacity = '0'; }}
+                            />
+                            {i === 5 && inlineDetail.images.length > 6 && (
+                              <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                                <span className="text-white text-xs font-bold">+{inlineDetail.images.length - 6}</span>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Extended amenities from detail API */}
+                    {inlineDetail.amenities.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {inlineDetail.amenities.slice(0, 12).map(a => {
+                          const Icon = AMENITY_ICONS[a];
+                          return (
+                            <span key={a} className="inline-flex items-center gap-1 text-[10px] font-medium
+                                                     px-2 py-0.5 rounded-full bg-muted/80 text-muted-foreground">
+                              {Icon && <Icon className="w-2.5 h-2.5" />}
+                              {a}
+                            </span>
+                          );
+                        })}
+                        {inlineDetail.amenities.length > 12 && (
+                          <span className="text-[10px] text-muted-foreground/60 self-center">
+                            +{inlineDetail.amenities.length - 12} more
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Short description */}
+                    {inlineDetail.description && (
+                      <p className="text-[11px] text-muted-foreground line-clamp-3 leading-relaxed">
+                        {stripHtml(inlineDetail.description)}
+                      </p>
+                    )}
+
+                    {/* Open full modal */}
+                    {onOpenDetail && (
+                      <button
+                        onClick={() => onOpenDetail(hotel)}
+                        className="flex items-center gap-1 text-xs text-teal-500 hover:text-teal-400 font-medium transition-colors"
+                      >
+                        <Eye className="w-3 h-3" />
+                        Open full details & rooms
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center py-6">
+                    <span className="text-xs text-muted-foreground">No additional details available.</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
 
         {/* ── Price row + CTA ────────────────────────────────────────────── */}
