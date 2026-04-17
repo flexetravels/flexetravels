@@ -129,6 +129,16 @@ function mapOffer(offer: DuffelOffer, cabinClass: string, totalPassengers: numbe
   };
 }
 
+/** Rank offer by non-stop status: 0=all-legs non-stop, 1=one leg non-stop, 3=all legs have stops */
+function nonStopRank(offer: DuffelOffer): number {
+  const outNonStop = (offer.slices[0]?.segments?.length ?? 0) === 1;
+  if (offer.slices.length < 2) return outNonStop ? 0 : 3;
+  const retNonStop = (offer.slices[1]?.segments?.length ?? 0) === 1;
+  if (outNonStop && retNonStop) return 0;
+  if (outNonStop || retNonStop) return 1;
+  return 3;
+}
+
 export class DuffelProvider implements SearchProvider {
   readonly name = 'duffel';
   private readonly token: string;
@@ -238,7 +248,11 @@ export class DuffelProvider implements SearchProvider {
             console.log('[duffel] adults-only fallback returned', fallbackOffers.length, 'offers — tagging with childFareNote');
             const seenFallback = new Set<string>();
             return fallbackOffers
-              .sort((a, b) => parseFloat(a.total_amount) - parseFloat(b.total_amount))
+              .sort((a, b) => {
+                const rankDiff = nonStopRank(a) - nonStopRank(b);
+                if (rankDiff !== 0) return rankDiff;
+                return parseFloat(a.total_amount) - parseFloat(b.total_amount);
+              })
               .map(o => ({ ...mapOffer(o, params.cabinClass, params.adults), childFareNote: note }))
               .filter(f => {
                 const key = [
@@ -265,7 +279,11 @@ export class DuffelProvider implements SearchProvider {
     // completely outside the window.
     const seenOffers = new Set<string>();
     return offers
-      .sort((a, b) => parseFloat(a.total_amount) - parseFloat(b.total_amount))
+      .sort((a, b) => {
+        const rankDiff = nonStopRank(a) - nonStopRank(b);
+        if (rankDiff !== 0) return rankDiff;
+        return parseFloat(a.total_amount) - parseFloat(b.total_amount);
+      })
       .map(o => mapOffer(o, params.cabinClass, totalPassengers))
       .filter(f => {
         const key = [
