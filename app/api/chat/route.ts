@@ -423,7 +423,7 @@ export async function POST(req: Request) {
         system:    buildSystem(lastUserContent, conversationState),
         messages:  compressedMessages,
         maxTokens: 5000,
-        maxSteps:  4,
+        maxSteps:  10,
 
         tools: {
 
