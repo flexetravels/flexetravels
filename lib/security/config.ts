@@ -47,7 +47,7 @@ export const SECURITY_CONFIG = {
     '/api/chat':           512_000, // 500 KB — chat history includes flight/hotel data
     '/api/book-trip':      51_200,  // 50 KB — passenger data for multi-pax bookings
     '/api/stripe/prepare': 5_120,   // 5 KB
-    default:               20_480,  // 20 KB for all other POST/PUT routes
+    default:               51_200,  // 50 KB for all other POST/PUT routes
   } as Record<string, number>,
 
   // ── Bot detection patterns ───────────────────────────────────────────────────
