@@ -181,8 +181,25 @@ function SegmentTimeline({ segs }: { segs: FlightResult['segments'] }) {
   );
 }
 
+/** Map refundable/changeable flags to a short fare-tier label */
+function fareLabel(refundable: boolean, changeable: boolean): string {
+  if (refundable && changeable) return 'Flex';
+  if (changeable)              return 'Standard';
+  return 'Basic';
+}
+
 export function FlightCard({ flight, onSelect, selected, compact, isBestValue }: FlightCardProps) {
   const [expanded, setExpanded] = useState(false);
+  // Track which fare variant the user has chosen (0 = cheapest/default)
+  const [selectedVariantIdx, setSelectedVariantIdx] = useState(0);
+
+  const variants = flight.fareVariants;
+  const activeVariant = variants?.[selectedVariantIdx];
+  // Use the active variant's price if one is selected, otherwise fall back to flight price
+  const displayPrice    = activeVariant?.price              ?? flight.price;
+  const displayCurrency = activeVariant?.currency           ?? flight.currency;
+  const displayRefundable = activeVariant?.refundable       ?? flight.refundable;
+  const displayFlexSummary = activeVariant?.flexibilitySummary ?? flight.flexibilitySummary;
 
   const stopLabel =
     flight.stops === 0 ? 'Non-stop'
@@ -222,12 +239,12 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
           <div className="text-sm font-semibold">{flight.origin} → {flight.destination}</div>
           <div className="text-xs text-muted-foreground">{formatTime(flight.departure)} · {flight.duration}</div>
         </div>
-        <div className="text-sm font-bold">{formatPrice(flight.price, flight.currency)}</div>
+        <div className="text-sm font-bold">{formatPrice(displayPrice, displayCurrency)}</div>
       </div>
     );
   }
 
-  const ariaLabel = `${flight.airline} flight from ${flight.origin} to ${flight.destination}, ${formatPrice(flight.price, flight.currency)}, ${stopLabel}, ${flight.duration}`;
+  const ariaLabel = `${flight.airline} flight from ${flight.origin} to ${flight.destination}, ${formatPrice(displayPrice, displayCurrency)}, ${stopLabel}, ${flight.duration}`;
 
   return (
     <div
@@ -274,15 +291,15 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
           )}>
             {stopLabel}
           </span>
-          {/* Flexibility badge — shows detailed policy if scored, falls back to basic refundable */}
-          {flight.flexibilityLabel ? (
+          {/* Flexibility badge — shows active variant's policy; falls back to flight-level data */}
+          {(activeVariant?.flexibilityLabel ?? flight.flexibilityLabel) ? (
             <FlexibilityBadge
-              label={flight.flexibilityLabel as FlexibilityLabel}
-              summary={flight.flexibilitySummary}
-              score={flight.flexibilityScore}
+              label={(activeVariant?.flexibilityLabel ?? flight.flexibilityLabel) as FlexibilityLabel}
+              summary={activeVariant?.flexibilitySummary ?? flight.flexibilitySummary}
+              score={activeVariant?.flexibilityScore ?? flight.flexibilityScore}
               size="sm"
             />
-          ) : flight.refundable ? (
+          ) : displayRefundable ? (
             <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400
                              bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0.5 rounded-full">
               Refundable
@@ -405,6 +422,50 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
         </div>
       )}
 
+      {/* ── Fare variant tabs (only when 2+ variants exist) ──────────────── */}
+      {variants && variants.length > 1 && (
+        <div className="mx-4 mb-2 flex gap-1.5">
+          {variants.map((v, i) => {
+            const label   = fareLabel(v.refundable, v.changeable);
+            const isActive = i === selectedVariantIdx;
+            return (
+              <button
+                key={v.offerId}
+                onClick={() => setSelectedVariantIdx(i)}
+                title={v.flexibilitySummary}
+                className={cn(
+                  'flex-1 rounded-lg px-1.5 py-2 text-center transition-all border text-left',
+                  isActive
+                    ? label === 'Flex'
+                      ? 'bg-emerald-50 dark:bg-emerald-900/25 border-emerald-400 dark:border-emerald-600'
+                      : label === 'Standard'
+                      ? 'bg-amber-50 dark:bg-amber-900/25 border-amber-400 dark:border-amber-600'
+                      : 'bg-muted/70 border-foreground/25'
+                    : 'bg-transparent border-border hover:bg-muted/40'
+                )}
+              >
+                <div className={cn(
+                  'text-[9px] font-bold uppercase tracking-wide',
+                  isActive
+                    ? label === 'Flex'    ? 'text-emerald-700 dark:text-emerald-300'
+                    : label === 'Standard' ? 'text-amber-700 dark:text-amber-300'
+                    : 'text-foreground/70'
+                    : 'text-muted-foreground'
+                )}>
+                  {label}
+                </div>
+                <div className={cn(
+                  'text-[12px] font-black leading-tight',
+                  isActive ? 'text-foreground' : 'text-muted-foreground'
+                )}>
+                  {formatPrice(v.price, v.currency)}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* ── Price + CTA row ───────────────────────────────────────────────── */}
       <div className="mx-4 mb-3 pt-3 border-t border-border/60 flex items-center justify-between gap-3">
         <div className="flex-1 min-w-0">
@@ -412,29 +473,46 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
             {flight.cabinClass?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) ?? 'Economy'}
             {flight.baggage && <span className="ml-2 font-medium text-teal-700 dark:text-teal-300">✓ {flight.baggage}</span>}
           </div>
-          {flight.flexibilitySummary && (
+          {displayFlexSummary && (
             <div className="mt-1.5 text-[11px] text-muted-foreground bg-muted/40 rounded px-2 py-1.5">
-              {flight.flexibilitySummary}
+              {displayFlexSummary}
             </div>
           )}
         </div>
         <div className="flex items-center gap-3">
           <div className="text-right">
             <p className="text-xl font-black text-foreground leading-none">
-              {formatPrice(flight.price, flight.currency)}
+              {formatPrice(displayPrice, displayCurrency)}
             </p>
             <p className="text-[10px] text-muted-foreground mt-0.5">
               {flight.isRoundTrip ? 'total · round-trip' : 'total for all passengers'}
             </p>
             {flight.passengers && flight.passengers > 1 && (
               <p className="text-[10px] text-muted-foreground/70">
-                {formatPrice(Math.round(flight.price / flight.passengers * 100) / 100, flight.currency)} per person
+                {formatPrice(Math.round(displayPrice / flight.passengers * 100) / 100, displayCurrency)} per person
               </p>
             )}
           </div>
           <button
-            onClick={() => onSelect?.(flight)}
-            aria-label={`Select this ${flight.airline} flight from ${flight.origin} to ${flight.destination}, ${formatPrice(flight.price, flight.currency)}`}
+            onClick={() => {
+              // Pass the effective flight: override id/bookingToken/price/refundable
+              // with the selected variant's values so checkout books the right fare class
+              const effectiveFlight = activeVariant
+                ? {
+                    ...flight,
+                    id:           activeVariant.offerId,
+                    bookingToken: activeVariant.offerId,
+                    price:        activeVariant.price,
+                    currency:     activeVariant.currency,
+                    refundable:   activeVariant.refundable,
+                    flexibilityScore:   activeVariant.flexibilityScore,
+                    flexibilityLabel:   activeVariant.flexibilityLabel,
+                    flexibilitySummary: activeVariant.flexibilitySummary,
+                  }
+                : flight;
+              onSelect?.(effectiveFlight);
+            }}
+            aria-label={`Select this ${flight.airline} flight from ${flight.origin} to ${flight.destination}, ${formatPrice(displayPrice, displayCurrency)}`}
             className={cn(
               'px-4 py-3 rounded-xl text-[13px] font-bold transition-all duration-150 flex items-center gap-1.5',
               'min-h-[44px] touch-manipulation -webkit-tap-highlight-color-transparent',

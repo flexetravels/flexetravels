@@ -38,6 +38,17 @@ export interface FlightResult {
   flexibilitySummary?: string;        // Human-readable tooltip text
   changeable?:  boolean;              // can be changed before departure
   rankScore?:   number;               // 0–100 combined value score
+  // ── Fare variants (multiple price/policy tiers for the same physical flight) ─
+  fareVariants?: Array<{
+    offerId:            string;       // Duffel offer ID for this specific fare class
+    price:              number;
+    currency:           string;
+    flexibilityScore:   number;
+    flexibilityLabel:   'Flexible' | 'Moderate' | 'Locked';
+    flexibilitySummary: string;
+    refundable:         boolean;
+    changeable:         boolean;
+  }>;
   // ── Child / infant fare transparency ──────────────────────────────────────
   childFareNote?: string;             // Set when airline doesn't price children in search;
                                       // adult fare shown — child seat confirmed at booking

@@ -325,7 +325,10 @@ function FlightResultsPanel({
                   selected={selected === f.id}
                   isBestValue={f.id === cheapestFlightId}
                   onSelect={(fl) => {
-                    setSelected(fl.id);
+                    // Track selection by the base flight's id (f.id) so the
+                    // selected ring stays on this card regardless of which fare
+                    // variant was chosen (fl.id may be a different offer id).
+                    setSelected(f.id);
                     onSelect?.(fl);
                   }}
                 />

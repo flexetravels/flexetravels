@@ -5,7 +5,7 @@
 
 import type {
   SearchProvider, FlightSearchParams, HotelSearchParams,
-  NormalizedFlight, NormalizedHotel,
+  NormalizedFlight, NormalizedHotel, FareVariant,
 } from './types';
 import { airlineLogo } from '@/lib/utils';
 import {
@@ -129,6 +129,60 @@ function mapOffer(offer: DuffelOffer, cabinClass: string, totalPassengers: numbe
   };
 }
 
+/**
+ * Group a sorted list of EnrichedFlights by physical flight identity
+ * (same flight numbers + same departure time) and return at most one
+ * NormalizedFlight per physical flight, carrying up to 3 fare variants
+ * (cheapest, most flexible, and a mid-tier when available).
+ */
+function groupIntoFareVariants(
+  sortedFlights: EnrichedFlight[],
+  limit: number = 10,
+): NormalizedFlight[] {
+  // Accumulate offers per unique physical flight
+  const offerMap = new Map<string, EnrichedFlight[]>();
+  for (const f of sortedFlights) {
+    const key = [
+      f.segments.map(s => s.flightNumber).join('|'),
+      f.departure.slice(0, 16),
+    ].join('::');
+    if (!offerMap.has(key)) offerMap.set(key, []);
+    offerMap.get(key)!.push(f);
+  }
+
+  const results: NormalizedFlight[] = [];
+  for (const [, group] of offerMap) {
+    if (results.length >= limit) break;
+
+    // group is already sorted cheapest-first because sortedFlights was sorted
+    const cheapest    = group[0];
+    const mostFlex    = group.reduce((best, v) => v._flexScore > best._flexScore ? v : best, group[0]);
+
+    const selected: EnrichedFlight[] = [cheapest];
+    if (mostFlex.id !== cheapest.id) selected.push(mostFlex);
+    // Fill up to 3 with any remaining variant not yet selected
+    for (const v of group) {
+      if (selected.length >= 3) break;
+      if (!selected.some(s => s.id === v.id)) selected.push(v);
+    }
+
+    const fareVariants: FareVariant[] = selected.map(v => ({
+      offerId:            v.id,
+      price:              v.price,
+      currency:           v.currency,
+      flexibilityScore:   v._flexScore,
+      flexibilityLabel:   v._flexObj.label,
+      flexibilitySummary: v._flexObj.summary,
+      refundable:         v.refundable,
+      changeable:         v._flexObj.changeable,
+    }));
+
+    results.push({ ...cheapest, fareVariants });
+  }
+
+  return results;
+}
+
 /** Rank offer by non-stop status: 0=all-legs non-stop, 1=one leg non-stop, 3=all legs have stops */
 function nonStopRank(offer: DuffelOffer): number {
   const outNonStop = (offer.slices[0]?.segments?.length ?? 0) === 1;
@@ -246,24 +300,15 @@ export class DuffelProvider implements SearchProvider {
           const fallbackOffers = fallbackJson.data?.offers ?? [];
           if (fallbackOffers.length > 0) {
             console.log('[duffel] adults-only fallback returned', fallbackOffers.length, 'offers — tagging with childFareNote');
-            const seenFallback = new Set<string>();
-            return fallbackOffers
+            const sortedFallback = fallbackOffers
               .sort((a, b) => {
                 const rankDiff = nonStopRank(a) - nonStopRank(b);
                 if (rankDiff !== 0) return rankDiff;
                 return parseFloat(a.total_amount) - parseFloat(b.total_amount);
               })
-              .map(o => ({ ...mapOffer(o, params.cabinClass, params.adults), childFareNote: note }))
-              .filter(f => {
-                const key = [
-                  f.segments.map(s => s.flightNumber).join('|'),
-                  f.departure.slice(0, 16),
-                ].join('::');
-                if (seenFallback.has(key)) return false;
-                seenFallback.add(key);
-                return true;
-              })
-              .slice(0, 10);
+              .map(o => mapOffer(o, params.cabinClass, params.adults));
+            return groupIntoFareVariants(sortedFallback, 10)
+              .map(f => ({ ...f, childFareNote: note }));
           }
         }
       } catch (err) {
@@ -271,30 +316,20 @@ export class DuffelProvider implements SearchProvider {
       }
     }
 
-    // Deduplicate by (flight numbers + departure time) BEFORE slicing so that
-    // multiple fare classes for the same physical flight (WestJet basic/standard/flex
-    // all share the same key) are collapsed to the cheapest option first.
-    // Without this, the top-10 cheapest offers could all be one airline's fare
-    // classes for a single daily non-stop, leaving other carriers (e.g. AA at $886)
-    // completely outside the window.
-    const seenOffers = new Set<string>();
-    return offers
+    // Group offers by physical flight identity (flight numbers + departure time).
+    // Multiple fare classes for the same physical flight (e.g. WestJet basic/standard/flex)
+    // are collected into a fareVariants array rather than collapsed to cheapest-only.
+    // This lets the card UI show fare tiers while still returning diverse airlines/routes
+    // (one entry per distinct physical flight, up to 10 distinct flights).
+    const sortedMapped = offers
       .sort((a, b) => {
         const rankDiff = nonStopRank(a) - nonStopRank(b);
         if (rankDiff !== 0) return rankDiff;
         return parseFloat(a.total_amount) - parseFloat(b.total_amount);
       })
-      .map(o => mapOffer(o, params.cabinClass, totalPassengers))
-      .filter(f => {
-        const key = [
-          f.segments.map(s => s.flightNumber).join('|'),
-          f.departure.slice(0, 16),
-        ].join('::');
-        if (seenOffers.has(key)) return false;
-        seenOffers.add(key);
-        return true;
-      })
-      .slice(0, 10);
+      .map(o => mapOffer(o, params.cabinClass, totalPassengers));
+
+    return groupIntoFareVariants(sortedMapped, 10);
   }
 
   // Duffel doesn't have a hotel search API — return empty, Amadeus handles hotels

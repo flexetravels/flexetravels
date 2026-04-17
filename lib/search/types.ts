@@ -22,6 +22,18 @@ export interface HotelSearchParams {
   stars?: number;           // 1–5
 }
 
+// ─── Fare variant (one price/policy tier for the same physical flight) ────────
+export interface FareVariant {
+  offerId:            string;   // Duffel offer ID for this specific fare class
+  price:              number;   // Total price for this variant
+  currency:           string;
+  flexibilityScore:   number;   // 0.00 – 1.00
+  flexibilityLabel:   'Flexible' | 'Moderate' | 'Locked';
+  flexibilitySummary: string;   // Human-readable conditions text
+  refundable:         boolean;
+  changeable:         boolean;
+}
+
 export interface NormalizedFlight {
   id: string;
   provider: string;          // 'duffel' | 'amadeus' | etc.
@@ -34,13 +46,14 @@ export interface NormalizedFlight {
   duration: string;          // e.g. "5h 30m"
   stops: number;
   stopAirports: string[];
-  price: number;             // total in USD
+  price: number;             // total in USD (cheapest variant price)
   currency: string;
   cabinClass: string;
   refundable: boolean;
   baggage?: string;
   bookingToken?: string;     // provider-specific token for booking step
   passengers?: number;       // number of adult passengers searched for
+  fareVariants?: FareVariant[]; // Up to 3 fare tiers for the same physical flight
   childFareNote?: string;    // Set when airline doesn't price children in search API;
                              // adult fare shown — child seat confirmed at booking
   // ── Round-trip return leg ───────────────────────────────────────────────
