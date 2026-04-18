@@ -188,6 +188,37 @@ function fareLabel(refundable: boolean, changeable: boolean): string {
   return 'Basic';
 }
 
+/**
+ * Assign unique labels to all fare variants.
+ * First tries condition-based labels (Flex/Standard/Basic from refundable+changeable).
+ * If multiple variants share the same condition label (e.g. all "Basic"), falls back
+ * to price-tier labels: cheapest → Basic, most expensive → Flex, rest → Standard.
+ */
+function assignFareLabels(variants: NonNullable<FlightResult['fareVariants']>): string[] {
+  const conditionLabels = variants.map(v => fareLabel(v.refundable, v.changeable));
+
+  // If all labels are already unique, use them
+  const hasDuplicates = conditionLabels.length !== new Set(conditionLabels).size;
+  if (!hasDuplicates) return conditionLabels;
+
+  // Sort indices by price ascending, then assign tier names by position
+  const indexed = variants.map((v, i) => ({ price: v.price, i })).sort((a, b) => a.price - b.price);
+  const tierLabels = new Array<string>(variants.length);
+
+  if (indexed.length === 2) {
+    tierLabels[indexed[0].i] = 'Basic';
+    tierLabels[indexed[1].i] = 'Flex';
+  } else {
+    indexed.forEach(({ i }, pos) => {
+      if (pos === 0) tierLabels[i] = 'Basic';
+      else if (pos === indexed.length - 1) tierLabels[i] = 'Flex';
+      else tierLabels[i] = 'Standard';
+    });
+  }
+
+  return tierLabels;
+}
+
 export function FlightCard({ flight, onSelect, selected, compact, isBestValue }: FlightCardProps) {
   const [expanded, setExpanded] = useState(false);
   // Track which fare variant the user has chosen (0 = cheapest/default)
@@ -425,8 +456,8 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
       {/* ── Fare variant tabs (only when 2+ variants exist) ──────────────── */}
       {variants && variants.length > 1 && (
         <div className="mx-4 mb-2 flex gap-1.5">
-          {variants.map((v, i) => {
-            const label   = fareLabel(v.refundable, v.changeable);
+          {assignFareLabels(variants).map((label, i) => {
+            const v = variants[i];
             const isActive = i === selectedVariantIdx;
             return (
               <button

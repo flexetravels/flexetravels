@@ -652,24 +652,29 @@ export async function POST(req: Request) {
 
           // Strip bulk LiteAPI internal data — keep only card fields
           const hotels = r.hotels.map(h => ({
-            id:           h.id,
-            name:         h.name,
-            location:     h.location,
-            city:         h.city,
-            stars:        h.stars,
+            id:            h.id,
+            name:          h.name,
+            location:      h.location,
+            city:          h.city,
+            stars:         h.stars,
             pricePerNight: h.pricePerNight,
-            totalPrice:   h.totalPrice,
-            currency:     h.currency,
-            image:        h.image,
-            images:       h.image ? [h.image] : [],
-            rating:       h.rating,
-            amenities:    h.amenities?.slice(0, 5) ?? [],
-            checkIn:      h.checkIn,
-            checkOut:     h.checkOut,
-            cancellation: h.cancellation,
-            isSample:     h.isSample,
-            provider:     h.provider,
-            bookingToken: h.bookingToken,
+            totalPrice:    h.totalPrice,
+            currency:      h.currency,
+            image:         h.image,
+            images:        h.image ? [h.image] : [],
+            rating:        h.rating,
+            amenities:     h.amenities?.slice(0, 5) ?? [],
+            checkIn:       h.checkIn,
+            checkOut:      h.checkOut,
+            cancellation:  h.cancellation,
+            isSample:      h.isSample,
+            provider:      h.provider,
+            bookingToken:  h.bookingToken,
+            // Required for checkout passenger pre-fill
+            searchedAdults: h.searchedAdults,
+            // Required for room selector and occupancy display
+            allRoomTypes:  h.allRoomTypes,
+            roomCount:     h.roomCount,
           }));
 
           // Push full data to frontend via side channel (bypasses token generation)
@@ -728,6 +733,7 @@ export async function POST(req: Request) {
             pricePerNight: number; totalPrice: number; currency: string; image: string;
             images: string[]; rating: number; amenities: string[]; checkIn: string;
             checkOut: string; cancellation: string; isSample: boolean; provider: string; bookingToken: string;
+            searchedAdults?: number; allRoomTypes?: Array<Record<string, unknown>>; roomCount?: number;
           };
           const allHotels: HotelCard[] = [];
           const searchedCities: string[] = [];
@@ -743,24 +749,29 @@ export async function POST(req: Request) {
               if (r.isSample) anySample = true;
               for (const h of r.hotels) {
                 allHotels.push({
-                  id:           h.id,
-                  name:         h.name,
-                  location:     h.location ?? '',
-                  city:         h.city ?? '',
-                  stars:        h.stars,
+                  id:            h.id,
+                  name:          h.name,
+                  location:      h.location ?? '',
+                  city:          h.city ?? '',
+                  stars:         h.stars,
                   pricePerNight: h.pricePerNight,
-                  totalPrice:   h.totalPrice,
-                  currency:     h.currency ?? 'USD',
-                  image:        h.image ?? '',
-                  images:       h.image ? [h.image] : [],
-                  rating:       h.rating ?? 0,
-                  amenities:    h.amenities?.slice(0, 5) ?? [],
-                  checkIn:      h.checkIn ?? '',
-                  checkOut:     h.checkOut ?? '',
-                  cancellation: h.cancellation ?? '',
-                  isSample:     h.isSample ?? false,
-                  provider:     h.provider ?? 'liteapi',
-                  bookingToken: h.bookingToken ?? '',
+                  totalPrice:    h.totalPrice,
+                  currency:      h.currency ?? 'USD',
+                  image:         h.image ?? '',
+                  images:        h.image ? [h.image] : [],
+                  rating:        h.rating ?? 0,
+                  amenities:     h.amenities?.slice(0, 5) ?? [],
+                  checkIn:       h.checkIn ?? '',
+                  checkOut:      h.checkOut ?? '',
+                  cancellation:  h.cancellation ?? '',
+                  isSample:      h.isSample ?? false,
+                  provider:      h.provider ?? 'liteapi',
+                  bookingToken:  h.bookingToken ?? '',
+                  // Required for checkout passenger pre-fill
+                  searchedAdults: h.searchedAdults,
+                  // Required for room selector
+                  allRoomTypes:  h.allRoomTypes,
+                  roomCount:     h.roomCount,
                 });
               }
             }

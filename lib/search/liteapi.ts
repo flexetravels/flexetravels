@@ -601,7 +601,9 @@ export class LiteApiProvider implements SearchProvider {
 
       // Filtering is handled by the aggregator — provider returns all results.
       // Coerce to number — LiteAPI occasionally returns starRating as a string.
-      const stars = Number(info.starRating ?? 3) || 3;
+      // Round to nearest integer and clamp 1-5; fall back to 3 if invalid.
+      const starNum = Math.round(Number(info.starRating ?? 0));
+      const stars = starNum >= 1 && starNum <= 5 ? starNum : 3;
 
       // LiteAPI v3.0 tags: "RFN" = refundable, "NRFN" = non-refundable
       const refundableTag = cheapestRate.cancellationPolicies?.refundableTag ?? '';
