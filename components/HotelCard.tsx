@@ -61,6 +61,7 @@ interface InlineHotelDetail {
   images: Array<{ url: string; caption?: string }>;
   amenities: string[];
   description?: string;
+  starRating?: number;
 }
 const hotelDetailCache = new Map<string, InlineHotelDetail>();
 
@@ -385,11 +386,13 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
           images?: Array<{ url: string; caption?: string }>;
           amenities?: string[];
           description?: string;
+          starRating?: number;
         };
         const detail: InlineHotelDetail = {
           images:      data.images      ?? [],
           amenities:   data.amenities   ?? [],
           description: data.description,
+          starRating:  data.starRating,
         };
         hotelDetailCache.set(hotel.id, detail);
         setInlineDetail(detail);
@@ -403,6 +406,9 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
 
   const amenities = hotel.amenities ?? [];
   const hasRoomOptions = (hotel.allRoomTypes?.length ?? 0) > 1;
+
+  // Use real star rating from detail endpoint when available (more accurate than list endpoint)
+  const displayStars = inlineDetail?.starRating ?? hotel.stars;
 
   // Board label for the effective (selected-room) rate
   const boardDisplay = effectiveHotel.boardName
@@ -422,7 +428,7 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold truncate">{hotel.name}</p>
-          <p className="text-xs text-muted-foreground">{hotel.stars}★ · {hotel.location}</p>
+          <p className="text-xs text-muted-foreground">{displayStars}★ · {hotel.location}</p>
         </div>
         <div className="text-right flex-shrink-0">
           <p className="text-sm font-bold">{formatPrice(hotel.pricePerNight, hotel.currency)}</p>
@@ -432,7 +438,7 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
     );
   }
 
-  const ariaLabel = `${hotel.name}, ${hotel.stars} stars, ${formatPrice(effectiveHotel.pricePerNight, effectiveHotel.currency)} per night in ${hotel.location}`;
+  const ariaLabel = `${hotel.name}, ${displayStars} stars, ${formatPrice(effectiveHotel.pricePerNight, effectiveHotel.currency)} per night in ${hotel.location}`;
 
   return (
     <div
@@ -448,7 +454,7 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
           images={galleryImages}
           primaryImage={hotel.image}
           hotelName={hotel.name}
-          stars={hotel.stars}
+          stars={displayStars}
           score={hotel.rating}
         />
       ) : (
@@ -464,7 +470,7 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
           <div>
             <h3 className="font-black text-base text-foreground">{hotel.name}</h3>
             <div className="flex items-center gap-2 mt-0.5">
-              <Stars count={hotel.stars} />
+              <Stars count={displayStars} />
               <ScoreBadge score={hotel.rating} />
             </div>
           </div>

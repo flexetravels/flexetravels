@@ -182,10 +182,25 @@ function SegmentTimeline({ segs }: { segs: FlightResult['segments'] }) {
 }
 
 /** Map refundable/changeable flags to a short fare-tier label */
-function fareLabel(refundable: boolean, changeable: boolean): string {
-  if (refundable && changeable) return 'Flex';
-  if (changeable)              return 'Standard';
-  return 'Basic';
+/** Assign unique labels to fare variants. Prefers condition-based labels
+ *  but falls back to price-tier names when conditions are identical. */
+function assignFareLabels(variants: Array<{ refundable: boolean; changeable: boolean; price: number }>): string[] {
+  // Try condition-based labelling first
+  const condLabels = variants.map(v => {
+    if (v.refundable && v.changeable) return 'Flex';
+    if (v.changeable)                 return 'Standard';
+    return 'Basic';
+  });
+  // If all labels are unique, use them
+  const unique = new Set(condLabels);
+  if (unique.size === condLabels.length) return condLabels;
+
+  // Conditions are identical for some — use price-tier names instead
+  // Variants are already sorted cheapest-first from duffel.ts
+  const TIER_NAMES_2 = ['Basic', 'Flex'];
+  const TIER_NAMES_3 = ['Basic', 'Standard', 'Flex'];
+  const tierNames = variants.length === 2 ? TIER_NAMES_2 : TIER_NAMES_3;
+  return variants.map((_, i) => tierNames[i] ?? `Tier ${i + 1}`);
 }
 
 /**
@@ -454,9 +469,11 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
       )}
 
       {/* ── Fare variant tabs (only when 2+ variants exist) ──────────────── */}
-      {variants && variants.length > 1 && (
+      {variants && variants.length > 1 && (() => {
+        const variantLabels = assignFareLabels(variants);
+        return (
         <div className="mx-4 mb-2 flex gap-1.5">
-          {assignFareLabels(variants).map((label, i) => {
+          {variantLabels.map((label, i) => {
             const v = variants[i];
             const isActive = i === selectedVariantIdx;
             return (
@@ -495,7 +512,8 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
             );
           })}
         </div>
-      )}
+        );
+      })()}
 
       {/* ── Price + CTA row ───────────────────────────────────────────────── */}
       <div className="mx-4 mb-3 pt-3 border-t border-border/60 flex items-center justify-between gap-3">

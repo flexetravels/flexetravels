@@ -346,6 +346,80 @@ function TripRow({ flight, hotel }: { flight: FlightResult | null; hotel: HotelR
           )}
         </div>
       )}
+
+      {/* ── Return leg (round-trip) ──────────────────────────────────── */}
+      {flight && flight.returnSegments && flight.returnSegments.length > 0 && (
+        <div className="rounded-2xl bg-muted/40 border border-border/60 overflow-hidden">
+          <div className="flex items-center gap-3 p-3.5">
+            <div className="w-8 h-8 rounded-xl bg-indigo-500/10 flex items-center justify-center flex-shrink-0">
+              <Plane className="w-4 h-4 text-indigo-600 dark:text-indigo-400 rotate-180" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-foreground">
+                {flight.destination} <span className="text-muted-foreground font-normal">→</span> {flight.origin}
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                {flight.airline} · {flight.returnDeparture ? formatDate(flight.returnDeparture) : ''} · {flight.returnStops === 0 ? 'Non-stop' : `${flight.returnStops ?? 0} stop${(flight.returnStops ?? 0) > 1 ? 's' : ''}`}
+                {flight.returnDuration ? ` · ${flight.returnDuration}` : ''}
+              </p>
+            </div>
+            <span className="text-[10px] text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-full font-medium">Return</span>
+          </div>
+
+          {/* Return segment details (always visible when outbound is expanded) */}
+          {flightExpanded && (
+            <div className="border-t border-border/40 bg-muted/20 px-3.5 py-3 space-y-0">
+              {flight.returnSegments.map((seg, i) => {
+                const layover = i < flight.returnSegments!.length - 1
+                  ? calcLayoverMins(seg.arrival, flight.returnSegments![i + 1].departure)
+                  : null;
+                return (
+                  <div key={`ret-${i}`}>
+                    <div className="flex items-start gap-2.5 py-2 text-xs">
+                      <div className="flex flex-col items-center pt-0.5 flex-shrink-0">
+                        <div className="w-2 h-2 rounded-full bg-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-800" />
+                        {(layover || i < flight.returnSegments!.length - 1) && (
+                          <div className="w-px flex-1 min-h-[28px] bg-indigo-400/30 mt-1" />
+                        )}
+                      </div>
+                      <div className="flex-1 pb-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-bold text-foreground">{seg.origin} → {seg.destination}</p>
+                          {seg.flightNumber && (
+                            <span className="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                              {seg.flightNumber}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-muted-foreground mt-0.5">
+                          {formatDate(seg.departure)} · {formatTime(seg.departure)} – {formatTime(seg.arrival)}
+                        </p>
+                        <div className="flex items-center gap-3 mt-0.5 text-muted-foreground/70 text-[10px]">
+                          <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{seg.duration}</span>
+                        </div>
+                      </div>
+                    </div>
+                    {layover && (
+                      <div className="ml-4.5 mb-1 flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 text-amber-700 dark:text-amber-400 px-2.5 py-1 rounded-full text-[10px] font-semibold">
+                          <Clock className="w-2.5 h-2.5 flex-shrink-0" />
+                          Layover in {iataToCity(seg.destination)} ({seg.destination}): {layover}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              <div className="flex items-center gap-2.5 pt-0.5">
+                <div className="w-2 h-2 rounded-full bg-indigo-600 ring-2 ring-indigo-200 dark:ring-indigo-800 flex-shrink-0" />
+                <p className="text-[11px] font-semibold text-foreground">
+                  {flight.returnSegments[flight.returnSegments.length - 1]?.destination} — {flight.returnArrival ? `${formatTime(flight.returnArrival)}, ${formatDate(flight.returnArrival)}` : ''}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       {hotel && (
         <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-muted/40 border border-border/60">
           <div className="w-8 h-8 rounded-xl bg-teal-500/10 flex items-center justify-center flex-shrink-0">

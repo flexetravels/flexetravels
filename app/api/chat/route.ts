@@ -670,9 +670,7 @@ export async function POST(req: Request) {
             isSample:      h.isSample,
             provider:      h.provider,
             bookingToken:  h.bookingToken,
-            // Required for checkout passenger pre-fill
             searchedAdults: h.searchedAdults,
-            // Required for room selector and occupancy display
             allRoomTypes:  h.allRoomTypes,
             roomCount:     h.roomCount,
           }));
@@ -767,9 +765,7 @@ export async function POST(req: Request) {
                   isSample:      h.isSample ?? false,
                   provider:      h.provider ?? 'liteapi',
                   bookingToken:  h.bookingToken ?? '',
-                  // Required for checkout passenger pre-fill
                   searchedAdults: h.searchedAdults,
-                  // Required for room selector
                   allRoomTypes:  h.allRoomTypes,
                   roomCount:     h.roomCount,
                 });
