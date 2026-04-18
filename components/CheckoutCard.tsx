@@ -102,6 +102,7 @@ interface CheckoutCardProps {
   onConfirmed?:     (flightRef?: string, hotelRef?: string) => void;
   initialAdults?:   number;    // pre-fill from search (e.g. "2 passengers")
   initialChildren?: number;    // pre-fill children count from search
+  childAges?:       number[];  // ages of children for labeling (e.g. [2] for toddler, [5,8] for children)
   sessionId?:       string;    // chat session ID — passed to API for DB persistence
 }
 
@@ -780,7 +781,7 @@ function ChildAgeBadge({ dob }: { dob: string }) {
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
-export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdults, initialChildren, sessionId }: CheckoutCardProps) {
+export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdults, initialChildren, childAges, sessionId }: CheckoutCardProps) {
   const [adults,          setAdults]          = useState(initialAdults ?? 1);
   const [passengers,      setPassengers]      = useState<Passenger[]>(
     Array.from({ length: initialAdults ?? 1 }, blankPassenger)
@@ -1610,10 +1611,38 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
             {/* Cost overview — full breakdown shown on Invoice step */}
             <div className="border-t border-border/40 pt-3 space-y-1.5">
               {flight && (
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Flight ({flight.origin} → {flight.destination})</span>
-                  <span>{formatPrice(flight.price, flight.currency)}</span>
-                </div>
+                <>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Flight ({flight.origin} → {flight.destination})</span>
+                    <span>{formatPrice(flight.price, flight.currency)}</span>
+                  </div>
+                  {/* Per-passenger breakdown when mixed adults + children */}
+                  {children > 0 && (() => {
+                    const totalPax = flight.passengers ?? (adults + children);
+                    if (totalPax <= 1) return null;
+                    const perPax = Math.round(flight.price / totalPax * 100) / 100;
+                    return (
+                    <div className="pl-3 space-y-0.5">
+                      <div className="flex items-center justify-between text-[10px] text-muted-foreground/70">
+                        <span>{adults} × Adult</span>
+                        <span>~{formatPrice(perPax * adults, flight.currency)}</span>
+                      </div>
+                      {childAges?.map((age, i) => (
+                        <div key={i} className="flex items-center justify-between text-[10px] text-muted-foreground/70">
+                          <span>{age <= 1 ? `Infant (age ${age})` : age <= 3 ? `Toddler (age ${age})` : `Child (age ${age})`}</span>
+                          <span>{age <= 1 ? 'Lap seat' : `~${formatPrice(perPax, flight.currency)}`}</span>
+                        </div>
+                      )) ?? (
+                        <div className="flex items-center justify-between text-[10px] text-muted-foreground/70">
+                          <span>{children} × Child</span>
+                          <span>~{formatPrice(perPax * children, flight.currency)}</span>
+                        </div>
+                      )}
+                      <p className="text-[9px] text-muted-foreground/50 italic">Exact child fares confirmed at booking</p>
+                    </div>
+                    );
+                  })()}
+                </>
               )}
               {hotel && !hotel.isSample && (
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -1716,7 +1745,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                     <span className="text-[11px] font-black text-teal-600">{i + 1}</span>
                   </div>
                   <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
-                    {i === 0 ? 'Lead Passenger' : `Adult ${i + 1}`}
+                    {i === 0 ? 'Lead Passenger (Adult)' : `Adult ${i + 1}`}
                   </p>
                 </div>
 
@@ -1836,16 +1865,24 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
             ))}
 
             {/* ── Child passengers ─────────────────────────────────────── */}
-            {childPassengers.map((child, i) => (
+            {childPassengers.map((child, i) => {
+              const age = childAges?.[i];
+              const childLabel = age != null
+                ? age <= 1 ? `Infant (age ${age})` : age <= 3 ? `Toddler (age ${age})` : `Child (age ${age})`
+                : `Child ${i + 1}`;
+              const ageHint = age != null
+                ? age <= 1 ? 'lap infant' : age <= 3 ? 'toddler' : 'under 12'
+                : 'under 12';
+              return (
               <div key={`child-${i}`} className="space-y-3">
                 <div className="flex items-center gap-2">
                   <div className="w-6 h-6 rounded-full bg-amber-500/10 flex items-center justify-center">
                     <span className="text-[11px] font-black text-amber-600">{i + 1}</span>
                   </div>
                   <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
-                    Child {i + 1}
+                    {childLabel}
                   </p>
-                  <span className="text-[10px] text-muted-foreground/60 ml-auto">under 12</span>
+                  <span className="text-[10px] text-muted-foreground/60 ml-auto">{ageHint}</span>
                 </div>
 
                 <div className="space-y-3 pl-1">
@@ -1932,7 +1969,8 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                   <div className="border-t border-border/40 pt-1" />
                 )}
               </div>
-            ))}
+              );
+            })}
 
             </div>{/* end scrollable form area */}
 
@@ -1983,7 +2021,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                     <p className="text-sm font-bold text-foreground">
                       {pax.firstName} {pax.lastName}
                       <span className="ml-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                        {i === 0 ? 'Lead' : `Adult ${i + 1}`}
+                        {i === 0 ? 'Lead (Adult)' : `Adult ${i + 1}`}
                       </span>
                     </p>
                     <p className="text-xs text-muted-foreground">DOB: {pax.dateOfBirth}</p>
@@ -1995,12 +2033,17 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                     )}
                   </div>
                 ))}
-                {childPassengers.map((child, i) => (
+                {childPassengers.map((child, i) => {
+                  const age = childAges?.[i];
+                  const childTypeLabel = age != null
+                    ? age <= 1 ? `Infant (age ${age})` : age <= 3 ? `Toddler (age ${age})` : `Child (age ${age})`
+                    : `Child ${i + 1}`;
+                  return (
                   <div key={`inv-child-${i}`} className="p-3 rounded-xl bg-muted/30 border border-border/50 space-y-0.5">
                     <p className="text-sm font-bold text-foreground">
                       {child.firstName} {child.lastName}
-                      <span className="ml-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                        Child {i + 1}
+                      <span className="ml-2 text-[10px] font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wide">
+                        {childTypeLabel}
                       </span>
                     </p>
                     <p className="text-xs text-muted-foreground">DOB: {child.dateOfBirth}</p>
@@ -2011,7 +2054,8 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                     )}
                     <ChildAgeBadge dob={child.dateOfBirth} />
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* ── Cost breakdown ───────────────────────────────────────── */}

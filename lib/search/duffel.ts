@@ -72,7 +72,7 @@ function mapSegment(seg: DuffelSegment) {
   };
 }
 
-function mapOffer(offer: DuffelOffer, cabinClass: string, totalPassengers: number): EnrichedFlight {
+function mapOffer(offer: DuffelOffer, cabinClass: string, totalPassengers: number, paxBreakdown?: { adults: number; childrenAges?: number[]; infantCount?: number }): EnrichedFlight {
   // Outbound slice (always present)
   const slice0 = offer.slices?.[0];
   const segs   = slice0?.segments ?? [];
@@ -110,6 +110,9 @@ function mapOffer(offer: DuffelOffer, cabinClass: string, totalPassengers: numbe
     refundable:   flexObj.refundable,
     bookingToken: offer.id,
     passengers:   totalPassengers,
+    searchedAdults: paxBreakdown?.adults ?? totalPassengers,
+    childrenAges:   paxBreakdown?.childrenAges,
+    infantCount:    paxBreakdown?.infantCount ?? 0,
     segments:     segs.map(mapSegment),
     // ── Round-trip return leg (populated when offer has 2 slices) ────────────
     ...(slice1 ? {
@@ -306,7 +309,7 @@ export class DuffelProvider implements SearchProvider {
                 if (rankDiff !== 0) return rankDiff;
                 return parseFloat(a.total_amount) - parseFloat(b.total_amount);
               })
-              .map(o => mapOffer(o, params.cabinClass, params.adults));
+              .map(o => mapOffer(o, params.cabinClass, params.adults, { adults: params.adults, childrenAges, infantCount }));
             return groupIntoFareVariants(sortedFallback, 10)
               .map(f => ({ ...f, childFareNote: note }));
           }
@@ -327,7 +330,7 @@ export class DuffelProvider implements SearchProvider {
         if (rankDiff !== 0) return rankDiff;
         return parseFloat(a.total_amount) - parseFloat(b.total_amount);
       })
-      .map(o => mapOffer(o, params.cabinClass, totalPassengers));
+      .map(o => mapOffer(o, params.cabinClass, totalPassengers, { adults: params.adults, childrenAges, infantCount }));
 
     return groupIntoFareVariants(sortedMapped, 10);
   }

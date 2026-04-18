@@ -601,9 +601,9 @@ export class LiteApiProvider implements SearchProvider {
 
       // Filtering is handled by the aggregator — provider returns all results.
       // Coerce to number — LiteAPI occasionally returns starRating as a string.
-      // Round to nearest integer and clamp 1-5; fall back to 3 if invalid.
+      // Round to nearest integer and clamp 1-5; 0 means "unrated" (API didn't provide).
       const starNum = Math.round(Number(info.starRating ?? 0));
-      const stars = starNum >= 1 && starNum <= 5 ? starNum : 3;
+      const stars = starNum >= 1 && starNum <= 5 ? starNum : 0;
 
       // LiteAPI v3.0 tags: "RFN" = refundable, "NRFN" = non-refundable
       const refundableTag = cheapestRate.cancellationPolicies?.refundableTag ?? '';
@@ -646,7 +646,7 @@ export class LiteApiProvider implements SearchProvider {
         currency:      cheapestRate.retailRate?.total?.[0]?.currency ?? 'USD',
         image:         info.main_photo ?? info.thumbnail ?? '',
         images:        info.main_photo ? [info.main_photo] : [],
-        rating:        7.5 + (stars - 3) * 0.4,  // 5-star ≈ 8.3, 3-star ≈ 7.5
+        rating:        stars > 0 ? 7.5 + (stars - 3) * 0.4 : 0,  // 0 = unrated; 5-star ≈ 8.3, 3-star ≈ 7.5
         amenities:     [],   // will be populated by liteApiGetHotelDetail (real API data)
         cancellation:  refundable ? 'Free cancellation' : 'Non-refundable',
         checkIn:       params.checkIn,

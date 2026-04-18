@@ -294,8 +294,9 @@ function CheckoutView() {
           hotel={cart.hotel}
           onClose={handleClose}
           onConfirmed={handleConfirmed}
-          initialAdults={cart.adults ?? cart.flight?.passengers ?? cart.hotel?.searchedAdults ?? 1}
+          initialAdults={cart.adults ?? cart.flight?.searchedAdults ?? cart.flight?.passengers ?? cart.hotel?.searchedAdults ?? 1}
           initialChildren={cart.children?.count ?? 0}
+          childAges={cart.children?.ages}
           sessionId={cart.sessionId}
         />
       </div>

@@ -31,7 +31,10 @@ export interface FlightResult {
   provider?:    string;   // 'duffel' | 'amadeus' — source of the result
   bookingToken?: string;  // provider-specific booking token
   logo?:        string;   // alias for airlineLogo (Duffel compat)
-  passengers?:  number;   // number of adult passengers searched for
+  passengers?:  number;   // TOTAL passengers (adults + children + infants)
+  searchedAdults?: number; // actual adult count from search params
+  childrenAges?: number[]; // ages of children (2-11) searched for
+  infantCount?: number;    // number of lap infants (0-1)
   // ── Flexibility scoring (populated when provider = duffel) ─────────────────
   flexibilityScore?: number;          // 0.00 – 1.00
   flexibilityLabel?: 'Flexible' | 'Moderate' | 'Locked';

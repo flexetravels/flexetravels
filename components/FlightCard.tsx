@@ -181,28 +181,6 @@ function SegmentTimeline({ segs }: { segs: FlightResult['segments'] }) {
   );
 }
 
-/** Map refundable/changeable flags to a short fare-tier label */
-/** Assign unique labels to fare variants. Prefers condition-based labels
- *  but falls back to price-tier names when conditions are identical. */
-function assignFareLabels(variants: Array<{ refundable: boolean; changeable: boolean; price: number }>): string[] {
-  // Try condition-based labelling first
-  const condLabels = variants.map(v => {
-    if (v.refundable && v.changeable) return 'Flex';
-    if (v.changeable)                 return 'Standard';
-    return 'Basic';
-  });
-  // If all labels are unique, use them
-  const unique = new Set(condLabels);
-  if (unique.size === condLabels.length) return condLabels;
-
-  // Conditions are identical for some — use price-tier names instead
-  // Variants are already sorted cheapest-first from duffel.ts
-  const TIER_NAMES_2 = ['Basic', 'Flex'];
-  const TIER_NAMES_3 = ['Basic', 'Standard', 'Flex'];
-  const tierNames = variants.length === 2 ? TIER_NAMES_2 : TIER_NAMES_3;
-  return variants.map((_, i) => tierNames[i] ?? `Tier ${i + 1}`);
-}
-
 /**
  * Assign unique labels to all fare variants.
  * First tries condition-based labels (Flex/Standard/Basic from refundable+changeable).
@@ -210,7 +188,9 @@ function assignFareLabels(variants: Array<{ refundable: boolean; changeable: boo
  * to price-tier labels: cheapest → Basic, most expensive → Flex, rest → Standard.
  */
 function assignFareLabels(variants: NonNullable<FlightResult['fareVariants']>): string[] {
-  const conditionLabels = variants.map(v => fareLabel(v.refundable, v.changeable));
+  const conditionLabels = variants.map(v =>
+    v.refundable && v.changeable ? 'Flex' : v.changeable ? 'Standard' : 'Basic'
+  );
 
   // If all labels are already unique, use them
   const hasDuplicates = conditionLabels.length !== new Set(conditionLabels).size;
@@ -471,16 +451,31 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
       {/* ── Fare variant tabs (only when 2+ variants exist) ──────────────── */}
       {variants && variants.length > 1 && (() => {
         const variantLabels = assignFareLabels(variants);
+        // Check if all variants have identical conditions
+        const allSameConditions = variants.every(v =>
+          v.refundable === variants[0].refundable && v.changeable === variants[0].changeable
+        );
+        // Compute price diff from cheapest for each variant
+        const cheapestPrice = Math.min(...variants.map(v => v.price));
         return (
-        <div className="mx-4 mb-2 flex gap-1.5">
+        <div className="mx-4 mb-2">
+          {allSameConditions && (
+            <p className="text-[9px] text-muted-foreground/60 mb-1 text-center">
+              Same conditions · different pricing tiers
+            </p>
+          )}
+          <div className="flex gap-1.5">
           {variantLabels.map((label, i) => {
             const v = variants[i];
             const isActive = i === selectedVariantIdx;
+            const priceDiff = v.price - cheapestPrice;
             return (
               <button
                 key={v.offerId}
                 onClick={() => setSelectedVariantIdx(i)}
-                title={v.flexibilitySummary}
+                title={allSameConditions
+                  ? `${label} tier · ${formatPrice(v.price, v.currency)}`
+                  : v.flexibilitySummary}
                 className={cn(
                   'flex-1 rounded-lg px-1.5 py-2 text-center transition-all border text-left',
                   isActive
@@ -508,9 +503,15 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
                 )}>
                   {formatPrice(v.price, v.currency)}
                 </div>
+                {allSameConditions && priceDiff > 0 && (
+                  <div className="text-[8px] text-muted-foreground/50 mt-0.5">
+                    +{formatPrice(priceDiff, v.currency)}
+                  </div>
+                )}
               </button>
             );
           })}
+          </div>
         </div>
         );
       })()}

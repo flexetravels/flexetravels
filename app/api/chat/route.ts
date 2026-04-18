@@ -551,6 +551,11 @@ export async function POST(req: Request) {
                 provider:         e.provider,
                 bookingToken:     e.bookingToken,
                 passengers:       e.passengers,
+                searchedAdults:   e.searchedAdults,
+                childrenAges:     e.childrenAges,
+                infantCount:      e.infantCount,
+                fareVariants:     e.fareVariants,
+                childFareNote:    e.childFareNote,
                 segments:         (e.segments ?? []).map(s => ({
                   origin:       s.origin,
                   destination:  s.destination,
@@ -560,6 +565,26 @@ export async function POST(req: Request) {
                   carrier:      s.carrier,
                   flightNumber: s.flightNumber,
                 })),
+                // ── Round-trip return leg ──────────────────────────
+                ...(e.isRoundTrip ? {
+                  isRoundTrip:        true,
+                  returnOrigin:       e.returnOrigin,
+                  returnDestination:  e.returnDestination,
+                  returnDeparture:    e.returnDeparture,
+                  returnArrival:      e.returnArrival,
+                  returnDuration:     e.returnDuration,
+                  returnStops:        e.returnStops,
+                  returnStopAirports: e.returnStopAirports,
+                  returnSegments:     e.returnSegments?.map(s => ({
+                    origin:       s.origin,
+                    destination:  s.destination,
+                    departure:    s.departure,
+                    arrival:      s.arrival,
+                    duration:     s.duration,
+                    carrier:      s.carrier,
+                    flightNumber: s.flightNumber,
+                  })),
+                } : {}),
                 ...(e._flexObj ? {
                   flexibilityScore:   e._flexObj.score,
                   flexibilityLabel:   e._flexObj.label,

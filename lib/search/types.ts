@@ -52,7 +52,10 @@ export interface NormalizedFlight {
   refundable: boolean;
   baggage?: string;
   bookingToken?: string;     // provider-specific token for booking step
-  passengers?: number;       // number of adult passengers searched for
+  passengers?: number;       // TOTAL passengers (adults + children + infants)
+  searchedAdults?: number;   // actual adult count from search params
+  childrenAges?: number[];   // ages of children (2-11) searched for
+  infantCount?: number;      // number of lap infants (0-1)
   fareVariants?: FareVariant[]; // Up to 3 fare tiers for the same physical flight
   childFareNote?: string;    // Set when airline doesn't price children in search API;
                              // adult fare shown — child seat confirmed at booking

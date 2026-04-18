@@ -71,6 +71,7 @@ function stripHtml(html: string): string {
 
 // ── Star row ──────────────────────────────────────────────────────────────────
 function Stars({ count }: { count: number }) {
+  if (count <= 0) return null; // unrated — don't show empty stars
   return (
     <div className="flex items-center gap-0.5">
       {Array.from({ length: 5 }, (_, i) => (
@@ -85,6 +86,7 @@ function Stars({ count }: { count: number }) {
 
 // ── Score badge (Booking.com style) ───────────────────────────────────────────
 function ScoreBadge({ score }: { score: number }) {
+  if (score <= 0) return null; // unrated — don't show fabricated score
   const bg =
     score >= 9   ? 'bg-emerald-500'
     : score >= 8 ? 'bg-teal-600'
@@ -428,7 +430,7 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold truncate">{hotel.name}</p>
-          <p className="text-xs text-muted-foreground">{displayStars}★ · {hotel.location}</p>
+          <p className="text-xs text-muted-foreground">{displayStars > 0 ? `${displayStars}★ · ` : ''}{hotel.location}</p>
         </div>
         <div className="text-right flex-shrink-0">
           <p className="text-sm font-bold">{formatPrice(hotel.pricePerNight, hotel.currency)}</p>
