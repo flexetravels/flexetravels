@@ -215,11 +215,13 @@ export class DuffelProvider implements SearchProvider {
   }
 
   async searchFlights(params: FlightSearchParams): Promise<NormalizedFlight[]> {
-    const slices: { origin: string; destination: string; departure_date: string }[] = [
-      { origin: params.origin, destination: params.destination, departure_date: params.departureDate },
+    const slices: { origin: string; destination: string; departure_date: string; max_connections?: number }[] = [
+      { origin: params.origin, destination: params.destination, departure_date: params.departureDate,
+        ...(params.maxConnections != null ? { max_connections: params.maxConnections } : {}) },
     ];
     if (params.returnDate) {
-      slices.push({ origin: params.destination, destination: params.origin, departure_date: params.returnDate });
+      slices.push({ origin: params.destination, destination: params.origin, departure_date: params.returnDate,
+        ...(params.maxConnections != null ? { max_connections: params.maxConnections } : {}) });
     }
 
     // Build passenger array: adults + children (2-11) + lap infants (under 2).

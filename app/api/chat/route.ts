@@ -129,6 +129,7 @@ SEARCH EXECUTION — once you have origin, destination, dates, party size:
 Always call searchFlights + searchHotels + searchExperiences in one parallel batch.
 OPTIONAL: Also call getDestinationGuide in the same batch ONLY when the user is exploring or clearly unsure about the destination (e.g. "what's Cancún like?", "is Bali good for families?"). SKIP getDestinationGuide when the user already knows their destination and is ready to book (e.g. they gave specific origin + destination + dates).
 CRITICAL: Single parallel batch. Never sequential. cabinClass='economy' unless specified.
+NON-STOP FILTER: If user says "non-stop", "direct", "no stops", or "no layovers", pass maxConnections=0 to searchFlights. For "max 1 stop", pass maxConnections=1. This filters at the API level — do NOT rely on the UI filter alone.
 
 CHILDREN & INFANTS:
 • Ask ages. 0-1=lap infant (infants=). 2-11=child (childrenAges=[]). 12-17=adult fare. 18+=adult.
@@ -175,7 +176,7 @@ DESTINATION DISCOVERY (no city given): Propose 3 picks → ask user → search o
   const routingRules = `COMPLEX ROUTING:
 • "via pacific" → only show flights stopping at SIN,BKK,NRT,HKG,ICN,PVG,TPE,KUL. Hide DEL,BOM,DXB,DOH,LHR,CDG routes. If zero remain, say so honestly.
 • "via Europe" → prefer LHR,CDG,AMS,FRA,IST layovers. "via Middle East" → DXB,DOH,AUH.
-• "direct"/"non-stop" → note the UI filter. Multi-city → search each leg, ask dates per city.
+• "direct"/"non-stop"/"no stops" → pass maxConnections=0 to searchFlights to return ONLY non-stop flights from the API. If zero non-stop results come back, tell the user "No non-stop flights found for this route — would you like me to include 1-stop options?" Multi-city → search each leg, ask dates per city.
 • "avoid [airline]" → filter results to exclude that airline from shown cards.
 SORTING: "fastest+cheapest"→sort by price, mention duration sort. "under $X total"→use budget split formula.`;
 
@@ -441,6 +442,7 @@ export async function POST(req: Request) {
           childrenAges:  z.array(z.number().int().min(2).max(11)).optional().describe('Ages of children 2-11 only. Each gets own seat at child fare. Do NOT include age 0-1 here — use infants= instead. Ages 12+ go in adults count.'),
           infants:       z.number().int().min(0).max(4).optional().default(0).describe('Number of lap infants under age 2. No separate seat, rides on adult lap. Must not exceed adults count.'),
           cabinClass:    z.enum(['economy', 'premium_economy', 'business', 'first']).default('economy'),
+          maxConnections: z.number().int().min(0).max(2).optional().describe('Maximum connections (stops) per leg. 0 = non-stop/direct only, 1 = max 1 stop. Omit for no limit. Use when user asks for "non-stop", "direct", or "no stops".'),
         }),
         execute: async (params) => {
           // Defence-in-depth: validate params even though Zod already type-checked them.
@@ -521,6 +523,7 @@ export async function POST(req: Request) {
           childrenAges:  z.array(z.number().int().min(2).max(11)).optional().describe('Ages of children 2-11 only. Ages 12+ go in adults.'),
           infants:       z.number().int().min(0).max(4).optional().default(0).describe('Lap infants under age 2. Must not exceed adults count.'),
           cabinClass:    z.enum(['economy', 'premium_economy', 'business', 'first']).default('economy'),
+          maxConnections: z.number().int().min(0).max(2).optional().describe('Maximum connections per leg. 0 = non-stop only. Omit for no limit.'),
         }),
         execute: async (params) => {
           const token = process.env.DUFFEL_ACCESS_TOKEN;

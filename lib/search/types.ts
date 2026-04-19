@@ -10,6 +10,7 @@ export interface FlightSearchParams {
   childrenAges?: number[];  // Ages of children (2-11), each gets own seat at child fare
   infants?: number;         // Number of lap infants (under 2), no separate seat
   cabinClass: 'economy' | 'premium_economy' | 'business' | 'first';
+  maxConnections?: number; // 0 = non-stop only, 1 = max 1 stop, undefined = no limit
 }
 
 export interface HotelSearchParams {
