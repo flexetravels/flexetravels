@@ -207,9 +207,12 @@ function FlightResultsPanel({
 
   const filtered = flights.filter(f => {
     if (stopFilter === 'all') return true;
-    if (stopFilter === '0')   return f.stops === 0;
-    if (stopFilter === '1')   return f.stops === 1;
-    return f.stops >= 2;
+    // For round-trips, use the max stops across both legs so "Non-stop" means
+    // non-stop in BOTH directions, not just outbound.
+    const maxStops = Math.max(f.stops, f.isRoundTrip ? (f.returnStops ?? 0) : 0);
+    if (stopFilter === '0')   return maxStops === 0;
+    if (stopFilter === '1')   return maxStops === 1;
+    return maxStops >= 2;
   });
 
   const cheapestFlightId = filtered.length > 1
@@ -218,7 +221,11 @@ function FlightResultsPanel({
 
   const sorted = [...filtered].sort((a, b) => {
     if (sort === 'price')    return a.price - b.price;
-    if (sort === 'stops')    return a.stops - b.stops;
+    if (sort === 'stops') {
+      const aMax = Math.max(a.stops, a.isRoundTrip ? (a.returnStops ?? 0) : 0);
+      const bMax = Math.max(b.stops, b.isRoundTrip ? (b.returnStops ?? 0) : 0);
+      return aMax - bMax;
+    }
     // duration: parse "Xh Ym" → minutes
     const toMin = (d: string) => {
       const h = d.match(/(\d+)h/)?.[1] ?? '0';

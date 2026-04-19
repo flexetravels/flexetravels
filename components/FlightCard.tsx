@@ -227,19 +227,21 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
   const displayRefundable = activeVariant?.refundable       ?? flight.refundable;
   const displayFlexSummary = activeVariant?.flexibilitySummary ?? flight.flexibilitySummary;
 
+  // For round-trips, show the worst-case stops across both legs
+  const maxStops = Math.max(flight.stops, flight.isRoundTrip ? (flight.returnStops ?? 0) : 0);
   const stopLabel =
-    flight.stops === 0 ? 'Non-stop'
-    : flight.stops === 1 ? '1 stop'
-    : `${flight.stops} stops`;
+    maxStops === 0 ? 'Non-stop'
+    : maxStops === 1 ? '1 stop'
+    : `${maxStops} stops`;
 
   const stopColor =
-    flight.stops === 0 ? 'text-emerald-600 dark:text-emerald-400'
-    : flight.stops === 1 ? 'text-amber-600 dark:text-amber-400'
+    maxStops === 0 ? 'text-emerald-600 dark:text-emerald-400'
+    : maxStops === 1 ? 'text-amber-600 dark:text-amber-400'
     : 'text-red-500 dark:text-red-400';
 
   const stopBg =
-    flight.stops === 0 ? 'bg-emerald-50 dark:bg-emerald-900/20'
-    : flight.stops === 1 ? 'bg-amber-50 dark:bg-amber-900/20'
+    maxStops === 0 ? 'bg-emerald-50 dark:bg-emerald-900/20'
+    : maxStops === 1 ? 'bg-amber-50 dark:bg-amber-900/20'
     : 'bg-red-50 dark:bg-red-900/20';
 
   // Build per-layover labels for the route path (uses segments if available)
