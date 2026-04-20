@@ -182,28 +182,32 @@ function SegmentTimeline({ segs }: { segs: FlightResult['segments'] }) {
 }
 
 /**
- * Assign unique labels to all fare variants.
- * First tries condition-based labels (Flex/Standard/Basic from refundable+changeable).
- * If multiple variants share the same condition label (e.g. all "Basic"), falls back
- * to price-tier labels: cheapest → Basic, most expensive → Flex, rest → Standard.
+ * Assign labels to fare variants.
+ * 1. If the airline provides fare brand names (e.g. "Economy Light"), use those.
+ * 2. Otherwise, try condition-based labels (Flex/Standard/Basic).
+ * 3. If conditions are identical, fall back to neutral price-tier labels.
  */
 function assignFareLabels(variants: NonNullable<FlightResult['fareVariants']>): string[] {
+  // ── 1. Prefer airline's own fare brand names when available ────────────
+  const brandNames = variants.map(v => v.fareBrandName?.trim() || '');
+  const allHaveBrands = brandNames.every(b => b.length > 0);
+  const brandsUnique  = new Set(brandNames).size === brandNames.length;
+  if (allHaveBrands && brandsUnique) return brandNames;
+
+  // ── 2. Condition-based labels ─────────────────────────────────────────
   const conditionLabels = variants.map(v =>
     v.refundable && v.changeable ? 'Flex' : v.changeable ? 'Standard' : 'Basic'
   );
 
-  // If all labels are already unique, use them
   const hasDuplicates = conditionLabels.length !== new Set(conditionLabels).size;
   if (!hasDuplicates) return conditionLabels;
 
-  // All conditions are the same — use neutral price-tier labels instead of
-  // misleading Flex/Standard/Basic (which imply different flexibility).
+  // ── 3. Fallback: price-tier labels ────────────────────────────────────
   const allSame = conditionLabels.every(l => l === conditionLabels[0]);
   const indexed = variants.map((v, i) => ({ price: v.price, i })).sort((a, b) => a.price - b.price);
   const tierLabels = new Array<string>(variants.length);
 
   if (allSame) {
-    // Neutral price-based names
     if (indexed.length === 2) {
       tierLabels[indexed[0].i] = 'Value';
       tierLabels[indexed[1].i] = 'Premium';
@@ -215,7 +219,6 @@ function assignFareLabels(variants: NonNullable<FlightResult['fareVariants']>): 
       });
     }
   } else {
-    // Mixed conditions — keep Basic/Standard/Flex but by price rank
     if (indexed.length === 2) {
       tierLabels[indexed[0].i] = 'Basic';
       tierLabels[indexed[1].i] = 'Flex';
@@ -492,15 +495,13 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
               <button
                 key={v.offerId}
                 onClick={() => setSelectedVariantIdx(i)}
-                title={allSameConditions
-                  ? `${label} tier · ${formatPrice(v.price, v.currency)}`
-                  : v.flexibilitySummary}
+                title={`${label} · ${formatPrice(v.price, v.currency)}${v.flexibilitySummary ? ' · ' + v.flexibilitySummary : ''}`}
                 className={cn(
                   'flex-1 rounded-lg px-1.5 py-2 text-center transition-all border text-left',
                   isActive
-                    ? (label === 'Flex' || label === 'Premium')
+                    ? i === variants.length - 1 && variants.length > 1
                       ? 'bg-emerald-50 dark:bg-emerald-900/25 border-emerald-400 dark:border-emerald-600'
-                      : (label === 'Standard' || label === 'Plus')
+                      : i > 0 && i < variants.length - 1
                       ? 'bg-amber-50 dark:bg-amber-900/25 border-amber-400 dark:border-amber-600'
                       : 'bg-muted/70 border-foreground/25'
                     : 'bg-transparent border-border hover:bg-muted/40'
@@ -509,8 +510,8 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
                 <div className={cn(
                   'text-[9px] font-bold uppercase tracking-wide',
                   isActive
-                    ? (label === 'Flex' || label === 'Premium') ? 'text-emerald-700 dark:text-emerald-300'
-                    : (label === 'Standard' || label === 'Plus') ? 'text-amber-700 dark:text-amber-300'
+                    ? i === variants.length - 1 && variants.length > 1 ? 'text-emerald-700 dark:text-emerald-300'
+                    : i > 0 && i < variants.length - 1 ? 'text-amber-700 dark:text-amber-300'
                     : 'text-foreground/70'
                     : 'text-muted-foreground'
                 )}>
@@ -522,6 +523,17 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
                 )}>
                   {formatPrice(v.price, v.currency)}
                 </div>
+                {/* Baggage info per variant */}
+                {v.checkedBags != null && (
+                  <div className={cn(
+                    'text-[7.5px] leading-tight mt-0.5',
+                    isActive ? 'text-muted-foreground/70' : 'text-muted-foreground/50'
+                  )}>
+                    {v.checkedBags === 0
+                      ? <span className="text-red-500/70 dark:text-red-400/70">No checked bags</span>
+                      : <span className="text-teal-600 dark:text-teal-400">{v.checkedBags}x checked bag</span>}
+                  </div>
+                )}
                 {/* Fare condition summary — only show when conditions differ between variants */}
                 {!allSameConditions && (
                   <div className={cn(
