@@ -1,5 +1,5 @@
 # FlexeTravels — Steering Document
-> Last updated: 2026-03-18 | Environment: Staging | Status: **v1.3 — Stripe embedded payment + LiteAPI hotel rates fixed**
+> Last updated: 2026-04-19 | Environment: Staging | Status: **v1.4 — Dynamic system prompt, fare brand display, baggage per variant, penalty currency clarity**
 
 ---
 
@@ -15,7 +15,7 @@
 | Business Model | $20 flat service fee per booking (CAD for CA customers, USD for US customers) |
 | IATA / CPBC Licence | **None** — platform is a tech aggregator, not a licensed travel agent |
 | Tech Stack | Next.js 15, React 19, TypeScript, TailwindCSS |
-| AI Models | Claude Sonnet (primary), Gemini 2.0 Flash (destination guides + discover), Grok 3 Fast (price intel) |
+| AI Models | Claude Sonnet (primary), Gemini 2.0 Flash (destination guides + discover), Grok 3 Fast (price intel — dormant) |
 | Flight Booking | Duffel API — live, IATA-accredited, test mode |
 | Flight Reference | Amadeus Self-Service API — price comparison only, NOT bookable |
 | Hotels | LiteAPI v3.0 (primary, bookable) → Amadeus (fallback) → sample data (last resort) |
@@ -24,7 +24,7 @@
 | Payment | Stripe embedded PaymentElement (no redirect) — $20 CAD (CA) / $20 USD (US), test mode |
 | Backend | All logic in Next.js API routes (no Railway, no separate backend) |
 | Repo Path | `/flexetravels-next` (Next.js 15 App Router) |
-| Git Checkpoints | `v1.0-stable` (2026-03-08), `v1.2` (6237bd7, 2026-03-14) |
+| Git Checkpoints | `v1.0-stable` (2026-03-08), `v1.2` (6237bd7, 2026-03-14), `v1.4-stable` (3531b79, 2026-04-19) |
 
 ---
 
@@ -88,6 +88,42 @@ React 18 Strict Mode double-invokes effects in development. Using a `useEffect` 
 | Grok 3 Fast | Price market intelligence | Direct REST (`api.x.ai`, OpenAI-compatible) |
 
 **No npm SDK installs for Gemini/Grok/Stripe** — all implemented as raw `fetch()` REST calls.
+
+### 3.1.1 v1.4 Dynamic System Prompt Architecture
+
+The system prompt is now fully dynamic with 6 composable sections — no hardcoded regex gates:
+
+1. **Safety Rules** — input sanitization, honeypot detection, rate limiting
+2. **Persona** — Maya, friendly travel advisor with personality + routing intelligence (Dubai/UAE, COK/Kochi context always available)
+3. **Search Rules** — intent-driven tool strategy with few-shot examples, `maxConnections` for non-stop filtering
+4. **Routing Rules** — destination knowledge, super-human complex vacation planning
+5. **State Machine** — flight/hotel selection tracking, booking flow orchestration
+6. **Security Rules** — price tampering prevention, token validation
+
+Key design decisions:
+- **Intent-driven tool calling** — Maya decides which tools to invoke based on user intent, not forced parallel batch
+- **`maxConnections` parameter** — `0` = non-stop only, `1` = max 1 stop, `undefined` = no limit. Passed per-slice to Duffel API
+- **Tool summary includes return leg stops** — prevents Maya from hallucinating "all non-stop" when only outbound is non-stop
+
+### 3.1.2 Fare Variant System
+
+Each physical flight can have up to 3 fare variants (cheapest, most flexible, mid-tier). Grouped by flight identity (same flight numbers + departure time) in `groupIntoFareVariants()`.
+
+**Fare labeling priority:**
+1. Airline's own fare brand name from Duffel (`fare_brand_name` on slice) — e.g. "Economy Light", "Economy Classic"
+2. Condition-based labels (Flex/Standard/Basic from refundable+changeable flags)
+3. Neutral price-tier labels (Value/Plus/Premium) when all conditions are identical
+
+**Per-variant data displayed:**
+- Price and currency
+- Checked bag count (from `segments[].passengers[].baggages`)
+- Flexibility summary with penalty amounts in the airline's native currency
+- When penalty currency differs from ticket currency (e.g. EUR penalties on USD ticket for Lufthansa), a note: "fees in EUR per airline policy"
+
+**Flexibility scoring** (`lib/scoring/flexibility.ts`):
+- Refundability weight: 60%, Changeability weight: 40%
+- Penalty ratio reduces score (penalty ≥ 50% of fare → 0.2 score)
+- Labels: Flexible (0.65–1.00), Moderate (0.35–0.64), Locked (0.00–0.34)
 
 ### 3.2 Flight Booking Architecture (Critical)
 
@@ -316,7 +352,8 @@ During streaming, if the AI is mid-way through a `[HOTEL_CARD] {...}` block, `ex
 | `lib/search/amadeus.ts` | Amadeus flights + hotels (fallback) | ✅ Active |
 | `lib/search/liteapi.ts` | LiteAPI v3.0 hotel provider — `checkin`/`checkout` field names | ✅ Active |
 | `lib/search/aggregator.ts` | Parallel multi-source aggregation, sample fallback | ✅ Active |
-| `lib/ai/grok.ts` | Grok REST client | ✅ Active |
+| `lib/scoring/flexibility.ts` | Flight flexibility scoring engine — Duffel conditions → 0-1 score + label + penalty summary | ✅ Active |
+| `lib/ai/grok.ts` | Grok REST client | ⏸️ Dormant |
 | `lib/ai/gemini.ts` | Gemini REST client | ✅ Active |
 | `lib/stripe.ts` | `createPaymentIntent()` — raw fetch, no SDK | ✅ Active |
 | `lib/types.ts` | Shared TypeScript types incl. `PaymentRequiredData`, `EmbeddedCard` union | ✅ Active |
@@ -420,9 +457,14 @@ STRIPE_WEBHOOK_SECRET=                ⏳ Needed before going live
 | 17 | Select-all-first booking flow (flight + hotel → details → single payment) | ✅ Done |
 | 18 | Currency detection: CAD for Canadian airports, USD for US | ✅ Done |
 | 19 | LiteAPI rates HTTP 400 fix — `checkin`/`checkout` field names | ✅ Done |
-| 20 | Viator bookable experiences integration | ⏳ Waiting for API approval |
-| 21 | Stripe webhook handler | ⏳ Needed pre-live |
-| 22 | Stripe live keys + production deploy | ⏳ Owner approval needed |
+| 20 | v1.4 dynamic system prompt (no regex gates, intent-driven tools) | ✅ Done |
+| 21 | Non-stop filter: `maxConnections` param end-to-end to Duffel API | ✅ Done |
+| 22 | Return leg stop counts in tool summary (prevents hallucination) | ✅ Done |
+| 23 | Airline fare brand names + baggage per variant in FlightCard | ✅ Done |
+| 24 | Explicit penalty currency display (EUR/USD per airline policy) | ✅ Done |
+| 25 | Viator bookable experiences integration | ⏳ Waiting for API approval |
+| 26 | Stripe webhook handler | ⏳ Needed pre-live |
+| 27 | Stripe live keys + production deploy | ⏳ Owner approval needed |
 
 ---
 
@@ -466,6 +508,11 @@ STRIPE_WEBHOOK_SECRET=                ⏳ Needed before going live
 | `streaming=true` skips all card parsing | Eliminates flicker from partial JSON during stream; ComposingBlock provides clean progress UX |
 | Single `[PAYMENT_REQUIRED]` after all bookings | One Stripe charge for the full trip (flight + hotel) rather than separate charges per service |
 | `serviceFee: 0` in booking confirmations | Service fee collected via Stripe separately; avoids double-showing fee in booking card |
+| v1.4: No regex gates in system prompt | Removed `isDubai`, `isCOK`, `isPacific` regex checks; routing intelligence is always-on, no conditional injection |
+| v1.4: Intent-driven tool calling | Maya decides tool strategy from user intent + few-shot examples, not forced parallel batch |
+| v1.4: Airline fare brand names over generic labels | Use Duffel's `fare_brand_name` (e.g. "Economy Light") instead of our Value/Plus/Premium when available |
+| v1.4: Penalty amounts in airline's native currency | Duffel returns penalties in airline's currency (e.g. EUR for Lufthansa); display as-is with cross-currency note |
+| v1.4: Baggage extracted per variant | `segments[].passengers[].baggages` → checked bag count shown per fare tier tab |
 
 ---
 
@@ -487,7 +534,13 @@ git reset --hard v1.0-stable
 
 **v1.2** adds: LiteAPI hotel provider, Stripe embedded payment, select-all-first booking flow, token compression, ComposingBlock UI, currency detection (CAD/USD).
 
-**v1.3 (current)** adds: LiteAPI `checkin`/`checkout` field name fix (was returning HTTP 400), debug endpoint enhanced with raw response preview.
+**v1.3** adds: LiteAPI `checkin`/`checkout` field name fix (was returning HTTP 400), debug endpoint enhanced with raw response preview.
+
+**v1.4-stable (current, 3531b79, 2026-04-19):**
+```bash
+git checkout v1.4-stable
+```
+Adds: v1.4 dynamic system prompt (no regex gates, intent-driven tool calling), non-stop filter via `maxConnections` end-to-end to Duffel API, return leg stop counts in tool summary (prevents non-stop hallucination), airline fare brand names from Duffel (`fare_brand_name`), baggage per variant (`checked_bags`), explicit penalty currency display with cross-currency note, fare variant UI improvements (Value/Plus/Premium when conditions identical, condition labels only when they differ).
 
 ---
 *Document maintained by Claude. Update after each feature addition or bug fix.*

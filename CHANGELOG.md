@@ -1,5 +1,39 @@
 # FlexeTravels Changelog
 
+## [v1.4-stable] — 2026-04-19
+
+### System Prompt: v1.4 Dynamic Architecture
+- **Removed all hardcoded regex gates** (`isDubai`, `isCOK`, `isPacific`) — routing intelligence is now always-on
+- **Intent-driven tool strategy** — Maya decides which tools to call based on user intent + few-shot examples, not forced parallel batch
+- **6 composable sections**: safety, persona, search rules, routing, state machine, security
+- **Super-human complex vacation planning** prompt section for multi-leg itineraries
+
+### Non-Stop / Direct Flight Fix
+- Added `maxConnections` parameter end-to-end: tool schema → FlightSearchParams → Duffel API `max_connections` per-slice
+- `0` = non-stop only, `1` = max 1 stop, `undefined` = no limit
+- System prompt instructs Maya to set `maxConnections: 0` when user asks for "non-stop", "direct", or "no stops"
+
+### Return Leg Stops (Hallucination Fix)
+- Tool summary now includes return leg stop counts alongside outbound
+- Maya can no longer claim "all non-stop on both legs" when only outbound is non-stop
+- Added explicit instruction: "Only describe a flight as 'non-stop' if BOTH outbound AND return legs have 0 stops"
+
+### Fare Variant Display
+- **Airline fare brand names** — uses Duffel's `fare_brand_name` (e.g. "Economy Light", "Economy Classic") instead of generic Value/Plus/Premium
+- **Baggage per variant** — extracts `checked_bags` from `segments[].passengers[].baggages` and displays per fare tab ("No checked bags" / "1x checked bag")
+- **Neutral labels when conditions identical** — Value/Plus/Premium instead of misleading Basic/Standard/Flex when all tiers have same refund/change policy
+- **Single condition note** — "All fares: non-refundable · no changes — pricing tiers only" instead of repeating per variant
+- **Per-variant conditions only when different** — Changeable/No changes + Refundable/No refund with green/red color coding
+
+### Penalty Currency Clarity
+- **Explicit fee display** — "Cancel fee: €200 · Change fee: €150" instead of "Cancel (€200 EUR fee)"
+- **Cross-currency note** — "fees in EUR per airline policy" appended when penalty currency differs from ticket price (e.g. Lufthansa penalties in EUR on USD-priced ticket)
+
+### Rollback
+- Tagged as `v1.4-stable` (commit 3531b79) — rollback with `git checkout v1.4-stable`
+
+---
+
 ## [v0.9.0] — 2026-04-14
 
 ### Architecture: Side-Channel Card Streaming
