@@ -102,19 +102,17 @@ export function scoreFlexibility(
     'Locked';
 
   // ── Summary text ───────────────────────────────────────────────────────────
-  // When penalty currency differs from the ticket's display currency, append the
-  // ISO code so the user isn't confused seeing e.g. €200 on a USD-priced ticket.
+  // Show penalty amounts exactly as the airline provides them (e.g. EUR for
+  // European carriers like Lufthansa). When the penalty currency differs from the
+  // ticket currency, note it explicitly so users aren't confused.
   const crossCurrency = ticketCurrency && currency !== ticketCurrency;
-  const feeLabel = (cents: number) =>
-    crossCurrency
-      ? `${formatCents(cents, currency)} ${currency}`
-      : formatCents(cents, currency);
+  const feeLabel = (cents: number) => formatCents(cents, currency);
 
   const parts: string[] = [];
   if (refundable) {
     parts.push(
       refundPenaltyCents === 0  ? 'Free cancellation' :
-      refundPenaltyCents !== null ? `Cancel (${feeLabel(refundPenaltyCents)} fee)` :
+      refundPenaltyCents !== null ? `Cancel fee: ${feeLabel(refundPenaltyCents)}` :
       'Cancellation allowed'
     );
   } else {
@@ -123,11 +121,15 @@ export function scoreFlexibility(
   if (changeable) {
     parts.push(
       changePenaltyCents === 0  ? 'Free changes' :
-      changePenaltyCents !== null ? `Changes (${feeLabel(changePenaltyCents)} fee)` :
+      changePenaltyCents !== null ? `Change fee: ${feeLabel(changePenaltyCents)}` :
       'Changes allowed'
     );
   } else {
     parts.push('No changes');
+  }
+  // When penalty currency differs from ticket price currency, add a note
+  if (crossCurrency && (refundPenaltyCents || changePenaltyCents)) {
+    parts.push(`fees in ${currency} per airline policy`);
   }
 
   return {
