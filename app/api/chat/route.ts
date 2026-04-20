@@ -488,8 +488,14 @@ export async function POST(req: Request) {
             const m = parseInt(d.match(/(\d+)m/)?.[1] ?? '0');
             return h * 60 + m;
           };
+          // For round-trips, "fastest" = shortest TOTAL travel time (outbound + return)
+          const totalTravelMin = (f: FlightItem) => {
+            const outMin = toMin(f.duration);
+            const retDur = (f as unknown as Record<string, unknown>).returnDuration as string | undefined;
+            return retDur ? outMin + toMin(retDur) : outMin;
+          };
           const fastestF = r.flights.reduce(
-            (best: FlightItem, cur: FlightItem) => toMin(cur.duration) < toMin(best.duration) ? cur : best,
+            (best: FlightItem, cur: FlightItem) => totalTravelMin(cur) < totalTravelMin(best) ? cur : best,
             r.flights[0]
           );
           // Build stop description including return leg for round-trips
@@ -508,12 +514,22 @@ export async function POST(req: Request) {
             return f.stops === 0 && (!rt || (rs != null && rs === 0));
           }).length;
 
-          let flightSummary = `Found ${r.flights.length} flights for ${params.origin}→${params.destination}. Cheapest: $${cheapestF.price} ${cheapestF.currency} on ${cheapestF.airline} (${stopDesc}, ${cheapestF.duration}).`;
+          // Build duration description — for round-trips include BOTH legs
+          const cheapestRetDur = (cheapestF as unknown as Record<string, unknown>).returnDuration as string | undefined;
+          const cheapestDurDesc = isRT && cheapestRetDur
+            ? `outbound ${cheapestF.duration}, return ${cheapestRetDur}`
+            : cheapestF.duration;
+
+          let flightSummary = `Found ${r.flights.length} flights for ${params.origin}→${params.destination}. Cheapest: $${cheapestF.price} ${cheapestF.currency} on ${cheapestF.airline} (${stopDesc}, ${cheapestDurDesc}).`;
           if (isRT) {
-            flightSummary += ` Non-stop BOTH ways: ${nonStopBothLegs} of ${r.flights.length} flights. IMPORTANT: Only describe a flight as "non-stop" if BOTH outbound AND return legs have 0 stops.`;
+            flightSummary += ` Non-stop BOTH ways: ${nonStopBothLegs} of ${r.flights.length} flights. IMPORTANT: Only describe a flight as "non-stop" if BOTH outbound AND return legs have 0 stops. When mentioning travel times, ALWAYS include BOTH outbound AND return durations — never quote only one direction as "shortest".`;
           }
           if (fastestF.id !== cheapestF.id) {
-            flightSummary += ` Fastest: $${fastestF.price} ${fastestF.currency} on ${fastestF.airline} (${fastestF.duration}).`;
+            const fastRetDur = (fastestF as unknown as Record<string, unknown>).returnDuration as string | undefined;
+            const fastDurDesc = isRT && fastRetDur
+              ? `outbound ${fastestF.duration}, return ${fastRetDur}`
+              : fastestF.duration;
+            flightSummary += ` Fastest total: $${fastestF.price} ${fastestF.currency} on ${fastestF.airline} (${fastDurDesc}).`;
           }
           flightSummary += ` All ${r.flights.length} cards shown to user. Use ONLY these exact prices/airlines in your response.`;
           return { summary: flightSummary, flightCount: r.flights.length };
@@ -621,8 +637,12 @@ export async function POST(req: Request) {
             if (rtR && rsR != null) {
               sDesc = `outbound ${outDesc}, return ${rsR === 0 ? 'non-stop' : rsR + ' stop'}`;
             }
+            const retDurR = (cheapestR as unknown as Record<string, unknown>).returnDuration as string | undefined;
+            const durDescR = rtR && retDurR
+              ? `outbound ${cheapestR.duration}, return ${retDurR}`
+              : cheapestR.duration;
             return {
-              summary: `Found ${flights.length} bookable flights. Cheapest: $${cheapestR.price} ${cheapestR.currency} on ${cheapestR.airline} (${sDesc}, ${cheapestR.duration}). Cards shown to user.`,
+              summary: `Found ${flights.length} bookable flights. Cheapest: $${cheapestR.price} ${cheapestR.currency} on ${cheapestR.airline} (${sDesc}, ${durDescR}). Cards shown to user.`,
               flightCount: flights.length,
             };
           } catch (err) {

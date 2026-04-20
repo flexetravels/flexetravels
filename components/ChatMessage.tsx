@@ -226,20 +226,25 @@ function FlightResultsPanel({
       const bMax = Math.max(b.stops, b.isRoundTrip ? (b.returnStops ?? 0) : 0);
       return aMax - bMax;
     }
-    // duration: parse "Xh Ym" → minutes
+    // duration: parse "Xh Ym" → minutes, total = outbound + return for round-trips
     const toMin = (d: string) => {
       const h = d.match(/(\d+)h/)?.[1] ?? '0';
       const m = d.match(/(\d+)m/)?.[1] ?? '0';
       return parseInt(h) * 60 + parseInt(m);
     };
-    return toMin(a.duration) - toMin(b.duration);
+    const totalMin = (f: FlightResult) => {
+      const out = toMin(f.duration);
+      const ret = f.isRoundTrip && f.returnDuration ? toMin(f.returnDuration) : 0;
+      return out + ret;
+    };
+    return totalMin(a) - totalMin(b);
   });
 
   const stopLabels: Record<StopFilter, string> = {
     all: 'All stops', '0': 'Non-stop', '1': '1 stop', '2+': '2+ stops',
   };
   const sortLabels: Record<FlightSort, string> = {
-    price: 'Price', duration: 'Duration', stops: 'Stops',
+    price: 'Price', duration: 'Total Duration', stops: 'Stops',
   };
 
   // Reset scroll to start whenever the user changes sort or stop filter so the
