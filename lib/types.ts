@@ -51,6 +51,8 @@ export interface FlightResult {
     flexibilitySummary: string;
     refundable:         boolean;
     changeable:         boolean;
+    fareBrandName?:     string;       // Airline's own fare tier name (e.g. "Economy Light")
+    checkedBags?:       number;       // Number of checked bags included (0 = none)
   }>;
   // ── Child / infant fare transparency ──────────────────────────────────────
   childFareNote?: string;             // Set when airline doesn't price children in search;
