@@ -15,6 +15,13 @@ import {
 } from '@/lib/scoring/flexibility';
 
 // ─── Duffel raw API types ──────────────────────────────────────────────────────
+interface DuffelBaggage {
+  type:     string;   // 'checked' | 'carry_on'
+  quantity: number;
+}
+interface DuffelPassenger {
+  baggages?: DuffelBaggage[];
+}
 interface DuffelSegment {
   origin:       { iata_code: string };
   destination:  { iata_code: string };
@@ -24,10 +31,12 @@ interface DuffelSegment {
   marketing_carrier:               { iata_code: string; name: string; logo_symbol_url?: string };
   operating_carrier?:              { iata_code: string; name: string };
   marketing_carrier_flight_number: string;
+  passengers?:  DuffelPassenger[];
 }
 interface DuffelSlice {
-  duration: string;
-  segments: DuffelSegment[];
+  duration:         string;
+  segments:         DuffelSegment[];
+  fare_brand_name?: string;   // Airline's own fare tier label (e.g. "Economy Light")
 }
 interface DuffelOffer {
   id:             string;
@@ -43,6 +52,8 @@ interface DuffelOffer {
 export interface EnrichedFlight extends NormalizedFlight {
   _flexScore: number;           // 0–1 from FlexibilityScore
   _flexObj:   FlexibilityScore; // Full scored object
+  _fareBrandName?: string;      // Airline's own fare brand (e.g. "Economy Light")
+  _checkedBags?:   number;      // Checked bag quantity for first passenger
 }
 
 /** Convert Duffel ISO 8601 duration → "14h 20m"
@@ -92,6 +103,14 @@ function mapOffer(offer: DuffelOffer, cabinClass: string, totalPassengers: numbe
   const fareCents = Math.round(parseFloat(offer.total_amount ?? '0') * 100);
   const flexObj   = scoreFlexibility(offer.conditions ?? null, fareCents, offer.total_currency ?? 'USD');
 
+  // Extract fare brand name from first slice (airline's own label like "Economy Light")
+  const fareBrandName = slice0?.fare_brand_name ?? undefined;
+
+  // Extract checked bag count from the first passenger on the first segment
+  const firstPax   = first?.passengers?.[0];
+  const checkedBag = firstPax?.baggages?.find(b => b.type === 'checked');
+  const checkedBags = checkedBag?.quantity ?? undefined;
+
   return {
     id:           offer.id,
     provider:     'duffel',
@@ -129,6 +148,8 @@ function mapOffer(offer: DuffelOffer, cabinClass: string, totalPassengers: numbe
     // ── Enriched flexibility data (consumed by ranking agent) ────────────────
     _flexScore: flexObj.score,
     _flexObj:   flexObj,
+    _fareBrandName: fareBrandName,
+    _checkedBags:   checkedBags,
   };
 }
 
@@ -178,6 +199,8 @@ function groupIntoFareVariants(
       flexibilitySummary: v._flexObj.summary,
       refundable:         v.refundable,
       changeable:         v._flexObj.changeable,
+      fareBrandName:      v._fareBrandName,
+      checkedBags:        v._checkedBags,
     }));
 
     results.push({ ...cheapest, fareVariants });

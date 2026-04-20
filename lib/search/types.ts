@@ -33,6 +33,8 @@ export interface FareVariant {
   flexibilitySummary: string;   // Human-readable conditions text
   refundable:         boolean;
   changeable:         boolean;
+  fareBrandName?:     string;   // Airline's own fare tier name (e.g. "Economy Light")
+  checkedBags?:       number;   // Number of checked bags included (0 = none)
 }
 
 export interface NormalizedFlight {
