@@ -492,7 +492,26 @@ export async function POST(req: Request) {
             (best: FlightItem, cur: FlightItem) => toMin(cur.duration) < toMin(best.duration) ? cur : best,
             r.flights[0]
           );
-          let flightSummary = `Found ${r.flights.length} flights for ${params.origin}→${params.destination}. Cheapest: $${cheapestF.price} ${cheapestF.currency} on ${cheapestF.airline} (${cheapestF.stops === 0 ? 'non-stop' : cheapestF.stops + ' stop'}, ${cheapestF.duration}).`;
+          // Build stop description including return leg for round-trips
+          const outStopDesc = cheapestF.stops === 0 ? 'non-stop' : `${cheapestF.stops} stop`;
+          const isRT = !!(cheapestF as unknown as Record<string, unknown>).isRoundTrip;
+          const retStops = (cheapestF as unknown as Record<string, unknown>).returnStops as number | undefined;
+          let stopDesc = outStopDesc;
+          if (isRT && retStops != null) {
+            const retStopDesc = retStops === 0 ? 'non-stop' : `${retStops} stop`;
+            stopDesc = `outbound ${outStopDesc}, return ${retStopDesc}`;
+          }
+          // Count flights that are truly non-stop on ALL legs
+          const nonStopBothLegs = r.flights.filter((f: FlightItem) => {
+            const rt = (f as unknown as Record<string, unknown>).isRoundTrip;
+            const rs = (f as unknown as Record<string, unknown>).returnStops as number | undefined;
+            return f.stops === 0 && (!rt || (rs != null && rs === 0));
+          }).length;
+
+          let flightSummary = `Found ${r.flights.length} flights for ${params.origin}→${params.destination}. Cheapest: $${cheapestF.price} ${cheapestF.currency} on ${cheapestF.airline} (${stopDesc}, ${cheapestF.duration}).`;
+          if (isRT) {
+            flightSummary += ` Non-stop BOTH ways: ${nonStopBothLegs} of ${r.flights.length} flights. IMPORTANT: Only describe a flight as "non-stop" if BOTH outbound AND return legs have 0 stops.`;
+          }
           if (fastestF.id !== cheapestF.id) {
             flightSummary += ` Fastest: $${fastestF.price} ${fastestF.currency} on ${fastestF.airline} (${fastestF.duration}).`;
           }
@@ -595,8 +614,15 @@ export async function POST(req: Request) {
             }
             type RetryFlight = typeof flights[0];
             const cheapestR = [...flights].sort((a: RetryFlight, b: RetryFlight) => a.price - b.price)[0];
+            const outDesc = cheapestR.stops === 0 ? 'non-stop' : `${cheapestR.stops} stop`;
+            const rtR = !!(cheapestR as unknown as Record<string, unknown>).isRoundTrip;
+            const rsR = (cheapestR as unknown as Record<string, unknown>).returnStops as number | undefined;
+            let sDesc = outDesc;
+            if (rtR && rsR != null) {
+              sDesc = `outbound ${outDesc}, return ${rsR === 0 ? 'non-stop' : rsR + ' stop'}`;
+            }
             return {
-              summary: `Found ${flights.length} bookable flights. Cheapest: $${cheapestR.price} ${cheapestR.currency} on ${cheapestR.airline} (${cheapestR.stops === 0 ? 'non-stop' : cheapestR.stops + ' stop'}, ${cheapestR.duration}). Cards shown to user.`,
+              summary: `Found ${flights.length} bookable flights. Cheapest: $${cheapestR.price} ${cheapestR.currency} on ${cheapestR.airline} (${sDesc}, ${cheapestR.duration}). Cards shown to user.`,
               flightCount: flights.length,
             };
           } catch (err) {

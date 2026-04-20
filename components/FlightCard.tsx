@@ -505,6 +505,19 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
                 )}>
                   {formatPrice(v.price, v.currency)}
                 </div>
+                {/* Fare condition summary — show refundable/changeable status */}
+                <div className={cn(
+                  'text-[7.5px] leading-tight mt-0.5',
+                  isActive ? 'text-muted-foreground/70' : 'text-muted-foreground/50'
+                )}>
+                  {v.changeable
+                    ? <span className="text-emerald-600 dark:text-emerald-400">Changeable</span>
+                    : <span className="text-red-500/70 dark:text-red-400/70">No changes</span>}
+                  {' · '}
+                  {v.refundable
+                    ? <span className="text-emerald-600 dark:text-emerald-400">Refundable</span>
+                    : <span className="text-red-500/70 dark:text-red-400/70">No refund</span>}
+                </div>
                 {allSameConditions && priceDiff > 0 && (
                   <div className="text-[8px] text-muted-foreground/50 mt-0.5">
                     +{formatPrice(priceDiff, v.currency)}
