@@ -16,6 +16,7 @@ export type EventType  =
   | 'hotel_booking'
   | 'stripe_payment'
   | 'offer_verify'
+  | 'critic_check'
   | 'api_error'
   | 'system';
 
@@ -328,6 +329,22 @@ export function getLogStats() {
       },
     },
     errors: recent.filter(e => e.level === 'error').slice(-20).reverse(),
+    critic: {
+      total:    recent.filter(e => e.event === 'critic_check').length,
+      passed:   recent.filter(e => e.event === 'critic_check' && e.success).length,
+      failed:   recent.filter(e => e.event === 'critic_check' && !e.success).length,
+      /** Aggregate issue counts keyed by check id, last 1h. */
+      byIssue: (() => {
+        const out: Record<string, number> = {};
+        for (const e of recent) {
+          if (e.event !== 'critic_check') continue;
+          const issues = (e.detail as { issues?: Array<{ id: string }> } | undefined)?.issues;
+          if (!issues) continue;
+          for (const i of issues) out[i.id] = (out[i.id] ?? 0) + 1;
+        }
+        return out;
+      })(),
+    },
   };
 }
 

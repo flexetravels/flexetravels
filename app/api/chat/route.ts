@@ -38,6 +38,9 @@ import { compressMessageHistory } from '@/lib/utils';
 import { logger } from '@/lib/logger';
 import { db, DB_AVAILABLE } from '@/lib/db/client';
 import { buildSystemFromSkills } from '@/lib/skills/loader';
+import { runCritic } from '@/lib/critic/deterministic';
+import { logEvent } from '@/lib/logger';
+import type { NormalizedFlight, NormalizedHotel } from '@/lib/search/types';
 
 export const maxDuration = 120;
 
@@ -427,6 +430,15 @@ export async function POST(req: Request) {
     execute: async (dataStream) => {
       const requestStart = Date.now();
 
+      // Capture tool results across steps so the post-generation critic can
+      // verify the assistant text matches the underlying data. Overwritten on
+      // each tool call — only the LATEST search is checked, which matches how
+      // Maya actually presents results (one search per turn typically).
+      let criticFlights:      NormalizedFlight[] | undefined;
+      let criticHotels:       NormalizedHotel[]  | undefined;
+      let criticFlightOrigin: string | undefined;
+      let criticFlightDep:    string | undefined;
+
       const result = streamText({
         model:     anthropic('claude-sonnet-4-6'),
         system:    buildSystem(lastUserContent, conversationState),
@@ -502,6 +514,11 @@ export async function POST(req: Request) {
             dataStream.writeData(JSON.parse(JSON.stringify({ type: 'flights', data: r.flights })));
           }
           console.log(`[timing] searchFlights done in ${Date.now() - requestStart}ms, ${r.flights.length} results`);
+
+          // Capture for post-generation critic
+          criticFlights      = r.flights;
+          criticFlightOrigin = params.origin;
+          criticFlightDep    = params.departureDate;
 
           // Return only a compact summary to Claude — no full card JSON
           if (r.flights.length === 0) {
@@ -773,6 +790,9 @@ export async function POST(req: Request) {
           }
           console.log(`[timing] searchHotels done in ${Date.now() - requestStart}ms, ${hotels.length} results`);
 
+          // Capture for post-generation critic
+          criticHotels = hotels;
+
           // Return only a compact summary to Claude — no full card JSON
           if (hotels.length === 0) {
             return { summary: r.noResultsMessage ?? `No hotels found for ${params.destination}. Try nearby areas or different dates.`, hotelCount: 0 };
@@ -886,6 +906,9 @@ export async function POST(req: Request) {
           dataStream.writeData(JSON.parse(JSON.stringify({ type: 'hotels', data: hotels })));
           console.log(`[timing] searchNearbyHotels done in ${Date.now() - requestStart}ms, ${hotels.length} results across ${searchedCities.join(', ')}`);
 
+          // Capture for post-generation critic
+          criticHotels = hotels;
+
           if (hotels.length === 0) {
             return { summary: `No hotels found in nearby areas: ${searchedCities.join(', ')}. Try different areas or dates.`, hotelCount: 0 };
           }
@@ -982,6 +1005,39 @@ export async function POST(req: Request) {
     },
 
         toolChoice: 'auto',
+
+        // ─── Deterministic critic (Phase 5) ─────────────────────────────────
+        // Runs after streaming finishes. Pure-function checks against the
+        // skill rules; observes drift in /admin without modifying the
+        // response. Disabled entirely if FLEXE_CRITIC=off.
+        onFinish: ({ text }) => {
+          if (process.env.FLEXE_CRITIC === 'off') return;
+          try {
+            const report = runCritic(text, {
+              lastUserMessage:     lastUserContent,
+              flightResults:       criticFlights,
+              hotelResults:        criticHotels,
+              flightOrigin:        criticFlightOrigin,
+              flightDepartureDate: criticFlightDep,
+              conversationState,
+            });
+            logEvent({
+              event:     'critic_check',
+              api:       'system',
+              level:     report.passed ? 'info' : 'warn',
+              success:   report.passed,
+              sessionId,
+              detail: {
+                ranCount:  report.ranCount,
+                issues:    report.issues,
+                errorCount: report.issues.filter(i => i.severity === 'error').length,
+                warnCount:  report.issues.filter(i => i.severity === 'warn').length,
+              },
+            });
+          } catch (err) {
+            console.warn('[critic] runCritic threw (non-fatal):', err);
+          }
+        },
       });
 
       result.mergeIntoDataStream(dataStream);
