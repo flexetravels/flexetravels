@@ -702,13 +702,22 @@ export async function POST(req: Request) {
         description:
           'Search hotels at destination with live rates from LiteAPI (1M+ properties). Falls back to sample data if unavailable. Returns real photos, amenities, and bookable rates.',
         parameters: z.object({
-          destination:  z.string().describe('City name or IATA code e.g. "Cancun" or "CUN"'),
-          checkIn:      z.string().describe('Check-in date YYYY-MM-DD'),
-          checkOut:     z.string().describe('Check-out date YYYY-MM-DD'),
-          adults:       z.number().int().min(1).max(9).default(1),
-          childrenAges: z.array(z.number().int().min(0).max(17)).optional().describe('Ages of children sharing the room'),
-          maxPrice:     z.number().optional().describe('Max price per night in USD'),
-          stars:        z.number().int().min(1).max(5).optional().describe('Minimum star rating'),
+          // Hard constraints (cache key) — changing these triggers a new LiteAPI fetch.
+          destination:   z.string().describe('City name or IATA code e.g. "Cancun" or "CUN"'),
+          checkIn:       z.string().describe('Check-in date YYYY-MM-DD'),
+          checkOut:      z.string().describe('Check-out date YYYY-MM-DD'),
+          adults:        z.number().int().min(1).max(9).default(1),
+          childrenAges:  z.array(z.number().int().min(0).max(17)).optional().describe('Ages of children sharing the room'),
+
+          // Post-cache filters — applied against the cached hotel list. Changing
+          // these does NOT trigger a new LiteAPI call when destination/dates/pax match.
+          maxPrice:         z.number().positive().optional().describe('Max price per night in USD. Use for "under $X" / "budget".'),
+          stars:            z.number().int().min(1).max(5).optional().describe('Minimum star rating. Use for "5-star" ⇒ 5, "4-star or above" ⇒ 4.'),
+          minRating:        z.number().min(0).max(10).optional().describe('Minimum guest rating on 0–10 scale. Use for "well-reviewed" ⇒ 8, "highly rated" ⇒ 8.5.'),
+          minReviewCount:   z.number().int().min(0).optional().describe('Minimum number of reviews. Use to avoid obscure properties — typical values 50-200.'),
+          amenities:        z.array(z.string()).optional().describe('Required amenities, case-insensitive substring match. Examples: ["Pool"], ["Free WiFi", "Gym"], ["Breakfast"], ["Spa"]. Use when user says "with a pool", "gym required", etc.'),
+          boardType:        z.enum(['RO', 'BB', 'HB', 'FB', 'AI']).optional().describe('Board type: RO=Room Only, BB=Bed & Breakfast, HB=Half Board, FB=Full Board, AI=All-Inclusive. Use for "all-inclusive" ⇒ "AI", "with breakfast" ⇒ "BB".'),
+          freeCancellation: z.boolean().optional().describe('Only show hotels with free cancellation. Use for "refundable" / "cancellable".'),
         }),
         execute: async (params) => {
           // Defence-in-depth: validate hotel params (dates, price bounds).

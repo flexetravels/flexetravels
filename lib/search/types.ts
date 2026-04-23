@@ -24,13 +24,24 @@ export interface FlightSearchParams {
 }
 
 export interface HotelSearchParams {
+  // Hard constraints (cache key) — changing these triggers a new LiteAPI fetch.
   destination: string;      // City name or IATA code
   checkIn: string;          // YYYY-MM-DD
   checkOut: string;         // YYYY-MM-DD
   adults: number;
   childrenAges?: number[];  // Ages of children sharing the room (0-17)
+
+  // ── Post-cache filters (applied client-side) ──────────────────────────────
+  // Not part of the cache key. See lib/search/hotelCache.ts — one LiteAPI
+  // fetch per (destination, dates, pax) serves every filter permutation
+  // within the TTL.
   maxPrice?: number;        // USD per night
-  stars?: number;           // 1–5
+  stars?: number;           // minimum stars, 1–5
+  minRating?: number;       // minimum guest rating on a 0–10 scale (e.g. 8.5)
+  minReviewCount?: number;  // minimum number of reviews
+  amenities?: string[];     // required amenities (case-insensitive substring match)
+  boardType?: 'RO' | 'BB' | 'HB' | 'FB' | 'AI'; // required board type
+  freeCancellation?: boolean; // only hotels with cancellation text containing "free"
 }
 
 // ─── Fare variant (one price/policy tier for the same physical flight) ────────

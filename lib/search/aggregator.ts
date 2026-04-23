@@ -14,6 +14,8 @@ import { OpenTripMapProvider } from './opentripmap';
 import { FoursquareProvider } from './foursquare';
 import { lookupFlightCache, storeFlightCache } from './flightCache';
 import { applyFlightFilters, rankByDurationPrice } from './flightFilters';
+import { lookupHotelCache, storeHotelCache } from './hotelCache';
+import { applyHotelFilters, rankByRatingPrice } from './hotelFilters';
 import { logEvent } from '@/lib/logger';
 
 // ─── North America airport geography (for context + validation) ───────────────
@@ -245,10 +247,41 @@ export interface HotelAggregateResult {
 }
 
 export async function aggregateHotels(params: HotelSearchParams): Promise<HotelAggregateResult> {
+  const start = Date.now();
+
+  // ── Cache fast-path ────────────────────────────────────────────────────────
+  // Same pattern as aggregateFlights: cache key = hard constraints only.
+  // Changing filters (stars, minRating, amenities, ...) hits the same entry.
+  // Rollback: set FLEXE_HOTEL_CACHE=off.
+  const cached = lookupHotelCache(params);
+  if (cached) {
+    const latencyMs = Date.now() - start;
+    const filtered  = applyHotelFilters(cached.hotels, params);
+    const ranked    = rankByRatingPrice(filtered);
+    logEvent({
+      event:       'hotel_search',
+      api:         'system',
+      level:       'info',
+      success:     ranked.length > 0,
+      params:      params as Record<string, unknown>,
+      resultCount: ranked.length,
+      sources:     ['cache', ...cached.sources],
+      durationMs:  latencyMs,
+      detail:      { cached: true, preFilter: cached.hotels.length, postFilter: ranked.length },
+    });
+    return {
+      hotels:          ranked,
+      sources:         cached.sources,
+      errors:          cached.errors,
+      isSample:        cached.isSample,
+      latencyMs,
+      noResultsMessage: ranked.length === 0 ? cached.noResultsMessage : undefined,
+    };
+  }
+
   // LiteAPI is the hotel provider. Amadeus returns unreliable hotel data (400s) —
   // exclude it from hotel searches so errors don't pollute the result log.
   const providers = buildProviders().filter(p => p.name !== 'duffel' && p.name !== 'amadeus');
-  const start = Date.now();
 
   if (providers.length === 0) {
     // LiteAPI key not configured — honest empty response, no fabrication
@@ -299,22 +332,26 @@ export async function aggregateHotels(params: HotelSearchParams): Promise<HotelA
 
   const deduped = dedupeHotels(allHotels);
 
-  // No hard cap on hotel results — return everything that matches filters.
-  // The HotelResultsPanel handles display with grid layout + sort controls.
-  const filtered = deduped
-    .filter(h => !params.maxPrice || h.pricePerNight <= params.maxPrice)
-    .filter(h => !params.stars || h.stars >= params.stars)
-    .sort((a, b) => a.pricePerNight - b.pricePerNight);
+  // Cache the broad deduped set so subsequent filter-only changes hit this
+  // entry. storeHotelCache() is a no-op when FLEXE_HOTEL_CACHE=off or when
+  // hotels=[] (we want to retry LiteAPI on transient empties).
+  storeHotelCache(params, {
+    hotels:   deduped,
+    sources,
+    errors,
+    isSample: false,
+  });
+
+  // Apply client-side filters + composite rating/price ranking.
+  const filtered = rankByRatingPrice(applyHotelFilters(deduped, params));
 
   console.log(`[aggregateHotels] raw=${allHotels.length}, deduped=${deduped.length}, filtered=${filtered.length}, maxPrice=${params.maxPrice ?? 'none'}, stars=${params.stars ?? 'none'}`);
 
-  // Filters eliminated everything — try relaxing in order: price first, then stars.
+  // Filters eliminated everything — relax in order: drop price, then drop stars.
   if (filtered.length === 0 && deduped.length > 0) {
-    // Try relaxing only the price filter (keep stars intact)
-    const noPriceFilter = deduped
-      .filter(h => !params.stars || h.stars >= params.stars)
-      .sort((a, b) => a.pricePerNight - b.pricePerNight)
-      .slice(0, 10);
+    // Keep stars/rating/amenities but drop price ceiling.
+    const noPriceParams = { ...params, maxPrice: undefined };
+    const noPriceFilter = rankByRatingPrice(applyHotelFilters(deduped, noPriceParams)).slice(0, 10);
     if (noPriceFilter.length > 0) {
       return {
         hotels: noPriceFilter, sources, errors, isSample: false,
@@ -322,10 +359,9 @@ export async function aggregateHotels(params: HotelSearchParams): Promise<HotelA
         noResultsMessage: `No hotels found within your budget for ${params.stars ? `${params.stars}+ stars` : 'these criteria'}, but here are the closest available options:`,
       };
     }
-    // Last resort — relax both price and stars filters
-    const relaxed = deduped
-      .sort((a, b) => a.pricePerNight - b.pricePerNight)
-      .slice(0, 10);
+    // Last resort — keep only the amenities filter; drop everything else.
+    const loosest = { amenities: params.amenities, destination: params.destination, checkIn: params.checkIn, checkOut: params.checkOut, adults: params.adults, childrenAges: params.childrenAges };
+    const relaxed = rankByRatingPrice(applyHotelFilters(deduped, loosest as HotelSearchParams)).slice(0, 10);
     return {
       hotels: relaxed, sources, errors, isSample: false,
       latencyMs: Date.now() - start,
@@ -333,7 +369,7 @@ export async function aggregateHotels(params: HotelSearchParams): Promise<HotelA
     };
   }
 
-  // No real results at all — use sample hotels as last resort
+  // No real results at all — use sample hotels as last resort.
   if (filtered.length === 0) {
     const samples = sampleHotels(params);
     return {
