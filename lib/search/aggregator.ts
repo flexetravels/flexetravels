@@ -12,6 +12,8 @@ import { AmadeusProvider } from './amadeus';
 import { LiteApiProvider } from './liteapi';
 import { OpenTripMapProvider } from './opentripmap';
 import { FoursquareProvider } from './foursquare';
+import { lookupFlightCache, storeFlightCache } from './flightCache';
+import { logEvent } from '@/lib/logger';
 
 // ─── North America airport geography (for context + validation) ───────────────
 // Major NA hubs used for suggestion if user provides city name
@@ -139,9 +141,30 @@ export async function aggregateFlights(params: FlightSearchParams): Promise<{
   errors: string[];
   latencyMs: number;
 }> {
+  const start = Date.now();
+
+  // ── Cache fast-path ────────────────────────────────────────────────────────
+  // Hit = ~0ms response vs the 8-15s Duffel roundtrip. Rollback: set
+  // FLEXE_FLIGHT_CACHE=off to force every request to go live.
+  const cached = lookupFlightCache(params);
+  if (cached) {
+    const latencyMs = Date.now() - start;
+    logEvent({
+      event:       'flight_search',
+      api:         'system',
+      level:       'info',
+      success:     cached.flights.length > 0,
+      params:      params as Record<string, unknown>,
+      resultCount: cached.flights.length,
+      sources:     ['cache', ...cached.sources],
+      durationMs:  latencyMs,
+      detail:      { cached: true },
+    });
+    return { ...cached, latencyMs };
+  }
+
   // liteapi is a hotel-only provider — exclude from flight search
   const providers = buildProviders().filter(p => p.name !== 'liteapi');
-  const start = Date.now();
 
   if (providers.length === 0) {
     return { flights: [], sources: [], errors: ['No flight providers configured'], latencyMs: 0 };
@@ -184,12 +207,22 @@ export async function aggregateFlights(params: FlightSearchParams): Promise<{
   // so users get every option without cognitive overload.
   const deduped = dedupeFlights(allFlights).sort((a, b) => a.price - b.price);
 
-  return {
+  const result = {
     flights: deduped,
     sources,
     errors,
     latencyMs: Date.now() - start,
   };
+
+  // Cache successful results so the next identical query within 60s is instant.
+  // storeFlightCache() is a no-op when FLEXE_FLIGHT_CACHE=off or flights=[].
+  storeFlightCache(params, {
+    flights: result.flights,
+    sources: result.sources,
+    errors:  result.errors,
+  });
+
+  return result;
 }
 
 export interface HotelAggregateResult {

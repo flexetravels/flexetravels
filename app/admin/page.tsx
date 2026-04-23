@@ -50,6 +50,17 @@ interface Stats {
     hotels:  { total: number; ok: number; failed: number };
   };
   errors:   LogEntry[];
+  flightCache?: {
+    enabled:   boolean;
+    size:      number;
+    maxSize:   number;
+    ttlMs:     number;
+    hits:      number;
+    misses:    number;
+    stores:    number;
+    evictions: number;
+    hitRate:   number | null;
+  };
 }
 
 interface DuffelCheck {
@@ -403,6 +414,27 @@ export default function AdminPage() {
             </div>
             <div style={{ fontSize: 11, color: '#475569', marginTop: 4 }}>{stats.memory} entries in memory</div>
           </div>
+          {stats.flightCache && (
+            <div style={{ background: '#1e293b', borderRadius: 8, padding: '14px 18px', minWidth: 160 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#94a3b8', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 }}>
+                Flight Cache {stats.flightCache.enabled ? '' : '(off)'}
+              </div>
+              <div style={{ fontSize: 12, color: '#e2e8f0' }}>
+                <span style={{ color: '#22c55e' }}>✓ {stats.flightCache.hits}</span>
+                <span style={{ color: '#64748b' }}> / </span>
+                <span style={{ color: '#f97316' }}>✗ {stats.flightCache.misses}</span>
+                <span style={{ color: '#64748b' }}> hit/miss</span>
+              </div>
+              <div style={{ fontSize: 12, color: '#e2e8f0' }}>
+                {stats.flightCache.hitRate !== null
+                  ? `${Math.round(stats.flightCache.hitRate * 100)}% hit rate`
+                  : 'no data yet'}
+              </div>
+              <div style={{ fontSize: 11, color: '#475569', marginTop: 4 }}>
+                {stats.flightCache.size}/{stats.flightCache.maxSize} · TTL {stats.flightCache.ttlMs / 1000}s · {stats.flightCache.evictions} evicted
+              </div>
+            </div>
+          )}
         </div>
       )}
 
