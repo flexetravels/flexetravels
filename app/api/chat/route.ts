@@ -441,6 +441,7 @@ export async function POST(req: Request) {
         description:
           'Search flights via Duffel. Returns best-priced options ranked cheapest first. All results are confirmed-bookable through Duffel (IATA-accredited).',
         parameters: z.object({
+          // Hard constraints (cache key) — changing these triggers a new Duffel fetch.
           origin:        z.string().describe('Origin IATA airport code e.g. YVR, JFK'),
           destination:   z.string().describe('Destination IATA airport code e.g. CUN, NRT, LHR'),
           departureDate: z.string().describe('Departure date YYYY-MM-DD'),
@@ -449,7 +450,17 @@ export async function POST(req: Request) {
           childrenAges:  z.array(z.number().int().min(2).max(11)).optional().describe('Ages of children 2-11 only. Each gets own seat at child fare. Do NOT include age 0-1 here — use infants= instead. Ages 12+ go in adults count.'),
           infants:       z.number().int().min(0).max(4).optional().default(0).describe('Number of lap infants under age 2. No separate seat, rides on adult lap. Must not exceed adults count.'),
           cabinClass:    z.enum(['economy', 'premium_economy', 'business', 'first']).default('economy'),
-          maxConnections: z.number().int().min(0).max(2).optional().describe('Maximum connections (stops) per leg. 0 = non-stop/direct only, 1 = max 1 stop. Omit for no limit. Use when user asks for "non-stop", "direct", or "no stops".'),
+
+          // Post-cache filters — applied in-memory against the cached result,
+          // so changing these does NOT trigger a new Duffel call when the hard
+          // constraints above match a recent query.
+          maxConnections:     z.number().int().min(0).max(2).optional().describe('Max stops per leg. 0=non-stop, 1=max 1 stop. Use for "non-stop", "direct", "no stops", "no layovers".'),
+          avoidAirlines:      z.array(z.string()).optional().describe('Airline IATA codes OR names to exclude, e.g. ["AI"] or ["Air India"]. Use when user says "avoid X" or "not X".'),
+          viaRegions:         z.array(z.enum(['pacific', 'europe', 'middleeast'])).optional().describe('Preferred connection regions. Use for "via Pacific" ⇒ ["pacific"], "via Europe" ⇒ ["europe"], "via Middle East" ⇒ ["middleeast"]. Filters to flights with at least one connection in the region\'s hubs.'),
+          maxPrice:           z.number().positive().optional().describe('Max total price (USD). Use for "under $X".'),
+          maxDurationMinutes: z.number().int().positive().optional().describe('Max total trip duration in minutes (outbound + return). Use for "under 8 hours" ⇒ 480, "max 12h" ⇒ 720.'),
+          departAfter:        z.string().regex(/^\d{2}:\d{2}$/).optional().describe('Earliest outbound departure time, 24h HH:MM (e.g. "08:00"). Use for "no red-eyes" ⇒ "06:00".'),
+          departBefore:       z.string().regex(/^\d{2}:\d{2}$/).optional().describe('Latest outbound departure time, 24h HH:MM. Use for "morning flights" ⇒ "12:00".'),
         }),
         execute: async (params) => {
           // Defence-in-depth: validate params even though Zod already type-checked them.

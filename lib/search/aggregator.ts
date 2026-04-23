@@ -13,6 +13,7 @@ import { LiteApiProvider } from './liteapi';
 import { OpenTripMapProvider } from './opentripmap';
 import { FoursquareProvider } from './foursquare';
 import { lookupFlightCache, storeFlightCache } from './flightCache';
+import { applyFlightFilters, rankByDurationPrice } from './flightFilters';
 import { logEvent } from '@/lib/logger';
 
 // ─── North America airport geography (for context + validation) ───────────────
@@ -65,6 +66,8 @@ function dedupeFlights(flights: NormalizedFlight[]): NormalizedFlight[] {
     return true;
   });
 }
+
+// Filter + rank helpers live in ./flightFilters (pure, smoke-testable).
 
 /** Deduplicate hotels by name (case-insensitive, trimmed) */
 function dedupeHotels(hotels: NormalizedHotel[]): NormalizedHotel[] {
@@ -146,21 +149,26 @@ export async function aggregateFlights(params: FlightSearchParams): Promise<{
   // ── Cache fast-path ────────────────────────────────────────────────────────
   // Hit = ~0ms response vs the 8-15s Duffel roundtrip. Rollback: set
   // FLEXE_FLIGHT_CACHE=off to force every request to go live.
+  // NOTE: cache stores the UNFILTERED deduped aggregate. Filters are applied
+  // after lookup so one cache entry serves every filter combination on the
+  // same hard-constraint tuple. See flightCache.ts for the key shape.
   const cached = lookupFlightCache(params);
   if (cached) {
     const latencyMs = Date.now() - start;
+    const filtered  = applyFlightFilters(cached.flights, params);
+    const ranked    = rankByDurationPrice(filtered);
     logEvent({
       event:       'flight_search',
       api:         'system',
       level:       'info',
-      success:     cached.flights.length > 0,
+      success:     ranked.length > 0,
       params:      params as Record<string, unknown>,
-      resultCount: cached.flights.length,
+      resultCount: ranked.length,
       sources:     ['cache', ...cached.sources],
       durationMs:  latencyMs,
-      detail:      { cached: true },
+      detail:      { cached: true, preFilter: cached.flights.length, postFilter: ranked.length },
     });
-    return { ...cached, latencyMs };
+    return { flights: ranked, sources: cached.sources, errors: cached.errors, latencyMs };
   }
 
   // liteapi is a hotel-only provider — exclude from flight search
@@ -202,27 +210,28 @@ export async function aggregateFlights(params: FlightSearchParams): Promise<{
     if (r.error) errors.push(`${r.provider}: ${r.error}`);
   }
 
-  // No hard cap on results — return all deduped flights sorted by price.
-  // The frontend FlightResultsPanel paginates with "See all" + filters,
-  // so users get every option without cognitive overload.
-  const deduped = dedupeFlights(allFlights).sort((a, b) => a.price - b.price);
+  // Dedupe the full provider aggregate. This is what we cache so subsequent
+  // queries with *different* client-side filters still hit the cache.
+  const deduped = dedupeFlights(allFlights);
 
-  const result = {
+  // Store the broad, unfiltered deduped set — key excludes filter params.
+  storeFlightCache(params, {
     flights: deduped,
+    sources,
+    errors,
+  });
+
+  // Apply client-side filters + rank. Ranking is composite duration+price
+  // (see rankByDurationPrice). Frontend paginates with "See all".
+  const filtered = applyFlightFilters(deduped, params);
+  const ranked   = rankByDurationPrice(filtered);
+
+  return {
+    flights: ranked,
     sources,
     errors,
     latencyMs: Date.now() - start,
   };
-
-  // Cache successful results so the next identical query within 60s is instant.
-  // storeFlightCache() is a no-op when FLEXE_FLIGHT_CACHE=off or flights=[].
-  storeFlightCache(params, {
-    flights: result.flights,
-    sources: result.sources,
-    errors:  result.errors,
-  });
-
-  return result;
 }
 
 export interface HotelAggregateResult {

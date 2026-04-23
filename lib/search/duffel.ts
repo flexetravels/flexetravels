@@ -70,6 +70,16 @@ function fmtDuration(iso: string): string {
   return parts.join(' ') || iso;
 }
 
+/** Same ISO 8601 duration → integer minutes (used for sort + post-cache filters). */
+function isoToMinutes(iso: string): number {
+  const m = iso.match(/P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?/);
+  if (!m) return 0;
+  const days  = parseInt(m[1] ?? '0');
+  const hours = parseInt(m[2] ?? '0');
+  const mins  = parseInt(m[3] ?? '0');
+  return days * 24 * 60 + hours * 60 + mins;
+}
+
 function mapSegment(seg: DuffelSegment) {
   return {
     origin:           seg.origin?.iata_code ?? '',
@@ -121,6 +131,7 @@ function mapOffer(offer: DuffelOffer, cabinClass: string, totalPassengers: numbe
     departure:    first?.departing_at ?? '',
     arrival:      last?.arriving_at ?? '',
     duration:     fmtDuration(slice0?.duration ?? ''),
+    durationMinutes: isoToMinutes(slice0?.duration ?? ''),
     stops:        segs.length - 1,
     stopAirports: segs.slice(0, -1).map(s => s.destination?.iata_code ?? ''),
     price:        parseFloat(offer.total_amount ?? '0'),
@@ -140,8 +151,9 @@ function mapOffer(offer: DuffelOffer, cabinClass: string, totalPassengers: numbe
       returnDestination:  retLast?.destination?.iata_code ?? '',
       returnDeparture:    retFirst?.departing_at ?? '',
       returnArrival:      retLast?.arriving_at ?? '',
-      returnDuration:     fmtDuration(slice1.duration ?? ''),
-      returnStops:        retSegs.length - 1,
+      returnDuration:        fmtDuration(slice1.duration ?? ''),
+      returnDurationMinutes: isoToMinutes(slice1.duration ?? ''),
+      returnStops:           retSegs.length - 1,
       returnStopAirports: retSegs.slice(0, -1).map(s => s.destination?.iata_code ?? ''),
       returnSegments:     retSegs.map(mapSegment),
     } : {}),
@@ -238,13 +250,15 @@ export class DuffelProvider implements SearchProvider {
   }
 
   async searchFlights(params: FlightSearchParams): Promise<NormalizedFlight[]> {
-    const slices: { origin: string; destination: string; departure_date: string; max_connections?: number }[] = [
-      { origin: params.origin, destination: params.destination, departure_date: params.departureDate,
-        ...(params.maxConnections != null ? { max_connections: params.maxConnections } : {}) },
+    // NOTE: We deliberately do NOT send max_connections to Duffel. Filters like
+    // maxConnections / avoidAirlines / viaRegions are applied client-side in
+    // aggregator.ts so that one Duffel request serves every filter combination
+    // on the same (origin, dest, dates, pax, cabin) tuple within the cache TTL.
+    const slices: { origin: string; destination: string; departure_date: string }[] = [
+      { origin: params.origin, destination: params.destination, departure_date: params.departureDate },
     ];
     if (params.returnDate) {
-      slices.push({ origin: params.destination, destination: params.origin, departure_date: params.returnDate,
-        ...(params.maxConnections != null ? { max_connections: params.maxConnections } : {}) });
+      slices.push({ origin: params.destination, destination: params.origin, departure_date: params.returnDate });
     }
 
     // Build passenger array: adults + children (2-11) + lap infants (under 2).

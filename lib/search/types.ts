@@ -10,7 +10,17 @@ export interface FlightSearchParams {
   childrenAges?: number[];  // Ages of children (2-11), each gets own seat at child fare
   infants?: number;         // Number of lap infants (under 2), no separate seat
   cabinClass: 'economy' | 'premium_economy' | 'business' | 'first';
-  maxConnections?: number; // 0 = non-stop only, 1 = max 1 stop, undefined = no limit
+
+  // ── Post-cache filters (applied client-side after Duffel) ──────────────────
+  // These are NOT part of the cache key. Changing them hits the same cache
+  // entry as long as the hard constraints above match. See lib/search/flightCache.ts.
+  maxConnections?: number;            // 0 = non-stop only, 1 = max 1 stop
+  avoidAirlines?: string[];           // IATA airline codes (e.g. ['AI']) OR display names
+  viaRegions?: Array<'pacific' | 'europe' | 'middleeast'>;
+  maxPrice?: number;                  // USD — drop flights above this
+  maxDurationMinutes?: number;        // total (outbound + return if RT) trip duration cap
+  departAfter?: string;               // ISO time (HH:MM) — earliest outbound departure
+  departBefore?: string;              // ISO time (HH:MM) — latest outbound departure
 }
 
 export interface HotelSearchParams {
@@ -47,6 +57,7 @@ export interface NormalizedFlight {
   departure: string;         // ISO8601
   arrival: string;           // ISO8601
   duration: string;          // e.g. "5h 30m"
+  durationMinutes?: number;  // outbound duration in minutes (for sort/filter)
   stops: number;
   stopAirports: string[];
   price: number;             // total in USD (cheapest variant price)
@@ -69,6 +80,7 @@ export interface NormalizedFlight {
   returnDeparture?: string;
   returnArrival?: string;
   returnDuration?: string;
+  returnDurationMinutes?: number;
   returnStops?: number;
   returnStopAirports?: string[];
   returnSegments?: Array<{

@@ -37,8 +37,15 @@ let storeCount = 0;
 let evictCount = 0;
 
 // ─── Key derivation ────────────────────────────────────────────────────────
-// Normalize the params object so semantically-equal queries hash to the same
-// key. Order-independent for arrays (childrenAges), case-insensitive for IATA.
+// Includes ONLY the hard constraints Duffel can't undo client-side:
+//   origin, destination, dates, pax counts, cabin class.
+// Does NOT include: maxConnections, avoidAirlines, viaRegions, maxPrice,
+// maxDurationMinutes, departAfter, departBefore. Those are applied by
+// applyFlightFilters() in aggregator.ts against the cached result.
+//
+// Consequence: a single Duffel roundtrip serves every filter combination a
+// user explores within the TTL. Follow-ups like "only direct" or "avoid AI"
+// become ~0ms operations instead of 8-15s calls.
 
 function makeKey(p: FlightSearchParams): string {
   return JSON.stringify({
@@ -50,7 +57,6 @@ function makeKey(p: FlightSearchParams): string {
     c:  (p.childrenAges ?? []).slice().sort((a, b) => a - b),
     i:  p.infants                    ?? 0,
     cc: p.cabinClass                 ?? 'economy',
-    mc: p.maxConnections             ?? null,
   });
 }
 
