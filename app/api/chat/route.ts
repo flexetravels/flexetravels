@@ -37,6 +37,7 @@ import { geminiDestinationGuide, geminiAlternatives } from '@/lib/ai/gemini';
 import { compressMessageHistory } from '@/lib/utils';
 import { logger } from '@/lib/logger';
 import { db, DB_AVAILABLE } from '@/lib/db/client';
+import { buildSystemFromSkills } from '@/lib/skills/loader';
 
 export const maxDuration = 120;
 
@@ -45,8 +46,23 @@ export const maxDuration = 120;
 // Safety/compliance rules go FIRST (highest weight in attention).
 // Destination-specific rules injected only when relevant.
 // ~350 tokens base + ~150 tokens per active module = leaves 4000+ tokens for response.
+//
+// ─── v1 legacy / v2 skills selector ──────────────────────────────────────────
+// Set FLEXE_PROMPT_VERSION=skills to switch to the skills-based composition
+// (.claude/skills/*/SKILL.md files + lib/skills/loader.ts). Absent or any other
+// value keeps the original monolithic prompt below — this is the safe rollback
+// path and the production default. See .claude/skills/README.md for the design.
 
 function buildSystem(lastUserMsg?: string, state?: string): string {
+  if (process.env.FLEXE_PROMPT_VERSION === 'skills') {
+    return buildSystemFromSkills(lastUserMsg, state);
+  }
+  return buildSystemLegacy(lastUserMsg, state);
+}
+
+// Original monolithic prompt — preserved verbatim. DO NOT modify this function.
+// Any prompt tweaks should go into .claude/skills/*/SKILL.md (v2 path).
+function buildSystemLegacy(lastUserMsg?: string, state?: string): string {
   const now       = new Date();
   const todayISO  = now.toISOString().split('T')[0];
   const yr        = now.getFullYear();
