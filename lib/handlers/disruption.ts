@@ -1,4 +1,4 @@
-// ─── Disruption Agent ─────────────────────────────────────────────────────────
+// ─── Disruption Handler ─────────────────────────────────────────────────────────
 // Processes Duffel / LiteAPI disruption events and decides the right action.
 //
 // Decision logic:
@@ -126,7 +126,7 @@ function decideAction(
 
 // ─── Main disruption agent ────────────────────────────────────────────────────
 
-export const disruptionAgent = {
+export const disruptionHandler = {
   async handle(event: DisruptionEvent): Promise<AgentResult<DisruptionAction>> {
     const t0 = Date.now();
 

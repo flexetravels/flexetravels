@@ -1,4 +1,4 @@
-// ─── Ranking Agent ─────────────────────────────────────────────────────────────
+// ─── Ranking Handler ─────────────────────────────────────────────────────────────
 // Fetches raw flights from Duffel, scores flexibility, ranks by weighted score.
 //
 // Rank formula (each component normalised 0–1, then weighted):
@@ -61,7 +61,7 @@ function computeRankScores(
   });
 }
 
-export const rankingAgent = {
+export const rankingHandler = {
   /**
    * Search Duffel + rank results by flexibility + value.
    */

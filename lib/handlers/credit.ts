@@ -1,4 +1,4 @@
-// ─── Credit Agent ─────────────────────────────────────────────────────────────
+// ─── Credit Handler ─────────────────────────────────────────────────────────────
 // Manages FlexeTravels travel credits issued on cancellations, disruptions,
 // and any manual adjustments.
 //
@@ -16,7 +16,7 @@ import { db } from '@/lib/db/client';
 
 // ─── Credit agent ─────────────────────────────────────────────────────────────
 
-export const creditAgent = {
+export const creditHandler = {
   /**
    * Summarise all available credits for a session.
    */
@@ -114,7 +114,7 @@ export const creditAgent = {
   }): Promise<AgentResult<{ appliedCents: number; redeemedIds: string[] }>> {
     const t0 = Date.now();
     try {
-      const summary = await creditAgent.getSummary(params.sessionId);
+      const summary = await creditHandler.getSummary(params.sessionId);
       if (!summary.ok || !summary.data) {
         return { ok: false, error: summary.error ?? 'Could not fetch credits', durationMs: Date.now() - t0 };
       }
