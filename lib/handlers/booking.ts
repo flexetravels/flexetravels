@@ -1,4 +1,4 @@
-// ─── Booking Agent ─────────────────────────────────────────────────────────────
+// ─── Booking Handler ─────────────────────────────────────────────────────────────
 // Coordinates flight (Duffel) + hotel (LiteAPI) booking in sequence,
 // then creates a Stripe PaymentIntent for the $20 FlexeTravels service fee.
 //
@@ -435,7 +435,7 @@ async function bookDuffelFlight(
 
 // ─── Main booking agent ───────────────────────────────────────────────────────
 
-export const bookingAgent = {
+export const bookingHandler = {
   async book(req: BookingRequest): Promise<AgentResult<BookingResult>> {
     const t0 = Date.now();
 

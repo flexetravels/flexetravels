@@ -37,6 +37,10 @@ import { geminiDestinationGuide, geminiAlternatives } from '@/lib/ai/gemini';
 import { compressMessageHistory } from '@/lib/utils';
 import { logger } from '@/lib/logger';
 import { db, DB_AVAILABLE } from '@/lib/db/client';
+import { buildSystemFromSkills } from '@/lib/skills/loader';
+import { runCritic } from '@/lib/critic/deterministic';
+import { logEvent } from '@/lib/logger';
+import type { NormalizedFlight, NormalizedHotel } from '@/lib/search/types';
 
 export const maxDuration = 120;
 
@@ -45,8 +49,23 @@ export const maxDuration = 120;
 // Safety/compliance rules go FIRST (highest weight in attention).
 // Destination-specific rules injected only when relevant.
 // ~350 tokens base + ~150 tokens per active module = leaves 4000+ tokens for response.
+//
+// ─── v1 legacy / v2 skills selector ──────────────────────────────────────────
+// Set FLEXE_PROMPT_VERSION=skills to switch to the skills-based composition
+// (.claude/skills/*/SKILL.md files + lib/skills/loader.ts). Absent or any other
+// value keeps the original monolithic prompt below — this is the safe rollback
+// path and the production default. See .claude/skills/README.md for the design.
 
 function buildSystem(lastUserMsg?: string, state?: string): string {
+  if (process.env.FLEXE_PROMPT_VERSION === 'skills') {
+    return buildSystemFromSkills(lastUserMsg, state);
+  }
+  return buildSystemLegacy(lastUserMsg, state);
+}
+
+// Original monolithic prompt — preserved verbatim. DO NOT modify this function.
+// Any prompt tweaks should go into .claude/skills/*/SKILL.md (v2 path).
+function buildSystemLegacy(lastUserMsg?: string, state?: string): string {
   const now       = new Date();
   const todayISO  = now.toISOString().split('T')[0];
   const yr        = now.getFullYear();
@@ -411,6 +430,15 @@ export async function POST(req: Request) {
     execute: async (dataStream) => {
       const requestStart = Date.now();
 
+      // Capture tool results across steps so the post-generation critic can
+      // verify the assistant text matches the underlying data. Overwritten on
+      // each tool call — only the LATEST search is checked, which matches how
+      // Maya actually presents results (one search per turn typically).
+      let criticFlights:      NormalizedFlight[] | undefined;
+      let criticHotels:       NormalizedHotel[]  | undefined;
+      let criticFlightOrigin: string | undefined;
+      let criticFlightDep:    string | undefined;
+
       const result = streamText({
         model:     anthropic('claude-sonnet-4-6'),
         system:    buildSystem(lastUserContent, conversationState),
@@ -425,6 +453,7 @@ export async function POST(req: Request) {
         description:
           'Search flights via Duffel. Returns best-priced options ranked cheapest first. All results are confirmed-bookable through Duffel (IATA-accredited).',
         parameters: z.object({
+          // Hard constraints (cache key) — changing these triggers a new Duffel fetch.
           origin:        z.string().describe('Origin IATA airport code e.g. YVR, JFK'),
           destination:   z.string().describe('Destination IATA airport code e.g. CUN, NRT, LHR'),
           departureDate: z.string().describe('Departure date YYYY-MM-DD'),
@@ -433,7 +462,17 @@ export async function POST(req: Request) {
           childrenAges:  z.array(z.number().int().min(2).max(11)).optional().describe('Ages of children 2-11 only. Each gets own seat at child fare. Do NOT include age 0-1 here — use infants= instead. Ages 12+ go in adults count.'),
           infants:       z.number().int().min(0).max(4).optional().default(0).describe('Number of lap infants under age 2. No separate seat, rides on adult lap. Must not exceed adults count.'),
           cabinClass:    z.enum(['economy', 'premium_economy', 'business', 'first']).default('economy'),
-          maxConnections: z.number().int().min(0).max(2).optional().describe('Maximum connections (stops) per leg. 0 = non-stop/direct only, 1 = max 1 stop. Omit for no limit. Use when user asks for "non-stop", "direct", or "no stops".'),
+
+          // Post-cache filters — applied in-memory against the cached result,
+          // so changing these does NOT trigger a new Duffel call when the hard
+          // constraints above match a recent query.
+          maxConnections:     z.number().int().min(0).max(2).optional().describe('Max stops per leg. 0=non-stop, 1=max 1 stop. Use for "non-stop", "direct", "no stops", "no layovers".'),
+          avoidAirlines:      z.array(z.string()).optional().describe('Airline IATA codes OR names to exclude, e.g. ["AI"] or ["Air India"]. Use when user says "avoid X" or "not X".'),
+          viaRegions:         z.array(z.enum(['pacific', 'europe', 'middleeast'])).optional().describe('Preferred connection regions. Use for "via Pacific" ⇒ ["pacific"], "via Europe" ⇒ ["europe"], "via Middle East" ⇒ ["middleeast"]. Filters to flights with at least one connection in the region\'s hubs.'),
+          maxPrice:           z.number().positive().optional().describe('Max total price (USD). Use for "under $X".'),
+          maxDurationMinutes: z.number().int().positive().optional().describe('Max total trip duration in minutes (outbound + return). Use for "under 8 hours" ⇒ 480, "max 12h" ⇒ 720.'),
+          departAfter:        z.string().regex(/^\d{2}:\d{2}$/).optional().describe('Earliest outbound departure time, 24h HH:MM (e.g. "08:00"). Use for "no red-eyes" ⇒ "06:00".'),
+          departBefore:       z.string().regex(/^\d{2}:\d{2}$/).optional().describe('Latest outbound departure time, 24h HH:MM. Use for "morning flights" ⇒ "12:00".'),
         }),
         execute: async (params) => {
           // Defence-in-depth: validate params even though Zod already type-checked them.
@@ -475,6 +514,11 @@ export async function POST(req: Request) {
             dataStream.writeData(JSON.parse(JSON.stringify({ type: 'flights', data: r.flights })));
           }
           console.log(`[timing] searchFlights done in ${Date.now() - requestStart}ms, ${r.flights.length} results`);
+
+          // Capture for post-generation critic
+          criticFlights      = r.flights;
+          criticFlightOrigin = params.origin;
+          criticFlightDep    = params.departureDate;
 
           // Return only a compact summary to Claude — no full card JSON
           if (r.flights.length === 0) {
@@ -658,13 +702,22 @@ export async function POST(req: Request) {
         description:
           'Search hotels at destination with live rates from LiteAPI (1M+ properties). Falls back to sample data if unavailable. Returns real photos, amenities, and bookable rates.',
         parameters: z.object({
-          destination:  z.string().describe('City name or IATA code e.g. "Cancun" or "CUN"'),
-          checkIn:      z.string().describe('Check-in date YYYY-MM-DD'),
-          checkOut:     z.string().describe('Check-out date YYYY-MM-DD'),
-          adults:       z.number().int().min(1).max(9).default(1),
-          childrenAges: z.array(z.number().int().min(0).max(17)).optional().describe('Ages of children sharing the room'),
-          maxPrice:     z.number().optional().describe('Max price per night in USD'),
-          stars:        z.number().int().min(1).max(5).optional().describe('Minimum star rating'),
+          // Hard constraints (cache key) — changing these triggers a new LiteAPI fetch.
+          destination:   z.string().describe('City name or IATA code e.g. "Cancun" or "CUN"'),
+          checkIn:       z.string().describe('Check-in date YYYY-MM-DD'),
+          checkOut:      z.string().describe('Check-out date YYYY-MM-DD'),
+          adults:        z.number().int().min(1).max(9).default(1),
+          childrenAges:  z.array(z.number().int().min(0).max(17)).optional().describe('Ages of children sharing the room'),
+
+          // Post-cache filters — applied against the cached hotel list. Changing
+          // these does NOT trigger a new LiteAPI call when destination/dates/pax match.
+          maxPrice:         z.number().positive().optional().describe('Max price per night in USD. Use for "under $X" / "budget".'),
+          stars:            z.number().int().min(1).max(5).optional().describe('Minimum star rating. Use for "5-star" ⇒ 5, "4-star or above" ⇒ 4.'),
+          minRating:        z.number().min(0).max(10).optional().describe('Minimum guest rating on 0–10 scale. Use for "well-reviewed" ⇒ 8, "highly rated" ⇒ 8.5.'),
+          minReviewCount:   z.number().int().min(0).optional().describe('Minimum number of reviews. Use to avoid obscure properties — typical values 50-200.'),
+          amenities:        z.array(z.string()).optional().describe('Required amenities, case-insensitive substring match. Examples: ["Pool"], ["Free WiFi", "Gym"], ["Breakfast"], ["Spa"]. Use when user says "with a pool", "gym required", etc.'),
+          boardType:        z.enum(['RO', 'BB', 'HB', 'FB', 'AI']).optional().describe('Board type: RO=Room Only, BB=Bed & Breakfast, HB=Half Board, FB=Full Board, AI=All-Inclusive. Use for "all-inclusive" ⇒ "AI", "with breakfast" ⇒ "BB".'),
+          freeCancellation: z.boolean().optional().describe('Only show hotels with free cancellation. Use for "refundable" / "cancellable".'),
         }),
         execute: async (params) => {
           // Defence-in-depth: validate hotel params (dates, price bounds).
@@ -745,6 +798,9 @@ export async function POST(req: Request) {
             dataStream.writeData(JSON.parse(JSON.stringify({ type: 'hotels', data: hotels })));
           }
           console.log(`[timing] searchHotels done in ${Date.now() - requestStart}ms, ${hotels.length} results`);
+
+          // Capture for post-generation critic
+          criticHotels = hotels;
 
           // Return only a compact summary to Claude — no full card JSON
           if (hotels.length === 0) {
@@ -859,6 +915,9 @@ export async function POST(req: Request) {
           dataStream.writeData(JSON.parse(JSON.stringify({ type: 'hotels', data: hotels })));
           console.log(`[timing] searchNearbyHotels done in ${Date.now() - requestStart}ms, ${hotels.length} results across ${searchedCities.join(', ')}`);
 
+          // Capture for post-generation critic
+          criticHotels = hotels;
+
           if (hotels.length === 0) {
             return { summary: `No hotels found in nearby areas: ${searchedCities.join(', ')}. Try different areas or dates.`, hotelCount: 0 };
           }
@@ -955,6 +1014,39 @@ export async function POST(req: Request) {
     },
 
         toolChoice: 'auto',
+
+        // ─── Deterministic critic (Phase 5) ─────────────────────────────────
+        // Runs after streaming finishes. Pure-function checks against the
+        // skill rules; observes drift in /admin without modifying the
+        // response. Disabled entirely if FLEXE_CRITIC=off.
+        onFinish: ({ text }) => {
+          if (process.env.FLEXE_CRITIC === 'off') return;
+          try {
+            const report = runCritic(text, {
+              lastUserMessage:     lastUserContent,
+              flightResults:       criticFlights,
+              hotelResults:        criticHotels,
+              flightOrigin:        criticFlightOrigin,
+              flightDepartureDate: criticFlightDep,
+              conversationState,
+            });
+            logEvent({
+              event:     'critic_check',
+              api:       'system',
+              level:     report.passed ? 'info' : 'warn',
+              success:   report.passed,
+              sessionId,
+              detail: {
+                ranCount:  report.ranCount,
+                issues:    report.issues,
+                errorCount: report.issues.filter(i => i.severity === 'error').length,
+                warnCount:  report.issues.filter(i => i.severity === 'warn').length,
+              },
+            });
+          } catch (err) {
+            console.warn('[critic] runCritic threw (non-fatal):', err);
+          }
+        },
       });
 
       result.mergeIntoDataStream(dataStream);

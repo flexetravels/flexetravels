@@ -1,4 +1,4 @@
-// ─── Planner Agent ────────────────────────────────────────────────────────────
+// ─── Planner Handler ────────────────────────────────────────────────────────────
 // Validates and enriches a TripIntent before it hits the search/ranking layer.
 //
 // Responsibilities:
@@ -28,7 +28,7 @@ const CABIN_MAP: Record<string, TripIntent['cabinClass']> = {
   'first class':   'first',
 };
 
-export const plannerAgent = {
+export const plannerHandler = {
   /**
    * Validate and enrich a TripIntent.
    * Returns the original intent (possibly enriched) or an error.

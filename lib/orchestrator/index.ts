@@ -19,12 +19,12 @@ import type {
   AgentResult, ScoredFlight,
 } from './types';
 import { db, DB_AVAILABLE } from '@/lib/db/client';
-import { plannerAgent }      from '@/lib/agents/planner';
-import { rankingAgent }      from '@/lib/agents/ranking';
-import { bookingAgent }      from '@/lib/agents/booking';
-import { cancellationAgent } from '@/lib/agents/cancellation';
-import { disruptionAgent }   from '@/lib/agents/disruption';
-import { creditAgent }       from '@/lib/agents/credit';
+import { plannerHandler }      from '@/lib/handlers/planner';
+import { rankingHandler }      from '@/lib/handlers/ranking';
+import { bookingHandler }      from '@/lib/handlers/booking';
+import { cancellationHandler } from '@/lib/handlers/cancellation';
+import { disruptionHandler }   from '@/lib/handlers/disruption';
+import { creditHandler }       from '@/lib/handlers/credit';
 
 export { DB_AVAILABLE };
 
@@ -40,13 +40,13 @@ export async function searchAndRank(
   const t0 = Date.now();
   try {
     // Planner validates + enriches the intent (IATA resolution, date checks)
-    const planned = await plannerAgent.plan(intent);
+    const planned = await plannerHandler.plan(intent);
     if (!planned.ok) {
       return { ok: false, error: planned.error, durationMs: Date.now() - t0 };
     }
 
     // Ranking agent fetches from Duffel, scores flexibility, ranks by weights
-    const ranked = await rankingAgent.rank(planned.data!);
+    const ranked = await rankingHandler.rank(planned.data!);
     return { ...ranked, durationMs: Date.now() - t0 };
   } catch (e) {
     return { ok: false, error: String(e), durationMs: Date.now() - t0 };
@@ -64,7 +64,7 @@ export async function book(
 ): Promise<AgentResult<BookingResult>> {
   const t0 = Date.now();
   try {
-    const result = await bookingAgent.book(req);
+    const result = await bookingHandler.book(req);
     if (result.ok && result.data) {
       await _persistBooking(req, result.data);
     }
@@ -85,7 +85,7 @@ export async function cancel(
 ): Promise<AgentResult<CancellationResult>> {
   const t0 = Date.now();
   try {
-    const result = await cancellationAgent.cancel(req);
+    const result = await cancellationHandler.cancel(req);
     if (result.ok && result.data) {
       await _persistCancellation(req, result.data);
     }
@@ -115,7 +115,7 @@ export async function handleDisruption(
       processed:  false,
     });
 
-    const result = await disruptionAgent.handle(event);
+    const result = await disruptionHandler.handle(event);
 
     // Mark event processed
     if (result.ok) {
@@ -135,7 +135,7 @@ export async function handleDisruption(
  * Get all available credits for a session.
  */
 export async function getCredits(sessionId: string) {
-  return creditAgent.getSummary(sessionId);
+  return creditHandler.getSummary(sessionId);
 }
 
 // ─── Trip State ───────────────────────────────────────────────────────────────

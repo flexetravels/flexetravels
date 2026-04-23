@@ -1,4 +1,4 @@
-// ─── Cancellation Agent ────────────────────────────────────────────────────────
+// ─── Cancellation Handler ────────────────────────────────────────────────────────
 // Four-tier cancellation strategy:
 //
 //   Tier 1 — API cancellation (Duffel /air/orders/{id}/actions/cancel)
@@ -161,7 +161,7 @@ function userGuidedInstructions(
 
 // ─── Main cancellation agent ──────────────────────────────────────────────────
 
-export const cancellationAgent = {
+export const cancellationHandler = {
   async cancel(req: CancellationRequest): Promise<AgentResult<CancellationResult>> {
     const t0 = Date.now();
 
