@@ -277,8 +277,13 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
   const displayPrice    = activeVariant?.price              ?? flight.price;
   const displayCurrency = activeVariant?.currency           ?? flight.currency;
 
-  // Multi-city: 3+ legs (outbound + connections + final). Round-trip is a 2-leg loop.
-  const isMultiCity = (flight.legs?.length ?? 0) >= 3;
+  // Multi-city: any N-leg itinerary that ISN'T a simple round-trip.
+  // - 1 leg  → one-way (isMultiCity false)
+  // - 2 legs, origin[0]=dest[last] & dest[0]=origin[last] → round-trip (isMultiCity false)
+  // - 2 legs, A→B + B→C (e.g. BLR→BKK→YVR on one ticket) → multi-city ✓
+  // - 3+ legs → multi-city ✓
+  const legCount   = flight.legs?.length ?? 0;
+  const isMultiCity = legCount >= 3 || (legCount === 2 && !flight.isRoundTrip);
 
   // Home-currency conversion for the price line (e.g. "~ CA$1,640" under the USD total).
   const { homeCurrency, rates } = useCurrency();
