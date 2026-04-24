@@ -57,7 +57,11 @@ export interface FlightResult {
   // ── Child / infant fare transparency ──────────────────────────────────────
   childFareNote?: string;             // Set when airline doesn't price children in search;
                                       // adult fare shown — child seat confirmed at booking
-  // ── Round-trip return leg ─────────────────────────────────────────────────
+  // ── N-leg itinerary (includes multi-city). Always length ≥ 1 when populated. ─
+  // Prefer this over the legacy returnXxx fields below. legs[0] is outbound;
+  // for round-trips legs.length === 2; for multi-city it is 3+.
+  legs?: FlightLeg[];
+  // ── Round-trip return leg (legacy — kept for back-compat) ─────────────────
   isRoundTrip?: boolean;              // true when offer has 2 slices (outbound + return)
   returnOrigin?: string;              // IATA — return leg origin (= main destination)
   returnDestination?: string;         // IATA — return leg destination (= main origin)
@@ -67,6 +71,18 @@ export interface FlightResult {
   returnStops?: number;               // stops on the return leg
   returnStopAirports?: string[];      // stop airport codes on the return leg
   returnSegments?: FlightSegment[];   // full segment breakdown of the return leg
+}
+
+// Generic itinerary leg used by multi-city (N-leg) searches.
+export interface FlightLeg {
+  origin:       string;   // IATA
+  destination:  string;   // IATA
+  departure:    string;   // ISO8601
+  arrival:      string;   // ISO8601
+  duration:     string;   // e.g. "5h 30m"
+  stops:        number;
+  stopAirports: string[];
+  segments:     FlightSegment[];
 }
 
 export interface HotelResult {

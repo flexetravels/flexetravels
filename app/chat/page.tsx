@@ -16,6 +16,7 @@ import {
 import { ChatMessage, TypingIndicator } from '@/components/ChatMessage';
 import { ItinerarySidebar } from '@/components/ItinerarySidebar';
 import { HotelDetailModal } from '@/components/HotelDetailModal';
+import { CurrencyPicker } from '@/components/CurrencyPicker';
 import { cn, generateSessionId, detectCommand } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
 import type { Itinerary, ItineraryDay, FlightResult, HotelResult } from '@/lib/types';
@@ -790,6 +791,7 @@ export default function ChatPage() {
                   <RotateCcw className="w-4 h-4" />
                 </button>
               )}
+              <CurrencyPicker className="mr-1" />
               <ThemeToggle />
             </div>
           </header>

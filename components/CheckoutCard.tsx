@@ -13,8 +13,9 @@ import {
   CheckCircle2, AlertCircle, Loader2, Lock, X, ArrowRight, ArrowLeft,
   ChevronDown, ChevronUp, Clock,
 } from 'lucide-react';
-import { cn, formatPrice, formatDate, formatTime, iataToCity } from '@/lib/utils';
+import { cn, formatPrice, formatDate, formatTime, iataToCity, formatMoneyDual } from '@/lib/utils';
 import type { FlightResult, HotelResult } from '@/lib/types';
+import { useCurrency } from '@/components/CurrencyContext';
 
 // ─── Stripe CDN loader ─────────────────────────────────────────────────────────
 
@@ -808,6 +809,19 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
   const [termsAccepted, setTermsAccepted] = useState(false);
   // MEDIUM severity: Nationality selection — applies to all passengers
   const [nationality, setNationality] = useState('CA');
+
+  // ── Home-currency display (dual-currency conversion) ──────────────────────
+  // `convertedFlight` shows "~ CA$1,640" under the flight fare; `convertedHotel`
+  // does the same for the hotel total. Falls back to null when rates aren't loaded
+  // or when charge currency already matches the user's home currency.
+  const { homeCurrency: fxHome, rates: fxRates } = useCurrency();
+  const convertedFlight = flight
+    ? formatMoneyDual(flight.price, flight.currency, fxHome, fxRates).secondary
+    : null;
+  const convertedHotel  = hotel
+    ? formatMoneyDual(hotel.totalPrice, hotel.currency, fxHome, fxRates).secondary
+    : null;
+  const convertedServiceFee = formatMoneyDual(20, 'USD', fxHome, fxRates).secondary;
 
   // ── LiteAPI payment SDK state (production only) ─────────────────────────────
   // Populated when /api/book-trip returns requiresHotelPayment: true.
@@ -1614,7 +1628,10 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                 <>
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
                     <span>Flight ({flight.origin} → {flight.destination})</span>
-                    <span>{formatPrice(flight.price, flight.currency)}</span>
+                    <span className="text-right">
+                      {formatPrice(flight.price, flight.currency)}
+                      {convertedFlight && <span className="block text-[10px] text-muted-foreground/60">{convertedFlight}</span>}
+                    </span>
                   </div>
                   {/* Per-passenger breakdown when mixed adults + children */}
                   {children > 0 && (() => {
@@ -1647,7 +1664,10 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
               {hotel && !hotel.isSample && (
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>Hotel ({hotel.name})</span>
-                  <span>{formatPrice(hotel.totalPrice, hotel.currency)}</span>
+                  <span className="text-right">
+                    {formatPrice(hotel.totalPrice, hotel.currency)}
+                    {convertedHotel && <span className="block text-[10px] text-muted-foreground/60">{convertedHotel}</span>}
+                  </span>
                 </div>
               )}
               <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -1655,7 +1675,10 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                   <Lock className="w-3 h-3" />
                   FlexeTravels service fee
                 </div>
-                <span className="text-teal-700 dark:text-teal-300 font-bold">{feeDisplay}</span>
+                <span className="text-right">
+                  <span className="text-teal-700 dark:text-teal-300 font-bold">{feeDisplay}</span>
+                  {convertedServiceFee && <span className="block text-[10px] text-muted-foreground/60">{convertedServiceFee}</span>}
+                </span>
               </div>
             </div>
 
@@ -2060,45 +2083,44 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
 
               {/* ── Cost breakdown ───────────────────────────────────────── */}
               <div className="border border-border/50 rounded-xl overflow-hidden">
-                {/* ── Card charge section ────────────────────────── */}
+                {/* ── Card charge section — ONLY the service fee ($20 USD) ─ */}
                 <div className="px-3 pt-3 pb-2 space-y-2">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1">
                     <Lock className="w-3 h-3" /> Charged to your card now
                   </p>
-                  {flight && (
-                    <div>
-                      <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">
-                          ✈ Flight · {flight.airline} · {flight.origin} → {flight.destination}
-                        </span>
-                        <span className="font-semibold text-foreground flex-shrink-0 ml-2">
-                          {formatPrice(flight.price, flight.currency)}
-                        </span>
-                      </div>
-                      {/* MEDIUM severity: Child pricing disclosure */}
-                      {children > 0 && flight && (
-                        <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 leading-tight">
-                          Note: Child fares may differ from adult pricing shown. Final child seat prices are confirmed at booking time by the airline.
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  {!flight && (
-                    <p className="text-xs text-muted-foreground italic">No flight selected</p>
-                  )}
                   <div className="flex justify-between text-xs">
                     <span className="text-muted-foreground">FlexeTravels service fee</span>
                     <span className="font-semibold text-teal-700 dark:text-teal-300 flex-shrink-0 ml-2">{feeDisplay}</span>
                   </div>
-                  {flight && (
-                    <div className="flex justify-between text-xs border-t border-border/40 pt-2 mt-1">
-                      <span className="font-bold text-foreground">Total charged via card</span>
-                      <span className="font-black text-foreground flex-shrink-0 ml-2">
-                        {formatPrice((flight.price ?? 0) + 20, flight.currency)}
+                </div>
+
+                {/* ── Flight fare — charged separately by the airline ─────── */}
+                {flight && (
+                  <div className="px-3 pt-2 pb-3 border-t border-border/40 bg-muted/20 space-y-1.5">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                      Flight fare — charged by airline
+                    </p>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">
+                        ✈ {flight.airline} · {flight.origin} → {flight.destination}
+                      </span>
+                      <span className="font-semibold text-foreground flex-shrink-0 ml-2">
+                        {formatPrice(flight.price, flight.currency)}
                       </span>
                     </div>
-                  )}
-                </div>
+                    {children > 0 && (
+                      <p className="text-[10px] text-amber-600 dark:text-amber-400 leading-tight">
+                        Note: Child fares may differ from adult pricing shown. Final child seat prices are confirmed at booking time by the airline.
+                      </p>
+                    )}
+                    <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
+                      The airline charges the flight directly in {flight.currency}. Your bank may apply a small FX fee when settling in your home currency.
+                    </p>
+                  </div>
+                )}
+                {!flight && (
+                  <p className="px-3 py-2 text-xs text-muted-foreground italic border-t border-border/40">No flight selected</p>
+                )}
 
                 {/* ── Hotel — separate payment ──────────────────── */}
                 {hotel && !hotel.isSample && (
@@ -2129,10 +2151,15 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                 </p>
                 <ol className="text-xs text-teal-700/80 dark:text-teal-400/70 leading-relaxed space-y-0.5 list-decimal list-inside">
                   <li>
-                    Your card is charged{' '}
-                    <strong>{formatPrice((flight?.price ?? 0) + 20, flight?.currency ?? 'USD')}</strong>
-                    {' '}(flight fare + {feeDisplay} service fee).
+                    Your card is charged <strong>{feeDisplay}</strong> for the FlexeTravels service fee.
                   </li>
+                  {flight && (
+                    <li>
+                      {flight.airline} charges the flight fare
+                      {' '}<strong>{formatPrice(flight.price, flight.currency)}</strong>
+                      {' '}directly to the same card in {flight.currency}.
+                    </li>
+                  )}
                   <li>We instantly confirm your flight with {flight?.airline ?? 'the airline'}.</li>
                   {hotel && !hotel.isSample && (
                     <li>
@@ -2193,7 +2220,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
               >
                 {preparing
                   ? <><Loader2 className="w-4 h-4 animate-spin" /> Setting up payment…</>
-                  : <><Lock className="w-4 h-4" /> Pay {formatPrice((flight?.price ?? 0) + 20, flight?.currency ?? 'USD')} <ArrowRight className="w-4 h-4" /></>
+                  : <><Lock className="w-4 h-4" /> Pay {feeDisplay} <ArrowRight className="w-4 h-4" /></>
                 }
               </button>
             </div>
@@ -2211,27 +2238,23 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1">
                 <Lock className="w-3 h-3" /> Charging to your card now
               </p>
-              {flight && (
-                <div className="flex justify-between text-muted-foreground">
-                  <span>✈ Flight · {flight.origin} → {flight.destination} ({flight.airline})</span>
-                  <span className="font-semibold text-foreground ml-2 flex-shrink-0">{formatPrice(flight.price, flight.currency)}</span>
-                </div>
-              )}
               <div className="flex justify-between text-muted-foreground">
                 <span>FlexeTravels service fee</span>
-                <span className="font-semibold text-teal-700 dark:text-teal-300 ml-2 flex-shrink-0">{feeDisplay}</span>
-              </div>
-              <div className="flex justify-between border-t border-border/40 pt-1.5 mt-0.5">
-                <span className="font-bold text-foreground">Total charged now</span>
-                <span className="font-black text-foreground ml-2 flex-shrink-0">
+                <span className="font-semibold text-teal-700 dark:text-teal-300 ml-2 flex-shrink-0">
                   {stripeTotal > 0
                     ? formatPrice(stripeTotal / 100, stripeCurrency)
-                    : formatPrice((flight?.price ?? 0) + 20, flight?.currency ?? 'USD')}
+                    : feeDisplay}
                 </span>
               </div>
-              {hotel && !hotel.isSample && (
+              {flight && (
                 <div className="pt-1 border-t border-border/30 flex justify-between text-muted-foreground/70">
-                  <span>🏨 Hotel paid separately after booking</span>
+                  <span>✈ Flight fare · charged by {flight.airline}</span>
+                  <span className="ml-2 flex-shrink-0">{formatPrice(flight.price, flight.currency)}</span>
+                </div>
+              )}
+              {hotel && !hotel.isSample && (
+                <div className="flex justify-between text-muted-foreground/70">
+                  <span>🏨 Hotel · paid separately after booking</span>
                   <span className="ml-2 flex-shrink-0">{formatPrice(hotel.totalPrice, hotel.currency)}</span>
                 </div>
               )}
@@ -2261,7 +2284,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
               <Lock className="w-3.5 h-3.5" />
               Pay {stripeTotal > 0
                 ? formatPrice(stripeTotal / 100, stripeCurrency)
-                : formatPrice((flight?.price ?? 0) + 20, flight?.currency ?? 'USD')} securely
+                : feeDisplay} securely
             </button>
             <p className="text-center text-[10px] text-muted-foreground/50">
               256-bit encrypted payment · PCI-DSS compliant · Card details never stored

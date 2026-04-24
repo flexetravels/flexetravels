@@ -14,7 +14,8 @@ import {
   Users, ShieldCheck, ShieldOff, Loader2,
 } from 'lucide-react';
 import { useState, useCallback, useMemo } from 'react';
-import { cn, formatPrice, formatDate } from '@/lib/utils';
+import { cn, formatPrice, formatDate, formatMoneyDual } from '@/lib/utils';
+import { useCurrency } from '@/components/CurrencyContext';
 import type { HotelResult } from '@/lib/types';
 
 interface HotelCardProps {
@@ -442,6 +443,11 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
 
   const ariaLabel = `${hotel.name}, ${displayStars} stars, ${formatPrice(effectiveHotel.pricePerNight, effectiveHotel.currency)} per night in ${hotel.location}`;
 
+  // Home-currency conversion lines for per-night + total price.
+  const { homeCurrency, rates } = useCurrency();
+  const { secondary: ppnConverted }   = formatMoneyDual(effectiveHotel.pricePerNight, effectiveHotel.currency, homeCurrency, rates);
+  const { secondary: totalConverted } = formatMoneyDual(effectiveHotel.totalPrice,    effectiveHotel.currency, homeCurrency, rates);
+
   return (
     <div
       role="article"
@@ -659,6 +665,12 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
               </span>
               <span className="text-xs text-muted-foreground">/night</span>
             </div>
+            {ppnConverted && (
+              <p className="text-[10px] text-muted-foreground/70 mt-0.5 leading-none"
+                 title={`Approximate conversion at daily rate. Charge is in ${effectiveHotel.currency}.`}>
+                {ppnConverted}/night
+              </p>
+            )}
             {hotel.roomCount && hotel.roomCount > 1 && (
               <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium mt-0.5">
                 {hotel.roomCount} rooms · {formatPrice(Math.round(effectiveHotel.pricePerNight / hotel.roomCount * 100) / 100, effectiveHotel.currency)}/room
@@ -667,6 +679,9 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
             {nights && (
               <p className="text-[11px] text-muted-foreground/80 mt-0.5">
                 {formatPrice(effectiveHotel.totalPrice, effectiveHotel.currency)} total
+                {totalConverted && (
+                  <span className="text-muted-foreground/60"> · {totalConverted}</span>
+                )}
               </p>
             )}
             {effectiveHotel.cancellation ? (

@@ -48,11 +48,17 @@ let evictCount = 0;
 // become ~0ms operations instead of 8-15s calls.
 
 function makeKey(p: FlightSearchParams): string {
+  // For multi-city searches the cache key is the full slice chain. Otherwise
+  // we key on origin/destination/dates as before.
+  const sliceKey = (p.slices && p.slices.length >= 2)
+    ? p.slices.map(s => `${s.origin?.toUpperCase()}-${s.destination?.toUpperCase()}-${s.departureDate}`).join('|')
+    : '';
   return JSON.stringify({
     o:  p.origin?.toUpperCase()      ?? '',
     d:  p.destination?.toUpperCase() ?? '',
     dd: p.departureDate              ?? '',
     rd: p.returnDate                 ?? '',
+    s:  sliceKey,
     a:  p.adults                     ?? 1,
     c:  (p.childrenAges ?? []).slice().sort((a, b) => a - b),
     i:  p.infants                    ?? 0,

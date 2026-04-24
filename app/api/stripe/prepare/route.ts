@@ -1,27 +1,26 @@
 // ─── /api/stripe/prepare ─────────────────────────────────────────────────────
-// Creates a Stripe PaymentIntent for:
-//   • Flight fare     — the actual ticket price shown to the user
-//   • Service fee     — FlexeTravels flat $20 booking fee
-//
-// Both are collected in a SINGLE Stripe charge so the customer enters their
-// card details exactly once before any booking APIs are called.
+// Creates a Stripe PaymentIntent for FlexeTravels' flat $20 USD service fee only.
+// The flight fare itself is collected by Duffel at order creation time in the
+// airline's native currency — NOT through Stripe. Mixing the two into one PI
+// produced nonsense totals (e.g. "€1,220" when flight was €1,200 EUR + $20 USD).
 //
 // Security:
-//   - If a flightOfferId is provided, we ALWAYS fetch the real price from Duffel
-//     and ignore the client-provided flightPriceCents (prevents price tampering).
-//   - If flightPriceCents > 0 but no flightOfferId, request is rejected —
-//     we cannot verify the price without an offer reference.
-//   - The PI metadata stores expected_amount and flight_offer_id so /api/book-trip
-//     can cross-verify before touching Duffel/LiteAPI.
+//   - We still look up the flight offer by ID (when provided) to surface the
+//     verified flight price/currency in the response breakdown, but those cents
+//     are NOT added to the PI amount.
+//   - PI is always created for 2000 USD cents.
+//   - The PI metadata stores expected_amount (= 2000) and flight_offer_id so
+//     /api/book-trip can cross-verify before touching Duffel/LiteAPI.
 //
 // Flow:
 //   1. Client calls this route with flightOfferId + metadata
-//   2. We fetch real offer price from Duffel
-//   3. We create a PaymentIntent for (realFlightPriceCents + 2000) in Stripe
+//   2. We (optionally) fetch real offer price from Duffel for the receipt line
+//   3. We create a PaymentIntent for $20 USD in Stripe
 //   4. Client mounts Stripe Elements using the returned clientSecret
-//   5. User enters card and pays
+//   5. User enters card and pays the $20 service fee
 //   6. Client calls /api/book-trip with paymentIntentId as proof of payment
 //   7. /api/book-trip verifies PI status === 'succeeded' + metadata integrity
+//   8. Duffel charges the flight separately to the same card at order time
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -155,39 +154,43 @@ export async function POST(req: Request) {
     verifiedCurrency         = flightCurrency.toLowerCase();
   }
 
-  const totalAmount = verifiedFlightPriceCents + SERVICE_FEE_CENTS;
-
-  if (totalAmount <= 0) {
-    return NextResponse.json({ error: 'Invalid total amount' }, { status: 400 });
-  }
+  // The Stripe PaymentIntent always charges exactly the flat $20 USD service fee.
+  // The flight fare is charged separately by Duffel in its native currency at order time.
+  const chargeAmount   = SERVICE_FEE_CENTS;
+  const chargeCurrency = 'usd';
 
   // Build a human-readable description for the Stripe dashboard and receipt
   const flightLabel      = flightDescription ?? 'Flight';
-  const cur              = verifiedCurrency.toUpperCase();
-  const flightFormatted  = `$${(verifiedFlightPriceCents / 100).toFixed(2)} ${cur}`;
-  const feeFormatted     = `$${(SERVICE_FEE_CENTS  / 100).toFixed(2)} ${cur}`;
-  const totalFormatted   = `$${(totalAmount         / 100).toFixed(2)} ${cur}`;
+  const flightCur        = verifiedCurrency.toUpperCase();
+  const flightFormatted  = verifiedFlightPriceCents > 0
+    ? `$${(verifiedFlightPriceCents / 100).toFixed(2)} ${flightCur} (charged by airline)`
+    : '';
+  const feeFormatted     = `$${(SERVICE_FEE_CENTS / 100).toFixed(2)} USD`;
   const passengerSuffix  = passengerCount ? ` | Passengers: ${passengerCount}` : '';
   const hotelSuffix      = hotelTotalCents && hotelTotalCents > 0
-    ? ` | Hotel: $${(hotelTotalCents / 100).toFixed(2)} ${cur} (separate)`
+    ? ` | Hotel: $${(hotelTotalCents / 100).toFixed(2)} ${flightCur} (separate)`
     : '';
-  const description = `FlexeTravels booking: ${flightLabel} ${flightFormatted} + service fee ${feeFormatted} = ${totalFormatted}${passengerSuffix}${hotelSuffix}`;
+  const description = flightFormatted
+    ? `FlexeTravels service fee: ${feeFormatted} for ${flightLabel} ${flightFormatted}${passengerSuffix}${hotelSuffix}`
+    : `FlexeTravels service fee: ${feeFormatted} for ${flightLabel}${passengerSuffix}${hotelSuffix}`;
 
   try {
     const result = await createPaymentIntent({
       bookingReference,
       bookingType:   'flight',
       customerEmail,
-      amount:        totalAmount,
-      currency:      verifiedCurrency,
+      amount:        chargeAmount,
+      currency:      chargeCurrency,
       description,
       metadata: {
-        // Stored so /api/book-trip can verify no tampering occurred between prepare and book
-        expected_amount:    String(totalAmount),
+        // /api/book-trip verifies pi.amount === expected_amount + pi.currency === 'usd'
+        expected_amount:    String(chargeAmount),
+        expected_currency:  chargeCurrency,
         flight_offer_id:    flightOfferId ?? '',
-        flight_price_cents: String(verifiedFlightPriceCents),
+        flight_price_cents: String(verifiedFlightPriceCents),   // informational — charged by Duffel
+        flight_currency:    flightCur,                           // informational — charged by Duffel
         service_fee_cents:  String(SERVICE_FEE_CENTS),
-        total_cents:        String(totalAmount),
+        total_cents:        String(chargeAmount),
         flight_description: flightLabel,
         booking_reference:  bookingReference,
         passenger_count:    String(passengerCount ?? 1),
@@ -200,12 +203,14 @@ export async function POST(req: Request) {
       paymentIntentId: result.paymentIntentId,
       amount:          result.amount,
       currency:        result.currency,
-      // Breakdown so the frontend can display what's being charged
+      // Breakdown so the frontend can display what's being charged where
       breakdown: {
-        flightCents:     verifiedFlightPriceCents,
-        serviceFeeCents: SERVICE_FEE_CENTS,
-        totalCents:      totalAmount,
-        currency:        verifiedCurrency.toUpperCase(),
+        flightCents:      verifiedFlightPriceCents,  // NOT charged here — Duffel charges at order time
+        flightCurrency:   flightCur,
+        serviceFeeCents:  SERVICE_FEE_CENTS,
+        serviceFeeCurrency: 'USD',
+        chargeCents:      chargeAmount,
+        chargeCurrency:   chargeCurrency.toUpperCase(),
       },
     });
   } catch (err) {

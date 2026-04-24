@@ -8,10 +8,11 @@
 import Image from 'next/image';
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, Check, Clock, Plane } from 'lucide-react';
-import { cn, formatPrice, formatTime, formatDate, airlineLogo, iataToCity } from '@/lib/utils';
+import { cn, formatPrice, formatTime, formatDate, airlineLogo, iataToCity, formatMoneyDual } from '@/lib/utils';
 import type { FlightResult } from '@/lib/types';
 import { FlexibilityBadge } from '@/components/FlexibilityBadge';
 import type { FlexibilityLabel } from '@/lib/scoring/flexibility';
+import { useCurrency } from '@/components/CurrencyContext';
 
 interface FlightCardProps {
   flight: FlightResult;
@@ -234,6 +235,37 @@ function assignFareLabels(variants: NonNullable<FlightResult['fareVariants']>): 
   return tierLabels;
 }
 
+/**
+ * Explain the premium of one fare variant over the cheapest ("base") in one sentence.
+ * Example: "+$340 · adds 1 checked bag · free changes"
+ * Returns null when there's nothing meaningful to say.
+ */
+function describeFareUpgrade(
+  base:    NonNullable<FlightResult['fareVariants']>[number],
+  upgrade: NonNullable<FlightResult['fareVariants']>[number],
+): string | null {
+  const priceDelta = upgrade.price - base.price;
+  const parts: string[] = [];
+  if (priceDelta > 0) parts.push(`+${formatPrice(priceDelta, upgrade.currency)}`);
+
+  const baseBags    = base.checkedBags    ?? 0;
+  const upgradeBags = upgrade.checkedBags ?? 0;
+  if (upgradeBags > baseBags) {
+    const extra = upgradeBags - baseBags;
+    parts.push(`adds ${extra} checked bag${extra === 1 ? '' : 's'}`);
+  }
+
+  if (!base.changeable && upgrade.changeable) parts.push('free changes');
+  if (!base.refundable && upgrade.refundable) parts.push('refundable');
+
+  if (parts.length === 0) return null;
+  if (parts.length === 1 && priceDelta > 0) {
+    // Price delta only — nothing tangible gained. Don't advertise it.
+    return null;
+  }
+  return parts.join(' · ');
+}
+
 export function FlightCard({ flight, onSelect, selected, compact, isBestValue }: FlightCardProps) {
   const [expanded, setExpanded] = useState(false);
   // Track which fare variant the user has chosen (0 = cheapest/default)
@@ -244,11 +276,19 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
   // Use the active variant's price if one is selected, otherwise fall back to flight price
   const displayPrice    = activeVariant?.price              ?? flight.price;
   const displayCurrency = activeVariant?.currency           ?? flight.currency;
-  const displayRefundable = activeVariant?.refundable       ?? flight.refundable;
   const displayFlexSummary = activeVariant?.flexibilitySummary ?? flight.flexibilitySummary;
 
-  // For round-trips, show the worst-case stops across both legs
-  const maxStops = Math.max(flight.stops, flight.isRoundTrip ? (flight.returnStops ?? 0) : 0);
+  // Multi-city: 3+ legs (outbound + connections + final). Round-trip is a 2-leg loop.
+  const isMultiCity = (flight.legs?.length ?? 0) >= 3;
+
+  // Home-currency conversion for the price line (e.g. "~ CA$1,640" under the USD total).
+  const { homeCurrency, rates } = useCurrency();
+  const { secondary: convertedPrice } = formatMoneyDual(displayPrice, displayCurrency, homeCurrency, rates);
+
+  // Worst-case stops across every leg (outbound, return, and any multi-city legs).
+  const maxStops = (flight.legs && flight.legs.length > 0)
+    ? flight.legs.reduce((m, l) => Math.max(m, l.stops ?? 0), 0)
+    : Math.max(flight.stops, flight.isRoundTrip ? (flight.returnStops ?? 0) : 0);
   const stopLabel =
     maxStops === 0 ? 'Non-stop'
     : maxStops === 1 ? '1 stop'
@@ -274,7 +314,10 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
     : (flight.stopAirports ?? []).map(ap => ({ airport: ap, duration: null }));
 
   const hasSegments = segs.length > 0;
-  const hasDetails  = hasSegments || layovers.length > 0 || (flight.returnSegments?.length ?? 0) > 0;
+  const hasDetails  = hasSegments
+    || layovers.length > 0
+    || (flight.returnSegments?.length ?? 0) > 0
+    || (isMultiCity && (flight.legs ?? []).some(l => (l.segments?.length ?? 0) > 0));
 
   if (compact) {
     return (
@@ -339,7 +382,10 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
           )}>
             {stopLabel}
           </span>
-          {/* Flexibility badge — shows active variant's policy; falls back to flight-level data */}
+          {/* Flexibility badge — shows active variant's policy; falls back to flight-level data.
+              Previously a "Non-refundable / No changes" chip appeared here when no flex data
+              existed; removed to reduce visual noise — the fare-upgrade callout below the
+              variant tabs now communicates the trade-offs more clearly. */}
           {(activeVariant?.flexibilityLabel ?? flight.flexibilityLabel) ? (
             <FlexibilityBadge
               label={(activeVariant?.flexibilityLabel ?? flight.flexibilityLabel) as FlexibilityLabel}
@@ -347,17 +393,20 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
               score={activeVariant?.flexibilityScore ?? flight.flexibilityScore}
               size="sm"
             />
-          ) : displayRefundable ? (
-            <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400
-                             bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0.5 rounded-full">
-              Refundable
-            </span>
           ) : null}
         </div>
       </div>
 
+      {/* Multi-city (3+ legs): label outbound with its route for clarity. */}
+      {isMultiCity && (
+        <div className="mx-4 mt-2 flex items-center gap-2 text-[10px] text-muted-foreground/60 font-semibold uppercase tracking-widest">
+          <Plane className="w-3 h-3 -rotate-45" />
+          <span>Leg 1 · {flight.origin} → {flight.destination}</span>
+        </div>
+      )}
+
       {/* ── Hero: outbound leg ────────────────────────────────────────────── */}
-      {flight.isRoundTrip && (
+      {flight.isRoundTrip && !isMultiCity && (
         <div className="mx-4 mt-2 flex items-center gap-2 text-[10px] text-muted-foreground/60 font-semibold uppercase tracking-widest">
           <Plane className="w-3 h-3 -rotate-45" />
           <span>Outbound</span>
@@ -456,6 +505,51 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
         </>
       )}
 
+      {/* ── Multi-city extra legs (3+ slice itineraries) ─────────────────── */}
+      {isMultiCity && (flight.legs ?? []).slice(1).map((leg, i) => (
+        <div key={`leg-${i + 1}`}>
+          {/* Divider */}
+          <div className="mx-4 flex items-center gap-2">
+            <div className="flex-1 h-px bg-border/60" style={{ borderTop: '1px dashed', borderColor: 'var(--border)' }} />
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60 font-semibold uppercase tracking-widest flex-shrink-0">
+              <Plane className="w-3 h-3 -rotate-45" />
+              <span>Leg {i + 2} · {leg.origin} → {leg.destination}</span>
+            </div>
+            <div className="flex-1 h-px" style={{ borderTop: '1px dashed', borderColor: 'var(--border)' }} />
+          </div>
+
+          {/* Leg hero row */}
+          <div className="px-3 sm:px-4 py-3 sm:py-4 flex items-center gap-2">
+            <div className="flex-shrink-0 text-left">
+              <p className="text-xl sm:text-2xl font-black text-foreground tracking-tight leading-none">
+                {formatTime(leg.departure)}
+              </p>
+              <p className="text-[12px] sm:text-[13px] font-bold text-foreground/70 mt-0.5 uppercase tracking-wider">
+                {leg.origin}
+              </p>
+              <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                {formatDate(leg.departure)}
+              </p>
+            </div>
+            <div className="flex-1 flex flex-col items-center justify-center px-2 min-w-0">
+              <p className="text-[10px] text-muted-foreground mb-1 font-medium tracking-wide">{leg.duration}</p>
+              <FlightPathLine stops={leg.stops} stopAirports={leg.stopAirports ?? []} segments={leg.segments ?? []} />
+            </div>
+            <div className="flex-shrink-0 text-right">
+              <p className="text-xl sm:text-2xl font-black text-foreground tracking-tight leading-none">
+                {formatTime(leg.arrival)}
+              </p>
+              <p className="text-[12px] sm:text-[13px] font-bold text-foreground/70 mt-0.5 uppercase tracking-wider">
+                {leg.destination}
+              </p>
+              <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                {formatDate(leg.arrival)}
+              </p>
+            </div>
+          </div>
+        </div>
+      ))}
+
       {/* ── Child fare disclosure banner ──────────────────────────────────── */}
       {flight.childFareNote && (
         <div className="mx-4 mb-1 px-3 py-2 rounded-lg bg-sky-50 dark:bg-sky-900/20
@@ -473,19 +567,15 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
       {/* ── Fare variant tabs (only when 2+ variants exist) ──────────────── */}
       {variants && variants.length > 1 && (() => {
         const variantLabels = assignFareLabels(variants);
-        // Check if all variants have identical conditions
-        const allSameConditions = variants.every(v =>
-          v.refundable === variants[0].refundable && v.changeable === variants[0].changeable
-        );
         // Compute price diff from cheapest for each variant
-        const cheapestPrice = Math.min(...variants.map(v => v.price));
+        const cheapestIdx   = variants.reduce((best, v, i) => v.price < variants[best].price ? i : best, 0);
+        const cheapestPrice = variants[cheapestIdx].price;
+        const base          = variants[cheapestIdx];
+        const activeDiff    = selectedVariantIdx !== cheapestIdx
+          ? describeFareUpgrade(base, variants[selectedVariantIdx])
+          : null;
         return (
         <div className="mx-4 mb-2">
-          {allSameConditions && (
-            <p className="text-[9px] text-muted-foreground/60 mb-1 text-center">
-              All fares: {variants[0].refundable ? 'refundable' : 'non-refundable'} · {variants[0].changeable ? 'changeable' : 'no changes'} — pricing tiers only
-            </p>
-          )}
           <div className="flex gap-1.5">
           {variantLabels.map((label, i) => {
             const v = variants[i];
@@ -523,33 +613,18 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
                 )}>
                   {formatPrice(v.price, v.currency)}
                 </div>
-                {/* Baggage info per variant */}
+                {/* Baggage info per variant — the "what's included" hint */}
                 {v.checkedBags != null && (
                   <div className={cn(
                     'text-[7.5px] leading-tight mt-0.5',
                     isActive ? 'text-muted-foreground/70' : 'text-muted-foreground/50'
                   )}>
                     {v.checkedBags === 0
-                      ? <span className="text-red-500/70 dark:text-red-400/70">No checked bags</span>
+                      ? <span className="text-muted-foreground/60">Carry-on only</span>
                       : <span className="text-teal-600 dark:text-teal-400">{v.checkedBags}x checked bag</span>}
                   </div>
                 )}
-                {/* Fare condition summary — only show when conditions differ between variants */}
-                {!allSameConditions && (
-                  <div className={cn(
-                    'text-[7.5px] leading-tight mt-0.5',
-                    isActive ? 'text-muted-foreground/70' : 'text-muted-foreground/50'
-                  )}>
-                    {v.changeable
-                      ? <span className="text-emerald-600 dark:text-emerald-400">Changeable</span>
-                      : <span className="text-red-500/70 dark:text-red-400/70">No changes</span>}
-                    {' · '}
-                    {v.refundable
-                      ? <span className="text-emerald-600 dark:text-emerald-400">Refundable</span>
-                      : <span className="text-red-500/70 dark:text-red-400/70">No refund</span>}
-                  </div>
-                )}
-                {allSameConditions && priceDiff > 0 && (
+                {priceDiff > 0 && (
                   <div className="text-[8px] text-muted-foreground/50 mt-0.5">
                     +{formatPrice(priceDiff, v.currency)}
                   </div>
@@ -558,6 +633,14 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
             );
           })}
           </div>
+          {/* Upgrade diff callout — explains what the extra money buys, without
+              cluttering every card with "non-refundable / no changes" noise. */}
+          {activeDiff && (
+            <p className="mt-1.5 text-[10px] text-center text-amber-700 dark:text-amber-300
+                          bg-amber-50/60 dark:bg-amber-900/15 rounded px-2 py-1">
+              {activeDiff}
+            </p>
+          )}
         </div>
         );
       })()}
@@ -580,8 +663,15 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
             <p className="text-xl font-black text-foreground leading-none">
               {formatPrice(displayPrice, displayCurrency)}
             </p>
+            {convertedPrice && (
+              <p className="text-[10px] text-muted-foreground/70 mt-0.5 leading-none" title={`Approximate conversion at daily rate. Charge is in ${displayCurrency}.`}>
+                {convertedPrice}
+              </p>
+            )}
             <p className="text-[10px] text-muted-foreground mt-0.5">
-              {flight.isRoundTrip ? 'total · round-trip' : 'total for all passengers'}
+              {isMultiCity
+                ? `total · ${flight.legs?.length ?? 0}-leg trip`
+                : flight.isRoundTrip ? 'total · round-trip' : 'total for all passengers'}
             </p>
             {flight.passengers && flight.passengers > 1 && (
               <p className="text-[10px] text-muted-foreground/70">
@@ -633,33 +723,60 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
           >
             {expanded
               ? <><ChevronUp className="w-3 h-3" /> Hide flight details</>
-              : <><ChevronDown className="w-3 h-3" /> Flight details{flight.isRoundTrip ? ' · outbound + return' : ` · ${segs.length} leg${segs.length !== 1 ? 's' : ''}`}</>}
+              : <><ChevronDown className="w-3 h-3" />
+                Flight details
+                {isMultiCity
+                  ? ` · ${flight.legs?.length ?? 0}-leg trip`
+                  : flight.isRoundTrip
+                    ? ' · outbound + return'
+                    : ` · ${segs.length} leg${segs.length !== 1 ? 's' : ''}`}
+              </>}
           </button>
 
           {expanded && (
             <div className="bg-muted/15 border-t border-border/40">
               {hasSegments ? (
                 <>
-                  {/* Outbound segments */}
-                  {flight.isRoundTrip && (
-                    <div className="px-4 pt-2 pb-0">
-                      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 flex items-center gap-1">
-                        <Plane className="w-3 h-3 -rotate-45" /> Outbound
-                      </p>
-                    </div>
-                  )}
-                  <SegmentTimeline segs={segs} />
-
-                  {/* Return segments */}
-                  {flight.isRoundTrip && flight.returnSegments && flight.returnSegments.length > 0 && (
-                    <>
-                      <div className="mx-4 border-t border-dashed border-border/60" />
+                  {/* Multi-city (3+ legs): render each leg in order with a "Leg N · A → B" header.
+                      Two-leg round-trip and one-way itineraries fall through to the legacy
+                      outbound/return branches below. */}
+                  {isMultiCity && (flight.legs ?? []).map((leg, i) => (
+                    <div key={`detail-leg-${i}`}>
+                      {i > 0 && <div className="mx-4 border-t border-dashed border-border/60" />}
                       <div className="px-4 pt-2 pb-0">
                         <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 flex items-center gap-1">
-                          <Plane className="w-3 h-3 rotate-[135deg]" /> Return
+                          <Plane className="w-3 h-3 -rotate-45" />
+                          Leg {i + 1} · {leg.origin} → {leg.destination}
                         </p>
                       </div>
-                      <SegmentTimeline segs={flight.returnSegments} />
+                      <SegmentTimeline segs={leg.segments ?? []} />
+                    </div>
+                  ))}
+
+                  {!isMultiCity && (
+                    <>
+                      {/* Outbound segments */}
+                      {flight.isRoundTrip && (
+                        <div className="px-4 pt-2 pb-0">
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 flex items-center gap-1">
+                            <Plane className="w-3 h-3 -rotate-45" /> Outbound
+                          </p>
+                        </div>
+                      )}
+                      <SegmentTimeline segs={segs} />
+
+                      {/* Return segments */}
+                      {flight.isRoundTrip && flight.returnSegments && flight.returnSegments.length > 0 && (
+                        <>
+                          <div className="mx-4 border-t border-dashed border-border/60" />
+                          <div className="px-4 pt-2 pb-0">
+                            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 flex items-center gap-1">
+                              <Plane className="w-3 h-3 rotate-[135deg]" /> Return
+                            </p>
+                          </div>
+                          <SegmentTimeline segs={flight.returnSegments} />
+                        </>
+                      )}
                     </>
                   )}
                 </>

@@ -188,8 +188,43 @@ function SkeletonExperienceCard() {
 }
 
 // ─── Flight results panel with filter + sort ──────────────────────────────────
-type FlightSort = 'price' | 'duration' | 'stops';
+type FlightSort = 'price' | 'duration' | 'stops' | 'depart' | 'arrive';
 type StopFilter = 'all' | '0' | '1' | '2+';
+
+/** Return the worst-case stops across every leg of a flight (outbound, return, or multi-city). */
+function flightMaxStops(f: FlightResult): number {
+  if (f.legs && f.legs.length > 0) {
+    return f.legs.reduce((max, l) => Math.max(max, l.stops ?? 0), 0);
+  }
+  return Math.max(f.stops, f.isRoundTrip ? (f.returnStops ?? 0) : 0);
+}
+
+/** Total duration across every leg in minutes. Parses "Xh Ym" strings. */
+function flightTotalMinutes(f: FlightResult): number {
+  const toMin = (d: string) => {
+    const h = d.match(/(\d+)h/)?.[1] ?? '0';
+    const m = d.match(/(\d+)m/)?.[1] ?? '0';
+    return parseInt(h) * 60 + parseInt(m);
+  };
+  if (f.legs && f.legs.length > 0) {
+    return f.legs.reduce((sum, l) => sum + toMin(l.duration ?? ''), 0);
+  }
+  const out = toMin(f.duration);
+  const ret = f.isRoundTrip && f.returnDuration ? toMin(f.returnDuration) : 0;
+  return out + ret;
+}
+
+/** First-leg departure time (ISO string) for "depart" sort. */
+function flightDepartureIso(f: FlightResult): string {
+  return f.legs?.[0]?.departure || f.departure || '';
+}
+
+/** Final-leg arrival time (ISO string) for "arrive" sort. */
+function flightFinalArrivalIso(f: FlightResult): string {
+  if (f.legs && f.legs.length > 0) return f.legs[f.legs.length - 1]?.arrival ?? '';
+  if (f.isRoundTrip && f.returnArrival) return f.returnArrival;
+  return f.arrival ?? '';
+}
 
 function FlightResultsPanel({
   flights,
@@ -207,9 +242,9 @@ function FlightResultsPanel({
 
   const filtered = flights.filter(f => {
     if (stopFilter === 'all') return true;
-    // For round-trips, use the max stops across both legs so "Non-stop" means
-    // non-stop in BOTH directions, not just outbound.
-    const maxStops = Math.max(f.stops, f.isRoundTrip ? (f.returnStops ?? 0) : 0);
+    // For round-trips / multi-city, use the max stops across every leg so
+    // "Non-stop" means non-stop on every segment, not just the outbound.
+    const maxStops = flightMaxStops(f);
     if (stopFilter === '0')   return maxStops === 0;
     if (stopFilter === '1')   return maxStops === 1;
     return maxStops >= 2;
@@ -220,24 +255,25 @@ function FlightResultsPanel({
     : null;
 
   const sorted = [...filtered].sort((a, b) => {
-    if (sort === 'price')    return a.price - b.price;
-    if (sort === 'stops') {
-      const aMax = Math.max(a.stops, a.isRoundTrip ? (a.returnStops ?? 0) : 0);
-      const bMax = Math.max(b.stops, b.isRoundTrip ? (b.returnStops ?? 0) : 0);
-      return aMax - bMax;
+    if (sort === 'price')  return a.price - b.price;
+    if (sort === 'stops')  return flightMaxStops(a) - flightMaxStops(b);
+    if (sort === 'depart') {
+      // Sort by departure time-of-day, earliest first. Parse ISO → minutes from midnight local.
+      const toLocalMin = (iso: string) => {
+        const d = new Date(iso);
+        return isNaN(d.getTime()) ? 0 : d.getHours() * 60 + d.getMinutes();
+      };
+      return toLocalMin(flightDepartureIso(a)) - toLocalMin(flightDepartureIso(b));
     }
-    // duration: parse "Xh Ym" → minutes, total = outbound + return for round-trips
-    const toMin = (d: string) => {
-      const h = d.match(/(\d+)h/)?.[1] ?? '0';
-      const m = d.match(/(\d+)m/)?.[1] ?? '0';
-      return parseInt(h) * 60 + parseInt(m);
-    };
-    const totalMin = (f: FlightResult) => {
-      const out = toMin(f.duration);
-      const ret = f.isRoundTrip && f.returnDuration ? toMin(f.returnDuration) : 0;
-      return out + ret;
-    };
-    return totalMin(a) - totalMin(b);
+    if (sort === 'arrive') {
+      const toLocalMin = (iso: string) => {
+        const d = new Date(iso);
+        return isNaN(d.getTime()) ? 0 : d.getHours() * 60 + d.getMinutes();
+      };
+      return toLocalMin(flightFinalArrivalIso(a)) - toLocalMin(flightFinalArrivalIso(b));
+    }
+    // duration: parse "Xh Ym" → total minutes across all legs
+    return flightTotalMinutes(a) - flightTotalMinutes(b);
   });
 
   const stopLabels: Record<StopFilter, string> = {
@@ -245,6 +281,7 @@ function FlightResultsPanel({
   };
   const sortLabels: Record<FlightSort, string> = {
     price: 'Price', duration: 'Total Duration', stops: 'Stops',
+    depart: 'Depart (earliest)', arrive: 'Arrive (earliest)',
   };
 
   // Reset scroll to start whenever the user changes sort or stop filter so the
@@ -291,7 +328,7 @@ function FlightResultsPanel({
             onChange={e => setSort(e.target.value as FlightSort)}
             className="appearance-none pl-2 pr-6 py-0.5 rounded-full text-xs bg-muted text-muted-foreground border-0 cursor-pointer focus:outline-none"
           >
-            {(['price', 'duration', 'stops'] as FlightSort[]).map(v => (
+            {(['price', 'duration', 'stops', 'depart', 'arrive'] as FlightSort[]).map(v => (
               <option key={v} value={v}>Sort: {sortLabels[v]}</option>
             ))}
           </select>

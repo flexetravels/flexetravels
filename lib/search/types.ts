@@ -6,6 +6,9 @@ export interface FlightSearchParams {
   destination: string;      // IATA airport code
   departureDate: string;    // YYYY-MM-DD
   returnDate?: string;      // YYYY-MM-DD (omit for one-way)
+  // Multi-city: when provided, `slices` takes precedence over origin/destination/dates.
+  // Used for 3+ leg itineraries ("NYC → Paris → Rome → home").
+  slices?: Array<{ origin: string; destination: string; departureDate: string }>;
   adults: number;
   childrenAges?: number[];  // Ages of children (2-11), each gets own seat at child fare
   infants?: number;         // Number of lap infants (under 2), no separate seat
@@ -58,6 +61,30 @@ export interface FareVariant {
   checkedBags?:       number;   // Number of checked bags included (0 = none)
 }
 
+// Generic itinerary leg — used by N-leg multi-city searches.
+// `legs[0]` is always the outbound; `legs[legs.length-1]` is the final leg.
+// For back-compat, round-trip offers also populate the `returnXxx` fields below.
+export interface Leg {
+  origin: string;           // IATA
+  destination: string;      // IATA
+  departure: string;        // ISO8601
+  arrival: string;          // ISO8601
+  duration: string;         // e.g. "5h 30m"
+  durationMinutes?: number; // for sort/filter
+  stops: number;
+  stopAirports: string[];
+  segments: Array<{
+    origin: string;
+    destination: string;
+    departure: string;
+    arrival: string;
+    duration: string;
+    carrier: string;
+    operatingCarrier?: string;
+    flightNumber: string;
+  }>;
+}
+
 export interface NormalizedFlight {
   id: string;
   provider: string;          // 'duffel' | 'amadeus' | etc.
@@ -71,6 +98,9 @@ export interface NormalizedFlight {
   durationMinutes?: number;  // outbound duration in minutes (for sort/filter)
   stops: number;
   stopAirports: string[];
+  // N-leg itinerary. Always populated (length ≥ 1). For round-trips `legs.length === 2`;
+  // for multi-city it is 3+. Consumers should prefer this over the legacy returnXxx fields.
+  legs?: Leg[];
   price: number;             // total in USD (cheapest variant price)
   currency: string;
   cabinClass: string;
