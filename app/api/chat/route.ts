@@ -151,6 +151,7 @@ PROACTIVE QUESTIONING:
 • "we/couple/us" → adults=2. "family" → ask kids count+ages.
 • "flexible" dates → pick best 7-day window in next 6-8 weeks, explain why.
 • ROUND-TRIP: If user mentions "return", "round trip", "back on [date]", "returning [date]", or gives both a departure and a return date, always pass returnDate= to searchFlights. One-way is the default only when user explicitly says "one way" or gives only a departure date with no mention of returning.
+• MULTI-CITY: If user chains 3+ destinations ("NYC → Paris → Rome → home", "BOS to LAX to HNL then back"), pass slices= (ordered list of {origin,destination,departureDate}) to searchFlights instead of origin/destination/departureDate/returnDate. Use origin/destination/departureDate[+returnDate] only for 1-2 legs.
 • PRESENTING RESULTS: Always highlight non-stop and cheapest options. For round-trips, ensure your summary mentions direct/non-stop options for BOTH the outbound AND return legs if available — do not describe only one direction.
 
 NON-STOP FILTER: If user says "non-stop", "direct", "no stops", or "no layovers", pass maxConnections=0 to searchFlights. For "max 1 stop", pass maxConnections=1. This filters at the API level — do NOT rely on the UI filter alone.
@@ -451,13 +452,22 @@ export async function POST(req: Request) {
       // ── Multi-source flight search ──────────────────────────────────────────
       searchFlights: tool({
         description:
-          'Search flights via Duffel. Returns best-priced options ranked cheapest first. All results are confirmed-bookable through Duffel (IATA-accredited).',
+          'Search flights via Duffel. Returns best-priced options ranked cheapest first. All results are confirmed-bookable through Duffel (IATA-accredited). Supports one-way, round-trip, and multi-city (3+ legs via `slices`).',
         parameters: z.object({
           // Hard constraints (cache key) — changing these triggers a new Duffel fetch.
-          origin:        z.string().describe('Origin IATA airport code e.g. YVR, JFK'),
-          destination:   z.string().describe('Destination IATA airport code e.g. CUN, NRT, LHR'),
-          departureDate: z.string().describe('Departure date YYYY-MM-DD'),
-          returnDate:    z.string().optional().describe('Return date YYYY-MM-DD for round-trips'),
+          origin:        z.string().describe('Origin IATA airport code e.g. YVR, JFK. Ignored when `slices` is provided.'),
+          destination:   z.string().describe('Destination IATA airport code e.g. CUN, NRT, LHR. Ignored when `slices` is provided.'),
+          departureDate: z.string().describe('Departure date YYYY-MM-DD. Ignored when `slices` is provided.'),
+          returnDate:    z.string().optional().describe('Return date YYYY-MM-DD for round-trips. Ignored when `slices` is provided.'),
+          // Multi-city itineraries (3+ legs). Provide an ordered chain of legs.
+          // If supplied, overrides origin/destination/departureDate/returnDate.
+          slices:        z.array(z.object({
+                            origin:        z.string().describe('Leg origin IATA code'),
+                            destination:   z.string().describe('Leg destination IATA code'),
+                            departureDate: z.string().describe('Leg departure date YYYY-MM-DD'),
+                          }))
+                          .min(2).max(6).optional()
+                          .describe('Ordered itinerary legs for multi-city trips. Use this when the user chains 3+ destinations (e.g. "NYC → Paris → Rome → home"). Use origin/destination/departureDate[+returnDate] for one-way and round-trip.'),
           adults:        z.number().int().min(1).max(9).default(1),
           childrenAges:  z.array(z.number().int().min(2).max(11)).optional().describe('Ages of children 2-11 only. Each gets own seat at child fare. Do NOT include age 0-1 here — use infants= instead. Ages 12+ go in adults count.'),
           infants:       z.number().int().min(0).max(4).optional().default(0).describe('Number of lap infants under age 2. No separate seat, rides on adult lap. Must not exceed adults count.'),
@@ -629,6 +639,7 @@ export async function POST(req: Request) {
                 infantCount:      e.infantCount,
                 fareVariants:     e.fareVariants,
                 childFareNote:    e.childFareNote,
+                legs:             e.legs,
                 segments:         (e.segments ?? []).map(s => ({
                   origin:       s.origin,
                   destination:  s.destination,

@@ -16,6 +16,55 @@ export function formatPrice(amount: number, currency = 'USD'): string {
   }).format(amount);
 }
 
+/**
+ * Convert an amount from `fromCurrency` → `toCurrency` using a USD-base rates map.
+ * Returns null if either currency is missing from the rates map.
+ *
+ * Rates map shape: `{ USD: 1, EUR: 0.92, CAD: 1.37, ... }` — each value is the
+ * amount of that currency per 1 USD (ECB convention, matches frankfurter.app).
+ */
+export function convertAmount(
+  amount: number,
+  fromCurrency: string,
+  toCurrency: string,
+  rates: Record<string, number> | null | undefined,
+): number | null {
+  if (!rates) return null;
+  const from = (fromCurrency || 'USD').toUpperCase();
+  const to   = (toCurrency   || 'USD').toUpperCase();
+  if (from === to) return amount;
+  const fromRate = rates[from];
+  const toRate   = rates[to];
+  if (!fromRate || !toRate) return null;
+  const usd = amount / fromRate;
+  return usd * toRate;
+}
+
+/**
+ * Dual-currency display: returns the primary (charge-currency) string plus
+ * an optional secondary string with the user's home currency in parentheses.
+ *
+ *   formatMoneyDual(1200, 'EUR', 'CAD', rates)
+ *     → { primary: '€1,200', secondary: '~ CA$1,790' }
+ *
+ * When the two currencies are the same, or rates are unavailable, the
+ * secondary field is null (caller should render nothing for it).
+ */
+export function formatMoneyDual(
+  amount: number,
+  chargeCurrency: string,
+  homeCurrency: string,
+  rates: Record<string, number> | null | undefined,
+): { primary: string; secondary: string | null } {
+  const primary = formatPrice(amount, chargeCurrency);
+  const charge  = (chargeCurrency || 'USD').toUpperCase();
+  const home    = (homeCurrency   || 'USD').toUpperCase();
+  if (charge === home) return { primary, secondary: null };
+  const converted = convertAmount(amount, charge, home, rates);
+  if (converted == null || !isFinite(converted)) return { primary, secondary: null };
+  return { primary, secondary: `~ ${formatPrice(converted, home)}` };
+}
+
 /** Format ISO date to readable string */
 export function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
