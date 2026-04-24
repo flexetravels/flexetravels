@@ -39,6 +39,16 @@ import { logger } from '@/lib/logger';
 import { db, DB_AVAILABLE } from '@/lib/db/client';
 import { buildSystemFromSkills } from '@/lib/skills/loader';
 import { runCritic } from '@/lib/critic/deterministic';
+import {
+  mergeConstraints,
+  clearConstraint as clearSessionConstraint,
+  mergeFlightParams,
+  extractFlightConstraints,
+  mergeHotelParams,
+  extractHotelConstraints,
+  formatConstraintSummary,
+  type TripConstraints,
+} from '@/lib/agent/session-state';
 import { logEvent } from '@/lib/logger';
 import type { NormalizedFlight, NormalizedHotel } from '@/lib/search/types';
 
@@ -152,6 +162,8 @@ PROACTIVE QUESTIONING:
 • "flexible" dates → pick best 7-day window in next 6-8 weeks, explain why.
 • ROUND-TRIP: If user mentions "return", "round trip", "back on [date]", "returning [date]", or gives both a departure and a return date, always pass returnDate= to searchFlights. One-way is the default only when user explicitly says "one way" or gives only a departure date with no mention of returning.
 • MULTI-CITY: If user chains 3+ destinations ("NYC → Paris → Rome → home", "BOS to LAX to HNL then back"), pass slices= (ordered list of {origin,destination,departureDate}) to searchFlights instead of origin/destination/departureDate/returnDate. Use origin/destination/departureDate[+returnDate] only for 1-2 legs.
+• MULTI-LEG WITH A STAY GAP (e.g. "A→B, stay 2 nights, then B→C"): these are TWO separate one-way tickets, NOT one multi-city ticket. Call searchFlights TWICE — once per leg — because a stay between legs will produce 0 Duffel multi-city results. Both legs will render as their own labeled flight carousel in the UI.
+• PRESERVE FILTERS ON RETRY: If your first searchFlights call fails or returns 0 results and you retry with a corrected airport code, alternative date, or any other adjustment, ALWAYS carry over every user-supplied filter the first call had (avoidAirlines, maxConnections, viaRegions, maxPrice, cabinClass, etc.). Dropping filters on retry makes the UI show airlines the user explicitly asked to avoid.
 • PRESENTING RESULTS: Always highlight non-stop and cheapest options. For round-trips, ensure your summary mentions direct/non-stop options for BOTH the outbound AND return legs if available — do not describe only one direction.
 
 NON-STOP FILTER: If user says "non-stop", "direct", "no stops", or "no layovers", pass maxConnections=0 to searchFlights. For "max 1 stop", pass maxConnections=1. This filters at the API level — do NOT rely on the UI filter alone.
@@ -440,9 +452,27 @@ export async function POST(req: Request) {
       let criticFlightOrigin: string | undefined;
       let criticFlightDep:    string | undefined;
 
+      // Append a compact "ACTIVE TRIP CONSTRAINTS" block when the session has
+      // any remembered filters. Skipped entirely for fresh sessions so the
+      // prompt is byte-identical to today's behaviour.
+      //
+      // We also append a one-liner on the setConstraint / clearConstraint tools
+      // so Claude knows to call them when the user explicitly changes a
+      // preference — those tools' own descriptions are shown to the model via
+      // the tool manifest, but a nudge in the system prompt improves recall.
+      const constraintSummary = formatConstraintSummary(sessionId);
+      const baseSystem = buildSystem(lastUserContent, conversationState);
+      const memoryPrompt = [
+        'TRIP MEMORY: Your search tools automatically remember filters (avoidAirlines, cabinClass, hotelStars, etc.) across turns — do not re-ask the user for constraints they already stated earlier. When the user explicitly CHANGES a preference ("actually business class", "Air India is fine after all", "add a pool requirement"), call setConstraint or clearConstraint so subsequent searches reflect the new state.',
+        constraintSummary
+          ? `ACTIVE TRIP CONSTRAINTS (carry these into EVERY search unless the user explicitly overrides them): ${constraintSummary}`
+          : '',
+      ].filter(Boolean).join('\n\n');
+      const systemPrompt = `${baseSystem}\n\n${memoryPrompt}`;
+
       const result = streamText({
         model:     anthropic('claude-sonnet-4-6'),
-        system:    buildSystem(lastUserContent, conversationState),
+        system:    systemPrompt,
         messages:  compressedMessages,
         maxTokens: 5000,
         maxSteps:  10,
@@ -492,11 +522,20 @@ export async function POST(req: Request) {
             console.warn('[security] searchFlights param validation failed', { sessionId, errors: paramErrors });
             return { summary: `Search parameters appear invalid: ${paramErrors.join('; ')}. Please try again with valid dates and airport codes.`, flightCount: 0 };
           }
-          const r = await aggregateFlights(params);
+          // ── Session memory: fill in constraints the caller forgot to repeat ──
+          // Claude sometimes drops avoidAirlines / cabinClass on a retry after a
+          // correction (e.g. TVM→TRV). We merge stored constraints into any
+          // undefined slots so those filters survive across turns and retries.
+          // Tool-call fields that ARE defined always win (no memory override).
+          const mergedParams = mergeFlightParams(sessionId, params as Record<string, unknown>) as typeof params;
+          // Capture the effective filter set for future turns (first turn establishes
+          // the baseline; later turns refine it). Empty arrays / undefined are ignored.
+          mergeConstraints(sessionId, extractFlightConstraints(mergedParams as Record<string, unknown>));
+          const r = await aggregateFlights(mergedParams);
           logger.search({
             event: 'flight_search', api: 'duffel',
             sessionId: sessionId,
-            params: params as Record<string, unknown>,
+            params: mergedParams as Record<string, unknown>,
             resultCount: r.flights.length,
             sources: r.sources,
             durationMs: r.latencyMs,
@@ -507,21 +546,38 @@ export async function POST(req: Request) {
             db.searchLogs.create({
               session_id:       sessionId,
               search_type:      'flight',
-              origin:           params.origin,
-              destination:      params.destination,
-              depart_date:      params.departureDate,
-              return_date:      params.returnDate ?? null,
-              adults:           params.adults,
-              children:         (params.childrenAges?.length ?? 0) + (params.infants ?? 0),
+              origin:           mergedParams.origin,
+              destination:      mergedParams.destination,
+              depart_date:      mergedParams.departureDate,
+              return_date:      mergedParams.returnDate ?? null,
+              adults:           mergedParams.adults,
+              children:         (mergedParams.childrenAges?.length ?? 0) + (mergedParams.infants ?? 0),
               result_count:     r.flights.length,
               provider_sources: r.sources,
               latency_ms:       r.latencyMs,
             }).catch(() => {});
           }
           // Push full data to frontend via side channel (bypasses token generation).
+          // The `route` field lets the client group results by leg when Claude makes
+          // multiple searchFlights calls in one turn (multi-city + retries).
           // JSON.parse/stringify strips undefined fields so the value satisfies JSONValue.
           if (r.flights && r.flights.length > 0) {
-            dataStream.writeData(JSON.parse(JSON.stringify({ type: 'flights', data: r.flights })));
+            const firstSlice   = params.slices?.[0];
+            const lastSlice    = params.slices?.[params.slices.length - 1];
+            const sliceCount   = params.slices?.length ?? 0;
+            const routeLabel   = sliceCount >= 2
+              ? `${firstSlice?.origin ?? ''} → ${lastSlice?.destination ?? ''} (${sliceCount} legs)`
+              : `${params.origin} → ${params.destination}`;
+            dataStream.writeData(JSON.parse(JSON.stringify({
+              type:  'flights',
+              route: {
+                origin:      firstSlice?.origin      ?? params.origin,
+                destination: lastSlice?.destination  ?? params.destination,
+                label:       routeLabel,
+                sliceCount:  sliceCount >= 2 ? sliceCount : 1,
+              },
+              data:  r.flights,
+            })));
           }
           console.log(`[timing] searchFlights done in ${Date.now() - requestStart}ms, ${r.flights.length} results`);
 
@@ -610,7 +666,11 @@ export async function POST(req: Request) {
           if (!token) return { summary: 'Duffel not configured.', flightCount: 0 };
           try {
             const duffel  = new DuffelProvider(token);
-            const raw     = await duffel.searchFlights(params);
+            // Session memory: carry forward filters from earlier searches in this turn
+            // so a retry doesn't silently drop the user's avoidAirlines / cabinClass / etc.
+            const mergedRetryParams = mergeFlightParams(sessionId, params as Record<string, unknown>) as typeof params;
+            mergeConstraints(sessionId, extractFlightConstraints(mergedRetryParams as Record<string, unknown>));
+            const raw     = await duffel.searchFlights(mergedRetryParams);
             // Promote private _flex* fields → public so AI copies them into FLIGHT_CARD tags
             type Enriched = typeof raw[0] & { _flexObj?: { score: number; label: string; summary: string }; _flexScore?: number };
             const flights = raw.slice(0, 5).map((f) => {
@@ -676,9 +736,18 @@ export async function POST(req: Request) {
                 } : {}),
               };
             });
-            // Push to frontend and return summary
+            // Push to frontend and return summary (with route metadata — see searchFlights above)
             if (flights && flights.length > 0) {
-              dataStream.writeData(JSON.parse(JSON.stringify({ type: 'flights', data: flights })));
+              dataStream.writeData(JSON.parse(JSON.stringify({
+                type:  'flights',
+                route: {
+                  origin:      params.origin,
+                  destination: params.destination,
+                  label:       `${params.origin} → ${params.destination}`,
+                  sliceCount:  params.returnDate ? 2 : 1,
+                },
+                data: flights,
+              })));
             }
             if (flights.length === 0) {
               return { summary: `No bookable flights found for ${params.origin}→${params.destination}.`, flightCount: 0 };
@@ -738,11 +807,16 @@ export async function POST(req: Request) {
             dataStream.writeData(JSON.parse(JSON.stringify({ type: 'hotels', data: [] })));
             return { summary: `Hotel search parameters appear invalid: ${hotelParamErrors.join('; ')}. Please try again with valid dates.`, hotelCount: 0 };
           }
+          // ── Session memory: carry forward prior filters (stars, amenities, etc.)
+          // See the matching block in searchFlights above for the rationale.
+          const mergedHotelParams = mergeHotelParams(sessionId, params as Record<string, unknown>) as typeof params;
+          mergeConstraints(sessionId, extractHotelConstraints(mergedHotelParams as Record<string, unknown>));
+
           // Hard 8 s wall-clock cap — LiteAPI typically responds in 3-6s.
           // Reduced from 12s → 8s; rate batches now have 7s AbortSignal so they
           // resolve (or abort) well within this window.
           const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 8_000));
-          const search  = aggregateHotels(params);
+          const search  = aggregateHotels(mergedHotelParams);
           const r       = await Promise.race([search, timeout]);
 
           if (!r) {
@@ -760,7 +834,7 @@ export async function POST(req: Request) {
           logger.search({
             event: 'hotel_search', api: 'liteapi',
             sessionId: sessionId,
-            params: params as Record<string, unknown>,
+            params: mergedHotelParams as Record<string, unknown>,
             resultCount: r.hotels.length,
             sources: r.sources,
             errors: r.errors.length > 0 ? r.errors : undefined,
@@ -770,10 +844,10 @@ export async function POST(req: Request) {
             db.searchLogs.create({
               session_id:       sessionId,
               search_type:      'hotel',
-              destination:      params.destination,
-              depart_date:      params.checkIn,
-              return_date:      params.checkOut,
-              adults:           params.adults,
+              destination:      mergedHotelParams.destination,
+              depart_date:      mergedHotelParams.checkIn,
+              return_date:      mergedHotelParams.checkOut,
+              adults:           mergedHotelParams.adults,
               result_count:     r.hotels.length,
               provider_sources: r.sources,
             }).catch(() => {});
@@ -827,6 +901,75 @@ export async function POST(req: Request) {
           if (r.isSample) hotelSummary += ` Note: indicative pricing.`;
           hotelSummary += ` All ${hotels.length} cards shown to user. Use ONLY these exact names/prices in your response.`;
           return { summary: hotelSummary, hotelCount: hotels.length };
+        },
+      }),
+
+      // ── Trip memory — explicit constraint updates ──────────────────────────
+      // Auto-capture covers the common case (filter → tool call → memory), but
+      // users sometimes RELAX constraints ("actually, Air India is fine now")
+      // which the auto-capture can't express. Call these tools when the user
+      // explicitly changes a preference so subsequent searches reflect it.
+      setConstraint: tool({
+        description:
+          "Record or update a user preference that should apply to EVERY subsequent flight/hotel search in this session. Use when the user adds or changes a constraint (\"add breakfast to the hotel\", \"change to business class\", \"budget $2000\"). Do NOT call for routing params (origin/destination/dates) — those belong in searchFlights/searchHotels directly. Empty values are ignored; use clearConstraint to remove.",
+        parameters: z.object({
+          cabinClass:            z.enum(['economy','premium_economy','business','first']).optional(),
+          avoidAirlines:         z.array(z.string()).optional().describe('IATA codes or display names to exclude'),
+          maxConnections:        z.number().int().min(0).max(2).optional(),
+          viaRegions:            z.array(z.enum(['pacific','europe','middleeast'])).optional(),
+          maxPrice:              z.number().positive().optional().describe('Max flight total (USD)'),
+          maxDurationMinutes:    z.number().int().positive().optional(),
+          departAfter:           z.string().regex(/^\d{2}:\d{2}$/).optional(),
+          departBefore:          z.string().regex(/^\d{2}:\d{2}$/).optional(),
+          adults:                z.number().int().min(1).max(9).optional(),
+          childrenAges:          z.array(z.number().int().min(0).max(17)).optional(),
+          infants:               z.number().int().min(0).max(4).optional(),
+          hotelStars:            z.number().int().min(1).max(5).optional(),
+          hotelMinRating:        z.number().min(0).max(10).optional(),
+          hotelAmenities:        z.array(z.string()).optional().describe('e.g. ["Pool", "Free WiFi"]'),
+          hotelBoardType:        z.enum(['RO','BB','HB','FB','AI']).optional(),
+          hotelFreeCancellation: z.boolean().optional(),
+          hotelMaxPricePerNight: z.number().positive().optional(),
+          dietary:               z.string().max(120).optional().describe('Free-form dietary note, e.g. "vegetarian", "halal"'),
+          mobility:              z.string().max(120).optional(),
+          notes:                 z.string().max(240).optional().describe('Other free-form preference note'),
+        }),
+        execute: async (patch) => {
+          const applied = Object.entries(patch).filter(([, v]) => v !== undefined && v !== null);
+          if (applied.length === 0) {
+            return { summary: 'No constraints changed.' };
+          }
+          mergeConstraints(sessionId, patch as Partial<TripConstraints>);
+          const summary = formatConstraintSummary(sessionId) || '(none)';
+          return {
+            summary: `Constraint(s) updated: ${applied.map(([k]) => k).join(', ')}. Active constraints now: ${summary}`,
+            applied: applied.map(([k]) => k),
+          };
+        },
+      }),
+
+      clearConstraint: tool({
+        description:
+          "Remove a previously-set user preference when they've changed their mind (\"actually, Air India is fine\", \"forget the budget cap\"). Use the same key names as setConstraint.",
+        parameters: z.object({
+          keys: z.array(z.enum([
+            'cabinClass','avoidAirlines','maxConnections','viaRegions','maxPrice',
+            'maxDurationMinutes','departAfter','departBefore',
+            'adults','childrenAges','infants',
+            'hotelStars','hotelMinRating','hotelAmenities','hotelBoardType',
+            'hotelFreeCancellation','hotelMaxPricePerNight',
+            'dietary','mobility','notes',
+          ])).min(1).describe('Constraint keys to delete from session memory.'),
+        }),
+        execute: async ({ keys }) => {
+          for (const k of keys) {
+            clearSessionConstraint(sessionId, k as keyof TripConstraints);
+          }
+          const summary = formatConstraintSummary(sessionId) || '(none)';
+          return {
+            summary: `Cleared: ${keys.join(', ')}. Active constraints now: ${summary}`,
+            cleared: keys,
+          };
         },
       }),
 

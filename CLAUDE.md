@@ -16,39 +16,77 @@ AI-powered travel booking platform. Users chat with an AI concierge that searche
 ```
 app/
   page.tsx              — Homepage (destinations, discover feed, social proof)
-  chat/page.tsx         — AI chat interface
+  chat/page.tsx         — AI chat interface (wires side-channel data → cards)
   booking/page.tsx      — Checkout + confirmation (multi-view based on ?ref= param)
   error.tsx             — Travel-themed error boundary
   not-found.tsx         — Travel-themed 404
+  layout.tsx            — Wraps children in ThemeProvider + CurrencyProvider
   api/
-    chat/route.ts       — Main AI endpoint (Claude claude-sonnet-4-6, streamText)
+    chat/route.ts       — Main AI endpoint (Claude claude-sonnet-4-6, streamText).
+                          Injects session memory constraints + registers trip-memory
+                          tools (setConstraint / clearConstraint) alongside search tools.
     book-flight/        — Duffel order creation
     book-hotel/         — LiteAPI prebook + book
+    book-trip/          — Payment-gated end-to-end booking (verifies Stripe PI → books)
     complete-hotel-booking/ — LiteAPI 3DS completion
+    fx/route.ts         — USD→* daily FX rates (proxies frankfurter.app, 24h cache)
     stripe/checkout/    — Creates $20 Stripe Checkout Session (redirect flow — legacy)
-    stripe/prepare/     — Creates $20 Stripe PaymentIntent (embedded flow — used by new checkout)
+    stripe/prepare/     — Creates $20 USD Stripe PaymentIntent (service fee only)
     webhooks/stripe/    — Stripe webhook handler (persists to Supabase)
     health/             — GET /api/health — DB + env check
     admin/stats/        — Growth analytics (requires ?secret=ADMIN_SECRET)
+    admin/logs/         — Recent app/search logs (requires ?secret=ADMIN_SECRET)
     debug/liteapi/      — Hotel search debugger (requires ?secret=ADMIN_SECRET)
 
 components/
-  ChatMessage.tsx       — Parses [FLIGHT_CARD] / [HOTEL_CARD] / [EXPERIENCE_CARD] tags → React cards
-  FlightCard.tsx        — Boarding-pass style. isBestValue prop shows "Best value" badge
-  HotelCard.tsx         — Hotel card. isBestDeal prop shows "Best deal" badge
-  CheckoutCard.tsx      — 4-step checkout: Review → Passengers → Invoice → Pay (payment-first flow)
-  FlexibilityBadge.tsx  — Refundable / Changeable / Locked badge
+  ChatMessage.tsx       — Parses [FLIGHT_CARD] / [HOTEL_CARD] / [EXPERIENCE_CARD]
+                          tags → React cards. Renders one labeled flight carousel
+                          per leg when searchFlights is called more than once in a turn.
+  FlightCard.tsx        — Boarding-pass style. Renders N-leg itineraries
+                          (outbound, return, or multi-city Leg N · A → B). Shows
+                          home-currency conversion next to the USD price and inside
+                          each fare-variant tab. "Best value" badge via isBestValue.
+  HotelCard.tsx         — Hotel card. isBestDeal prop shows "Best deal" badge.
+                          Dual-currency display on per-night + total price.
+  CheckoutCard.tsx      — 4-step checkout: Review → Passengers → Invoice → Pay.
+                          $20 USD service fee charged via Stripe; flight fare
+                          charged separately by airline (Duffel). Displays both
+                          legs in their own currency with ~home-currency conversion.
+  CurrencyContext.tsx   — React provider + useCurrency() hook. Detects navigator.language
+                          → ISO-4217 on first load, persists picker choice in localStorage.
+  CurrencyPicker.tsx    — Header dropdown (USD/CAD/INR/EUR/GBP/…) for display currency.
+  FlexibilityBadge.tsx  — Free-cancellation / Changeable / Non-refundable pill.
 
 lib/
+  agent/
+    session-state.ts    — In-memory per-session Map<sessionId, SessionState>.
+                          Holds typed TripConstraints (avoidAirlines, cabinClass,
+                          hotelStars, …) + chosen flight/hotel snapshots. Tool
+                          executors in /api/chat merge this into search params so
+                          filters survive retries and message-history compression.
+                          4h TTL, 2000-entry cap, process-local (swap for Redis
+                          if we ever scale beyond one Railway replica).
+  fx/
+    rates.ts            — Server-side FX rate cache (frankfurter.app, 24h TTL,
+                          hard-coded fallback snapshot). Served via /api/fx.
+    detect.ts           — Client helper: navigator.language → ISO-4217 currency,
+                          localStorage override.
   search/
-    duffel.ts           — Duffel flight search (15s timeout)
+    duffel.ts           — Duffel flight search (15s timeout). Supports N-slice
+                          multi-city via params.slices; builds NormalizedFlight.legs[]
+                          from every offer slice.
     liteapi.ts          — LiteAPI hotel search + prebook + book
     aggregator.ts       — Runs providers in parallel, 16s wall-clock cap on flights
+    flightCache.ts      — 60s in-process cache keyed on origin/destination/dates
+                          (+ slice chain for multi-city)
+    hotelCache.ts       — 60s in-process hotel cache
   db/
     client.ts           — Supabase REST client (zero extra packages)
     schema.sql          — Full DB schema — paste into Supabase SQL Editor to run
   scoring/
     flexibility.ts      — Scores Duffel fare conditions → Flexible/Moderate/Locked
+  utils.ts              — formatPrice, formatMoneyDual (dual-currency display),
+                          convertAmount, compressMessageHistory, parseEmbeddedCards
   stripe.ts             — Stripe Payment Intent creation
 ```
 
@@ -71,10 +109,32 @@ lib/
 - Token env var: `LITEAPI_KEY` (`sand_*` for sandbox, `prod_*` for prod)
 
 ### Stripe
-- $20 service fee Payment Intent via Stripe Elements (embedded, not redirect)
+- **$20 USD flat service fee only.** The flight fare is charged separately by
+  the airline (Duffel) at order-creation time in the airline's native currency.
+  The PaymentIntent is ALWAYS created for `2000` cents in `usd` regardless of
+  the flight currency.
+- `/api/stripe/prepare` verifies the flight offer price with Duffel (for
+  transparency + receipt wording) but never adds it to the PI amount.
+- `/api/book-trip` verifies `pi.amount === expected_amount` from metadata
+  before touching Duffel/LiteAPI — tampering resistance.
+- Historical bug fixed (April 2026): the PI used to be `flightCents +
+  SERVICE_FEE_CENTS` in the flight's currency. For a €1,200 flight this
+  produced a €1,220 charge instead of the intended $20. **Do not reintroduce
+  any cross-currency addition in prepare/route.ts or checkout UI.**
 - Webhook: `POST /api/webhooks/stripe` — handles `checkout.session.completed` + `payment_intent.succeeded`
 - Webhook URL registered in Stripe Dashboard: `https://www.flexetravels.com/api/webhooks/stripe`
 - Env vars: `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`
+
+### FX (currency display)
+- Source: `https://api.frankfurter.app/latest?from=USD` — free, no API key, ECB daily rates
+- Server cache: 24h in-process, plus a hard-coded fallback snapshot in
+  `lib/fx/rates.ts` so the UI never hard-fails for want of rates
+- Client fetches once per session from `/api/fx`, held in `CurrencyContext`
+- Used ONLY for display (e.g. "$61 USD · ~CA$84" on a flight card). Stripe
+  still charges in the real currency; airlines settle in their currency.
+- Default home currency detection: `navigator.language` → ISO-4217 (en-CA→CAD,
+  en-IN→INR, etc.), overridable via `<CurrencyPicker />` in the chat header
+  (value persisted in localStorage as `ft_home_currency`).
 
 ### Claude (AI)
 - Model: `claude-sonnet-4-6`
@@ -139,18 +199,61 @@ SMTP_FROM=FlexeTravels <bookings@flexetravels.com>
 ## AI Chat Flow
 
 1. User sends message → `POST /api/chat`
-2. Claude calls tools: `searchFlights`, `searchHotels`, `getDestinationGuide`, `getExperiences`
-3. Tools run in parallel (aggregator), results streamed back
-4. Claude emits `[FLIGHT_CARD]...[/FLIGHT_CARD]` and `[HOTEL_CARD]...[/HOTEL_CARD]` tags
-5. `ChatMessage.tsx` parses tags → renders React cards
-6. User selects flight → `[FLIGHT_CHOSEN]` state → AI says one excited sentence + "scroll up"
-7. User selects hotel → `[HOTEL_CHOSEN]` state → cart saved to `sessionStorage` as `ft_cart`
-8. Frontend navigates to `/booking` → `CheckoutCard` handles 3-step checkout
+2. Chat route looks up `SessionState` for the sessionId, injects `ACTIVE TRIP
+   CONSTRAINTS` into the system prompt when non-empty
+3. Claude calls tools: `searchFlights`, `searchHotels`, `getDestinationGuide`,
+   `getExperiences`, `setConstraint`, `clearConstraint`
+4. **Cards are pushed via side channel**, not emitted as token tags (legacy
+   `[FLIGHT_CARD]` / `[HOTEL_CARD]` emission is obsolete — tool execute()
+   writes the full data to `dataStream.writeData({type:'flights',route,data})`
+   with a `route` metadata payload so the client can label each carousel).
+5. `searchFlights.execute()` merges session-memory constraints into any
+   undefined filter slots before calling Duffel, then captures the effective
+   filter set back into memory for future turns.
+6. `ChatMessage.tsx` renders one `FlightResultsPanel` per search call — so a
+   multi-leg turn ("A→B, then B→C") produces one labeled carousel per leg
+   instead of silently overwriting earlier results.
+7. User selects flight → `[FLIGHT_CHOSEN]` sent on the next user message →
+   `conversationState = 'flight_selected'` → AI says one excited sentence + "scroll up"
+8. User selects hotel → `[HOTEL_CHOSEN]` → cart saved to `sessionStorage` as `ft_cart`
+9. Frontend navigates to `/booking` → `CheckoutCard` handles 4-step checkout
+
+### Session Memory (agent state)
+- `lib/agent/session-state.ts` holds a `Map<sessionId, SessionState>` keyed on
+  the sanitized sessionId (4h TTL, 2000-entry cap, process-local)
+- `SessionState.constraints` is a typed subset of the searchFlights/searchHotels
+  filter fields (avoidAirlines, cabinClass, hotelStars, hotelAmenities, …)
+  plus free-form notes (dietary, mobility, notes)
+- **Auto-capture**: every searchFlights / searchHotels call extracts its filter
+  fields and merges them into constraints after the search. First call of the
+  turn establishes the baseline; later calls refine it.
+- **Auto-merge**: every searchFlights / searchHotels call merges constraints
+  into any undefined slots in its params BEFORE calling the provider. So a
+  retry that drops `avoidAirlines` still excludes the blocked airlines.
+- **Explicit changes**: the `setConstraint` / `clearConstraint` tools let
+  Claude record user preference changes ("actually business class", "Air
+  India is fine now") without a search. Auto-capture can't express a
+  loosening, so these tools are the escape hatch.
+- **Tool params always win.** Memory only fills in undefined fields; an
+  explicit `avoidAirlines: []` overrides memory.
+- **Zero DB writes in the hot path.** If the Node process restarts, sessions
+  reset (in-flight bookings are already persisted via `/api/book-trip`).
 
 ### System Prompt Rules (enforced)
 - NEVER fabricate flight IDs, hotel IDs, prices, or booking tokens
-- ALWAYS copy ALL fields exactly from tool results into card tags
-- Show top 3 flights + top 3 hotels max
+- Cards are now pushed via side channel — **do NOT emit `[FLIGHT_CARD]` or
+  `[HOTEL_CARD]` tags** (they waste tokens; the UI auto-renders from the
+  stream)
+- Show top 3 flights + top 3 hotels max in summary prose
+- **Multi-city (3+ destinations in one ticket)**: pass `slices=` to
+  searchFlights instead of origin/destination
+- **Stay-between-legs itineraries ("A → B, stay 2 nights, B → C")**: these
+  are TWO one-way tickets. Call searchFlights twice, once per leg. Duffel
+  returns 0 for a multi-city with gap days.
+- **Preserve filters on retry**: if you retry searchFlights after a
+  correction (IATA typo, date adjustment), carry over every user filter
+  the first call had. Session memory does this automatically now, but
+  don't rely on it — still include the filters explicitly.
 - After flight chosen: ONE sentence only, then stop (no hotel re-listing)
 - After hotel chosen: redirect to checkout, no more tool calls
 
@@ -158,23 +261,33 @@ SMTP_FROM=FlexeTravels <bookings@flexetravels.com>
 
 ## Checkout Flow (Payment-First — CRITICAL)
 
-**Order:** Stripe $20 fee is charged BEFORE any flight or hotel is booked.
-This prevents real Duffel/LiteAPI bookings from firing if the user abandons or payment fails.
+**Order:** Stripe $20 USD service fee is charged BEFORE any flight or hotel is
+booked. This prevents real Duffel/LiteAPI bookings from firing if the user
+abandons or payment fails. **The flight fare is charged separately by the
+airline (via Duffel), not through Stripe** — never sum them into one PI.
 
-1. **Step 1 — Review:** Trip summary, passenger count controls, per-item pricing
+1. **Step 1 — Review:** Trip summary, passenger count controls. Each price line
+   shows charge currency plus a bold teal ~home-currency conversion.
 2. **Step 2 — Passengers:** One form per adult + child (name, DOB, email, phone)
-3. **Step 3 — Invoice:** Full booking summary — flight details, hotel details, all passenger details (full), cost breakdown in each currency, "what happens next" blurb. "Edit passengers" back link. "Pay $20 →" button calls `/api/stripe/prepare`.
+3. **Step 3 — Invoice:** Two separate breakdown sections:
+   - "Charged to your card now" — ONLY the $20 USD service fee
+   - "Flight fare — charged by airline" — informational, in the airline's
+     native currency, with a note that the bank may apply a small FX fee
 4. **Step 4 — Pay:**
-   - `POST /api/stripe/prepare` → creates $20 USD PaymentIntent, returns `clientSecret` + `paymentIntentId`
-   - Stripe Elements mounted → user enters card → pays $20
-   - On `confirmPayment` success → `POST /api/book-trip` with `paymentIntentId`
-   - Server verifies PI `status === 'succeeded'` via Stripe API before any booking API calls
-   - Duffel flight order created, LiteAPI hotel prebook + book
-   - Success screen shows flight ref + hotel ref
+   - `POST /api/stripe/prepare` → creates a $20 USD PaymentIntent (ALWAYS USD,
+     ALWAYS $20). Returns `clientSecret` + `paymentIntentId`.
+   - Stripe Elements mounted → user enters card → pays $20 USD.
+   - On `confirmPayment` success → `POST /api/book-trip` with `paymentIntentId`.
+   - Server verifies PI `status === 'succeeded'` + `amount === 2000` via
+     Stripe API before any booking API calls.
+   - Duffel flight order created (airline charges its fare directly to the
+     same card in its native currency at this step), LiteAPI hotel prebook + book.
+   - Success screen shows flight ref + hotel ref.
 
 ### Server-side payment guard (`/api/book-trip`)
 - If `STRIPE_SECRET_KEY` is set → `paymentIntentId` is **required**
 - Calls `GET /v1/payment_intents/:id` — rejects with 402 if status ≠ `succeeded`
+- Verifies `pi.amount === metadata.expected_amount` to detect tampering
 - Dev/sandbox: if no Stripe key, PI verification is skipped with a warning log
 
 ---
@@ -251,3 +364,8 @@ These have been confirmed end-to-end in sandbox (flights + hotels):
 | Hotel booking "prebook expired" | LiteAPI prebookId TTL is ~5 min (sandbox) | User must complete checkout within 5 min |
 | Search taking 40s+ | Duffel real-time pricing + Claude generation | Duffel capped at 15s, Claude at 2500 tokens |
 | `NEXT_PUBLIC_APP_URL not set` | Missing env var | Set to `https://www.flexetravels.com` |
+| Stripe charges wrong amount (e.g. €1,220 for €1,200 flight) | Flight price + $20 summed in one PI | Fixed April 2026 — PI is ALWAYS $20 USD; airline charges fare separately. Don't reintroduce cross-currency addition. |
+| User's "avoid Air India" ignored after a retry | Claude dropped `avoidAirlines` on retry call | Fixed April 2026 — session memory auto-merges filters from prior calls in `lib/agent/session-state.ts`. |
+| Only one flight carousel shown when AI searched multiple legs | Side-channel `pendingFlightsRef` overwrote on each result | Fixed April 2026 — client accumulates into `pendingFlightGroupsRef`, renders one labeled panel per `route.label`. |
+| Converted price invisible on fare-variant tabs | Conversion only rendered on main price row | Fixed April 2026 — `formatMoneyDual` rendered inside each variant tab in bold teal. |
+| `/api/fx` returns stale rates | Upstream (frankfurter.app) unreachable | Expected — `lib/fx/rates.ts` serves a hard-coded snapshot with `stale: true`. UI still renders, rates are approximate. |

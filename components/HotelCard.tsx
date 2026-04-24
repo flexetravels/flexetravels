@@ -666,8 +666,8 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
               <span className="text-xs text-muted-foreground">/night</span>
             </div>
             {ppnConverted && (
-              <p className="text-[10px] text-muted-foreground/70 mt-0.5 leading-none"
-                 title={`Approximate conversion at daily rate. Charge is in ${effectiveHotel.currency}.`}>
+              <p className="text-[11px] font-bold text-teal-700 dark:text-teal-300 mt-0.5 leading-none"
+                 title={`Approximate conversion at today's rate. Charge is in ${effectiveHotel.currency}.`}>
                 {ppnConverted}/night
               </p>
             )}
@@ -680,7 +680,7 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
               <p className="text-[11px] text-muted-foreground/80 mt-0.5">
                 {formatPrice(effectiveHotel.totalPrice, effectiveHotel.currency)} total
                 {totalConverted && (
-                  <span className="text-muted-foreground/60"> · {totalConverted}</span>
+                  <span className="font-bold text-teal-700 dark:text-teal-300"> · {totalConverted}</span>
                 )}
               </p>
             )}

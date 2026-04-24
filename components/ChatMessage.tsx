@@ -808,13 +808,22 @@ export function ToolCallStatus({ toolName, state }: ToolCallStatusProps) {
 }
 
 // ─── Main ChatMessage component ────────────────────────────────────────────────
+interface FlightGroup {
+  route: { origin: string; destination: string; label: string; sliceCount: number };
+  flights: FlightResult[];
+}
+
 interface ChatMessageProps {
   role: 'user' | 'assistant';
   content: string;
   streaming?: boolean;
   toolCalls?: Array<{ toolName: string; state: 'call' | 'result' }>;
-  /** Side-channel flight cards pushed directly from the API data stream (bypasses LLM token generation) */
-  sideChannelFlights?: FlightResult[];
+  /**
+   * Side-channel flight cards pushed directly from the API data stream.
+   * One group per searchFlights call, so multi-leg / multi-city turns render
+   * one labeled carousel per leg instead of overwriting earlier results.
+   */
+  sideChannelFlightGroups?: FlightGroup[];
   /** Side-channel hotel cards pushed directly from the API data stream (bypasses LLM token generation) */
   sideChannelHotels?: HotelResult[];
   onSelectFlight?: (f: FlightResult) => void;
@@ -827,7 +836,7 @@ export function ChatMessage({
   content,
   streaming = false,
   toolCalls,
-  sideChannelFlights,
+  sideChannelFlightGroups,
   sideChannelHotels,
   onSelectFlight,
   onSelectHotel,
@@ -901,9 +910,18 @@ export function ChatMessage({
   const cards      = parseEmbeddedCards(content);
   const renderText = stripCardTags(content);
 
-  const flightCards = (sideChannelFlights && sideChannelFlights.length > 0)
-    ? sideChannelFlights
-    : cards.filter(c => c.type === 'flight').map(c => c.data as FlightResult);
+  // Flight card groups: prefer side-channel (multiple groups possible, one per
+  // searchFlights call). Fall back to legacy inline card JSON as a single group.
+  const flightGroups: FlightGroup[] =
+    (sideChannelFlightGroups && sideChannelFlightGroups.length > 0)
+      ? sideChannelFlightGroups
+      : (() => {
+          const legacy = cards.filter(c => c.type === 'flight').map(c => c.data as FlightResult);
+          return legacy.length > 0
+            ? [{ route: { origin: '', destination: '', label: '', sliceCount: 1 }, flights: legacy }]
+            : [];
+        })();
+  const hasAnyFlights = flightGroups.some(g => g.flights.length > 0);
   const hotelCards  = (sideChannelHotels && sideChannelHotels.length > 0)
     ? sideChannelHotels
     : cards.filter(c => c.type === 'hotel').map(c => c.data as HotelResult);
@@ -976,10 +994,26 @@ export function ChatMessage({
           </div>
         )}
 
-        {/* Flight results — burst reveal: animate-card-burst applied when coming from search */}
-        {flightCards.length > 0 && (
-          <div className={hadSearchTools ? 'animate-card-burst' : ''}>
-            <FlightResultsPanel flights={flightCards} onSelect={onSelectFlight} />
+        {/* Flight results — one panel per searchFlights call so multi-city and
+            leg-by-leg queries each get their own labeled carousel.
+            Animate-card-burst applied when coming from search. */}
+        {hasAnyFlights && (
+          <div className={cn('flex flex-col gap-4', hadSearchTools ? 'animate-card-burst' : '')}>
+            {flightGroups.map((group, gi) => (
+              group.flights.length === 0 ? null : (
+                <div key={`flights-${gi}-${group.route.label || 'default'}`} className="space-y-1.5">
+                  {/* Leg heading — hidden when there's only one anonymous group (back-compat) */}
+                  {(flightGroups.length > 1 || group.route.label) && (
+                    <div className="flex items-center gap-1.5 text-[11px] font-semibold
+                                    text-muted-foreground uppercase tracking-wider">
+                      <Plane className="w-3 h-3 text-teal-500" />
+                      {group.route.label || `${group.route.origin} → ${group.route.destination}`}
+                    </div>
+                  )}
+                  <FlightResultsPanel flights={group.flights} onSelect={onSelectFlight} />
+                </div>
+              )
+            ))}
           </div>
         )}
 

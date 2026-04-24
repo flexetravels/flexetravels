@@ -1630,7 +1630,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                     <span>Flight ({flight.origin} → {flight.destination})</span>
                     <span className="text-right">
                       {formatPrice(flight.price, flight.currency)}
-                      {convertedFlight && <span className="block text-[10px] text-muted-foreground/60">{convertedFlight}</span>}
+                      {convertedFlight && <span className="block text-[10px] font-bold text-teal-700 dark:text-teal-300">{convertedFlight}</span>}
                     </span>
                   </div>
                   {/* Per-passenger breakdown when mixed adults + children */}
@@ -1666,7 +1666,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                   <span>Hotel ({hotel.name})</span>
                   <span className="text-right">
                     {formatPrice(hotel.totalPrice, hotel.currency)}
-                    {convertedHotel && <span className="block text-[10px] text-muted-foreground/60">{convertedHotel}</span>}
+                    {convertedHotel && <span className="block text-[10px] font-bold text-teal-700 dark:text-teal-300">{convertedHotel}</span>}
                   </span>
                 </div>
               )}
@@ -1677,7 +1677,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                 </div>
                 <span className="text-right">
                   <span className="text-teal-700 dark:text-teal-300 font-bold">{feeDisplay}</span>
-                  {convertedServiceFee && <span className="block text-[10px] text-muted-foreground/60">{convertedServiceFee}</span>}
+                  {convertedServiceFee && <span className="block text-[10px] font-bold text-teal-700 dark:text-teal-300">{convertedServiceFee}</span>}
                 </span>
               </div>
             </div>

@@ -426,12 +426,24 @@ export default function ChatPage() {
   // Keyed by index NOT id — @ai-sdk/react mutates message IDs from a provisional
   // client-generated value to the server-assigned value when streaming ends, which
   // broke the old id-keyed lookup (cards appeared briefly then vanished).
+  //
+  // `flightGroups` supports multiple searchFlights calls in the same turn (e.g. a
+  // multi-city "A → B then B → C" request produces one group per leg). The legacy
+  // `flights` field is kept as a read-time fallback for sessionStorage data
+  // persisted by earlier builds — it's rendered as one un-labeled group.
   const [positionalCards, setPositionalCards] = useState<Record<number, {
     flights?: FlightResult[];
+    flightGroups?: Array<{
+      route: { origin: string; destination: string; label: string; sliceCount: number };
+      flights: FlightResult[];
+    }>;
     hotels?: HotelResult[];
   }>>(_initCards);
   const processedDataCountRef = useRef(0);
-  const pendingFlightsRef = useRef<FlightResult[] | null>(null);
+  const pendingFlightGroupsRef = useRef<Array<{
+    route: { origin: string; destination: string; label: string; sliceCount: number };
+    flights: FlightResult[];
+  }> | null>(null);
   const pendingHotelsRef  = useRef<HotelResult[]  | null>(null);
 
   const messagesEndRef  = useRef<HTMLDivElement>(null);
@@ -500,7 +512,7 @@ export default function ChatPage() {
     setCartFlight(null); setCartHotel(null); setCartChildren(null);
     setPositionalCards({}); setConversationState('browsing');
     processedDataCountRef.current = 0;
-    pendingFlightsRef.current = null;
+    pendingFlightGroupsRef.current = null;
     pendingHotelsRef.current  = null;
     clearPersistedChat(getSessionId());
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -529,15 +541,28 @@ export default function ChatPage() {
   // Using message INDEX as key (not id) because @ai-sdk/react mutates the assistant
   // message id from a provisional value to the server-assigned value when streaming
   // ends — an id-keyed lookup breaks exactly at that moment (flash-then-disappear bug).
+  //
+  // Flight results can arrive in multiple chunks when Claude calls searchFlights
+  // more than once in the same turn (retries, multi-city legs). Each chunk carries
+  // its own route metadata and is appended as a separate group so the UI can render
+  // a labeled carousel per leg, rather than silently overwriting earlier groups.
   useEffect(() => {
+    type FlightsStreamItem = {
+      type: 'flights';
+      route?: { origin: string; destination: string; label: string; sliceCount: number };
+      data: FlightResult[];
+    };
     // Process any new data items from the stream into pending refs
     if (data && data.length > processedDataCountRef.current) {
-      const newItems = (data as Array<{ type?: string; data?: unknown }>)
+      const newItems = (data as Array<{ type?: string; data?: unknown; route?: unknown }>)
         .slice(processedDataCountRef.current);
       processedDataCountRef.current = data.length;
       for (const item of newItems) {
         if (item.type === 'flights' && Array.isArray(item.data) && item.data.length > 0) {
-          pendingFlightsRef.current = item.data as FlightResult[];
+          const fi = item as FlightsStreamItem;
+          const route = fi.route ?? { origin: '', destination: '', label: 'Flights', sliceCount: 1 };
+          const group = { route, flights: fi.data };
+          pendingFlightGroupsRef.current = [...(pendingFlightGroupsRef.current ?? []), group];
         }
         if (item.type === 'hotels' && Array.isArray(item.data) && item.data.length > 0) {
           pendingHotelsRef.current = item.data as HotelResult[];
@@ -547,24 +572,36 @@ export default function ChatPage() {
     // Assign pending data to the last assistant message's stable array index.
     // If no assistant message exists yet (data arrived before the turn started),
     // bail — this effect will re-run when messages updates and the message appears.
-    if (!pendingFlightsRef.current && !pendingHotelsRef.current) return;
+    if (!pendingFlightGroupsRef.current && !pendingHotelsRef.current) return;
     let lastAssistantIdx = -1;
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === 'assistant') { lastAssistantIdx = i; break; }
     }
     if (lastAssistantIdx === -1) return;
-    const flights = pendingFlightsRef.current;
-    const hotels  = pendingHotelsRef.current;
-    pendingFlightsRef.current = null;
-    pendingHotelsRef.current  = null;
-    setPositionalCards(prev => ({
-      ...prev,
-      [lastAssistantIdx]: {
-        ...(prev[lastAssistantIdx] ?? {}),
-        ...(flights && flights.length > 0 ? { flights } : {}),
-        ...(hotels  && hotels.length  > 0 ? { hotels  } : {}),
-      },
-    }));
+    const newGroups = pendingFlightGroupsRef.current;
+    const hotels    = pendingHotelsRef.current;
+    pendingFlightGroupsRef.current = null;
+    pendingHotelsRef.current       = null;
+    setPositionalCards(prev => {
+      const existing = prev[lastAssistantIdx] ?? {};
+      // Merge new groups into existing ones keyed by route.label so that a second
+      // search for the same leg (a retry) replaces its earlier result instead of
+      // duplicating the carousel.
+      const mergedGroups = [...(existing.flightGroups ?? [])];
+      for (const g of newGroups ?? []) {
+        const sameIdx = mergedGroups.findIndex(m => m.route.label === g.route.label);
+        if (sameIdx >= 0) mergedGroups[sameIdx] = g;
+        else              mergedGroups.push(g);
+      }
+      return {
+        ...prev,
+        [lastAssistantIdx]: {
+          ...existing,
+          ...(mergedGroups.length > 0 ? { flightGroups: mergedGroups } : {}),
+          ...(hotels  && hotels.length  > 0 ? { hotels  } : {}),
+        },
+      };
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, messages]);
 
@@ -780,7 +817,7 @@ export default function ChatPage() {
                     setCartFlight(null); setCartHotel(null); setCartChildren(null);
                     setPositionalCards({}); setConversationState('browsing');
                     processedDataCountRef.current = 0;
-                    pendingFlightsRef.current = null;
+                    pendingFlightGroupsRef.current = null;
                     pendingHotelsRef.current  = null;
                     clearPersistedChat(getSessionId());
                   }}
@@ -818,6 +855,13 @@ export default function ChatPage() {
                       })
                     ) ?? [];
                     const sideData = positionalCards[idx];
+                    // Back-compat: pre-multi-leg builds persisted `flights` only.
+                    // Wrap that into a single un-labeled group so it renders as
+                    // one panel (indistinguishable from the old behavior).
+                    const flightGroups = sideData?.flightGroups
+                      ?? (sideData?.flights
+                        ? [{ route: { origin: '', destination: '', label: '', sliceCount: 1 }, flights: sideData.flights }]
+                        : undefined);
                     return (
                       <ChatMessage
                         key={msg.id}
@@ -825,7 +869,7 @@ export default function ChatPage() {
                         content={msg.content}
                         streaming={isStreaming}
                         toolCalls={toolCalls}
-                        sideChannelFlights={sideData?.flights}
+                        sideChannelFlightGroups={flightGroups}
                         sideChannelHotels={sideData?.hotels}
                         onSelectFlight={handleSelectFlight}
                         onSelectHotel={handleSelectHotel}
