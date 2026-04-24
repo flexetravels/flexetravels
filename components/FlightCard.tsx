@@ -276,7 +276,6 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
   // Use the active variant's price if one is selected, otherwise fall back to flight price
   const displayPrice    = activeVariant?.price              ?? flight.price;
   const displayCurrency = activeVariant?.currency           ?? flight.currency;
-  const displayFlexSummary = activeVariant?.flexibilitySummary ?? flight.flexibilitySummary;
 
   // Multi-city: 3+ legs (outbound + connections + final). Round-trip is a 2-leg loop.
   const isMultiCity = (flight.legs?.length ?? 0) >= 3;
@@ -613,6 +612,15 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
                 )}>
                   {formatPrice(v.price, v.currency)}
                 </div>
+                {/* Converted home-currency price — bold teal so it's legible at tab size. */}
+                {(() => {
+                  const { secondary } = formatMoneyDual(v.price, v.currency, homeCurrency, rates);
+                  return secondary ? (
+                    <div className="text-[9px] font-bold leading-tight text-teal-700 dark:text-teal-300 mt-0.5">
+                      {secondary}
+                    </div>
+                  ) : null;
+                })()}
                 {/* Baggage info per variant — the "what's included" hint */}
                 {v.checkedBags != null && (
                   <div className={cn(
@@ -652,11 +660,11 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
             {flight.cabinClass?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) ?? 'Economy'}
             {flight.baggage && <span className="ml-2 font-medium text-teal-700 dark:text-teal-300">✓ {flight.baggage}</span>}
           </div>
-          {displayFlexSummary && (
-            <div className="mt-1.5 text-[11px] text-muted-foreground bg-muted/40 rounded px-2 py-1.5">
-              {displayFlexSummary}
-            </div>
-          )}
+          {/* Flex summary intentionally removed from the price row — the fare-variant
+              tabs plus the upgrade-diff callout above cover what customers actually
+              need to decide. The verbose "Non-refundable · No changes" line was
+              adding visual noise on every card without informing the choice. The
+              FlexibilityBadge in the header still surfaces cancellation policy. */}
         </div>
         <div className="flex items-center gap-3">
           <div className="text-right">
@@ -664,7 +672,8 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
               {formatPrice(displayPrice, displayCurrency)}
             </p>
             {convertedPrice && (
-              <p className="text-[10px] text-muted-foreground/70 mt-0.5 leading-none" title={`Approximate conversion at daily rate. Charge is in ${displayCurrency}.`}>
+              <p className="text-[11px] font-bold text-teal-700 dark:text-teal-300 mt-0.5 leading-none"
+                 title={`Approximate conversion at today's rate. Charge is in ${displayCurrency}.`}>
                 {convertedPrice}
               </p>
             )}

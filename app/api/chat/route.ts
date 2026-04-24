@@ -152,6 +152,8 @@ PROACTIVE QUESTIONING:
 • "flexible" dates → pick best 7-day window in next 6-8 weeks, explain why.
 • ROUND-TRIP: If user mentions "return", "round trip", "back on [date]", "returning [date]", or gives both a departure and a return date, always pass returnDate= to searchFlights. One-way is the default only when user explicitly says "one way" or gives only a departure date with no mention of returning.
 • MULTI-CITY: If user chains 3+ destinations ("NYC → Paris → Rome → home", "BOS to LAX to HNL then back"), pass slices= (ordered list of {origin,destination,departureDate}) to searchFlights instead of origin/destination/departureDate/returnDate. Use origin/destination/departureDate[+returnDate] only for 1-2 legs.
+• MULTI-LEG WITH A STAY GAP (e.g. "A→B, stay 2 nights, then B→C"): these are TWO separate one-way tickets, NOT one multi-city ticket. Call searchFlights TWICE — once per leg — because a stay between legs will produce 0 Duffel multi-city results. Both legs will render as their own labeled flight carousel in the UI.
+• PRESERVE FILTERS ON RETRY: If your first searchFlights call fails or returns 0 results and you retry with a corrected airport code, alternative date, or any other adjustment, ALWAYS carry over every user-supplied filter the first call had (avoidAirlines, maxConnections, viaRegions, maxPrice, cabinClass, etc.). Dropping filters on retry makes the UI show airlines the user explicitly asked to avoid.
 • PRESENTING RESULTS: Always highlight non-stop and cheapest options. For round-trips, ensure your summary mentions direct/non-stop options for BOTH the outbound AND return legs if available — do not describe only one direction.
 
 NON-STOP FILTER: If user says "non-stop", "direct", "no stops", or "no layovers", pass maxConnections=0 to searchFlights. For "max 1 stop", pass maxConnections=1. This filters at the API level — do NOT rely on the UI filter alone.
@@ -519,9 +521,26 @@ export async function POST(req: Request) {
             }).catch(() => {});
           }
           // Push full data to frontend via side channel (bypasses token generation).
+          // The `route` field lets the client group results by leg when Claude makes
+          // multiple searchFlights calls in one turn (multi-city + retries).
           // JSON.parse/stringify strips undefined fields so the value satisfies JSONValue.
           if (r.flights && r.flights.length > 0) {
-            dataStream.writeData(JSON.parse(JSON.stringify({ type: 'flights', data: r.flights })));
+            const firstSlice   = params.slices?.[0];
+            const lastSlice    = params.slices?.[params.slices.length - 1];
+            const sliceCount   = params.slices?.length ?? 0;
+            const routeLabel   = sliceCount >= 2
+              ? `${firstSlice?.origin ?? ''} → ${lastSlice?.destination ?? ''} (${sliceCount} legs)`
+              : `${params.origin} → ${params.destination}`;
+            dataStream.writeData(JSON.parse(JSON.stringify({
+              type:  'flights',
+              route: {
+                origin:      firstSlice?.origin      ?? params.origin,
+                destination: lastSlice?.destination  ?? params.destination,
+                label:       routeLabel,
+                sliceCount:  sliceCount >= 2 ? sliceCount : 1,
+              },
+              data:  r.flights,
+            })));
           }
           console.log(`[timing] searchFlights done in ${Date.now() - requestStart}ms, ${r.flights.length} results`);
 
@@ -676,9 +695,18 @@ export async function POST(req: Request) {
                 } : {}),
               };
             });
-            // Push to frontend and return summary
+            // Push to frontend and return summary (with route metadata — see searchFlights above)
             if (flights && flights.length > 0) {
-              dataStream.writeData(JSON.parse(JSON.stringify({ type: 'flights', data: flights })));
+              dataStream.writeData(JSON.parse(JSON.stringify({
+                type:  'flights',
+                route: {
+                  origin:      params.origin,
+                  destination: params.destination,
+                  label:       `${params.origin} → ${params.destination}`,
+                  sliceCount:  params.returnDate ? 2 : 1,
+                },
+                data: flights,
+              })));
             }
             if (flights.length === 0) {
               return { summary: `No bookable flights found for ${params.origin}→${params.destination}.`, flightCount: 0 };
