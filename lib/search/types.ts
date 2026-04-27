@@ -2,12 +2,17 @@
 // All booking engines (Duffel, Amadeus, future providers) implement this contract.
 
 export interface FlightSearchParams {
+  // origin / destination / departureDate are REQUIRED by contract, but the chat
+  // tool's Zod schema accepts them as optional so Claude can pass a `slices`
+  // multi-city chain alone. The chat route's execute() guards this and backfills
+  // origin/destination/departureDate from the first/last slice before calling
+  // into aggregator.ts → Duffel, so provider code always sees strings.
   origin: string;           // IATA airport code
   destination: string;      // IATA airport code
   departureDate: string;    // YYYY-MM-DD
   returnDate?: string;      // YYYY-MM-DD (omit for one-way)
   // Multi-city: when provided, `slices` takes precedence over origin/destination/dates.
-  // Used for 3+ leg itineraries ("NYC → Paris → Rome → home").
+  // Used for 2+ leg itineraries ("BLR → BKK → YVR", "NYC → Paris → Rome → home").
   slices?: Array<{ origin: string; destination: string; departureDate: string }>;
   adults: number;
   childrenAges?: number[];  // Ages of children (2-11), each gets own seat at child fare

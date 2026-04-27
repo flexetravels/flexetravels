@@ -440,6 +440,24 @@ export async function POST(req: Request) {
     : '';
 
   return createDataStreamResponse({
+    // Surface stream-level errors in Railway logs so production failures can be
+    // diagnosed. Default AI SDK behaviour swallows details and shows a generic
+    // "An error occurred." to the client, making every incident opaque.
+    onError: (err) => {
+      const e = err as Error & { cause?: unknown; response?: { status?: number } };
+      console.error('[api/chat] stream-level error:', {
+        sessionId,
+        message: e?.message,
+        name:    e?.name,
+        stack:   e?.stack?.split('\n').slice(0, 8).join('\n'),
+        cause:   e?.cause,
+        status:  e?.response?.status,
+      });
+      // Return a useful message to the client instead of the generic default.
+      return e?.message
+        ? `Chat error: ${e.message.slice(0, 240)}`
+        : 'Chat error — please retry. If this keeps happening contact support.';
+    },
     execute: async (dataStream) => {
       const requestStart = Date.now();
 
@@ -485,9 +503,14 @@ export async function POST(req: Request) {
           'Search flights via Duffel. Returns best-priced options ranked cheapest first. All results are confirmed-bookable through Duffel (IATA-accredited). Supports one-way, round-trip, and multi-city (3+ legs via `slices`).',
         parameters: z.object({
           // Hard constraints (cache key) — changing these triggers a new Duffel fetch.
-          origin:        z.string().describe('Origin IATA airport code e.g. YVR, JFK. Ignored when `slices` is provided.'),
-          destination:   z.string().describe('Destination IATA airport code e.g. CUN, NRT, LHR. Ignored when `slices` is provided.'),
-          departureDate: z.string().describe('Departure date YYYY-MM-DD. Ignored when `slices` is provided.'),
+          // origin/destination/departureDate are REQUIRED for one-way and round-trip
+          // searches but OPTIONAL when a `slices` multi-city chain is supplied. We
+          // keep them `.optional()` at the Zod layer and assert in the execute() body
+          // that at least one of the two shapes is satisfied; this avoids a
+          // confusing Zod rejection when Claude correctly omits them for multi-city.
+          origin:        z.string().optional().describe('Origin IATA airport code e.g. YVR, JFK. REQUIRED for one-way / round-trip; ignored when `slices` is provided.'),
+          destination:   z.string().optional().describe('Destination IATA airport code e.g. CUN, NRT, LHR. REQUIRED for one-way / round-trip; ignored when `slices` is provided.'),
+          departureDate: z.string().optional().describe('Departure date YYYY-MM-DD. REQUIRED for one-way / round-trip; ignored when `slices` is provided.'),
           returnDate:    z.string().optional().describe('Return date YYYY-MM-DD for round-trips. Ignored when `slices` is provided.'),
           // Multi-city itineraries (3+ legs). Provide an ordered chain of legs.
           // If supplied, overrides origin/destination/departureDate/returnDate.
@@ -515,12 +538,41 @@ export async function POST(req: Request) {
           departBefore:       z.string().regex(/^\d{2}:\d{2}$/).optional().describe('Latest outbound departure time, 24h HH:MM. Use for "morning flights" ⇒ "12:00".'),
         }),
         execute: async (params) => {
+         try {
           // Defence-in-depth: validate params even though Zod already type-checked them.
           // Catches semantic issues (past dates, malformed codes) that Zod can't see.
           const paramErrors = validateToolParams('searchFlights', params as Record<string, unknown>);
           if (paramErrors.length > 0) {
             console.warn('[security] searchFlights param validation failed', { sessionId, errors: paramErrors });
             return { summary: `Search parameters appear invalid: ${paramErrors.join('; ')}. Please try again with valid dates and airport codes.`, flightCount: 0 };
+          }
+          // ── Multi-city param guard + normalization ──
+          // For multi-city, only `slices` is required — origin/destination/departureDate
+          // are ignored. For one-way / round-trip, those three are required. Reject
+          // early with a clear message if neither shape is satisfied so the error
+          // doesn't bubble up from Duffel as a confusing 400.
+          //
+          // When slices is supplied we also backfill origin/destination/departureDate
+          // from the first and last legs so downstream code (logger, search_logs DB
+          // write, route-label builder, side-channel fallback) doesn't have to
+          // special-case either shape.
+          const hasSlices = Array.isArray(params.slices) && params.slices.length >= 2;
+          const hasORD    = !!(params.origin && params.destination && params.departureDate);
+          if (!hasSlices && !hasORD) {
+            return {
+              summary: 'Flight search needs either (origin + destination + departureDate) or a `slices` list of 2+ legs. Please clarify the route with the user.',
+              flightCount: 0,
+            };
+          }
+          if (hasSlices) {
+            const first = params.slices![0];
+            const last  = params.slices![params.slices!.length - 1];
+            params = {
+              ...params,
+              origin:        params.origin        ?? first?.origin,
+              destination:   params.destination   ?? last?.destination,
+              departureDate: params.departureDate ?? first?.departureDate,
+            };
           }
           // ── Session memory: fill in constraints the caller forgot to repeat ──
           // Claude sometimes drops avoidAirlines / cabinClass on a retry after a
@@ -531,7 +583,10 @@ export async function POST(req: Request) {
           // Capture the effective filter set for future turns (first turn establishes
           // the baseline; later turns refine it). Empty arrays / undefined are ignored.
           mergeConstraints(sessionId, extractFlightConstraints(mergedParams as Record<string, unknown>));
-          const r = await aggregateFlights(mergedParams);
+          // After the multi-city guard above, origin/destination/departureDate are
+          // guaranteed populated either from the tool call or from slices. Assert
+          // via a cast so the strict FlightSearchParams contract is satisfied.
+          const r = await aggregateFlights(mergedParams as unknown as Parameters<typeof aggregateFlights>[0]);
           logger.search({
             event: 'flight_search', api: 'duffel',
             sessionId: sessionId,
@@ -643,6 +698,14 @@ export async function POST(req: Request) {
           }
           flightSummary += ` All ${r.flights.length} cards shown to user. Use ONLY these exact prices/airlines in your response.`;
           return { summary: flightSummary, flightCount: r.flights.length };
+         } catch (err) {
+          // Any unexpected throw during flight search is logged and returned as a
+          // tool error so Claude can react (apologize, retry with different params)
+          // instead of the whole chat stream dying with an opaque message.
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error('[searchFlights] unexpected failure:', { sessionId, message: msg, stack: err instanceof Error ? err.stack?.split('\n').slice(0, 6).join('\n') : undefined });
+          return { summary: `Flight search failed internally: ${msg.slice(0, 180)}. Please retry.`, flightCount: 0 };
+         }
         },
       }),
 
@@ -800,6 +863,7 @@ export async function POST(req: Request) {
           freeCancellation: z.boolean().optional().describe('Only show hotels with free cancellation. Use for "refundable" / "cancellable".'),
         }),
         execute: async (params) => {
+         try {
           // Defence-in-depth: validate hotel params (dates, price bounds).
           const hotelParamErrors = validateToolParams('searchHotels', params as Record<string, unknown>);
           if (hotelParamErrors.length > 0) {
@@ -901,6 +965,11 @@ export async function POST(req: Request) {
           if (r.isSample) hotelSummary += ` Note: indicative pricing.`;
           hotelSummary += ` All ${hotels.length} cards shown to user. Use ONLY these exact names/prices in your response.`;
           return { summary: hotelSummary, hotelCount: hotels.length };
+         } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error('[searchHotels] unexpected failure:', { sessionId, message: msg, stack: err instanceof Error ? err.stack?.split('\n').slice(0, 6).join('\n') : undefined });
+          return { summary: `Hotel search failed internally: ${msg.slice(0, 180)}. Please retry.`, hotelCount: 0 };
+         }
         },
       }),
 
