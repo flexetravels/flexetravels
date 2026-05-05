@@ -19,6 +19,11 @@ const NAV_LINKS = [
   { href: '/partners',     label: 'For Partners'  },
 ];
 
+// Trip-canvas v2 routes the planning UI to /trip when the flag is on.
+// Middleware also redirects /chat → /trip in that case, so this is a perf
+// optimization (avoids the redirect hop) more than a behavioural change.
+const PLAN_HREF = process.env.NEXT_PUBLIC_TRIP_CANVAS === 'true' ? '/trip' : '/chat';
+
 export function Nav() {
   const [scrolled,  setScrolled]  = useState(false);
   const [menuOpen,  setMenuOpen]  = useState(false);
@@ -121,7 +126,7 @@ export function Nav() {
         {/* ── Right actions ── */}
         <div className="flex items-center gap-2">
           <Link
-            href="/chat"
+            href={PLAN_HREF}
             className="flex items-center gap-1.5 px-4 sm:px-5 py-2.5 rounded-full text-sm font-bold
                        bg-gradient-to-r from-teal-500 to-cyan-500 text-white
                        shadow-lg shadow-teal-900/30 hover:shadow-teal-900/50

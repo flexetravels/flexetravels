@@ -10,6 +10,14 @@ import {
 import { CheckoutCard } from '@/components/CheckoutCard';
 import type { FlightResult, HotelResult } from '@/lib/types';
 
+// Where to send the user when the cart-flow has nothing to anchor to.
+// Trip canvas is the primary UI when the flag is on; otherwise legacy /chat.
+const HOME_HREF = process.env.NEXT_PUBLIC_TRIP_CANVAS === 'true' ? '/trip' : '/chat';
+// After a successful booking, the user's "last trip" pointer is the trip they
+// just completed. The post-confirmation CTA forces a fresh canvas so they
+// don't land back on the booked trip.
+const FRESH_TRIP_HREF = process.env.NEXT_PUBLIC_TRIP_CANVAS === 'true' ? '/trip?new=1' : '/chat';
+
 // ─── Confirmation view (shown after booking is complete) ──────────────────────
 function ConfirmationView({ searchParams }: { searchParams: ReturnType<typeof useSearchParams> }) {
   const reference  = searchParams.get('ref');
@@ -25,9 +33,9 @@ function ConfirmationView({ searchParams }: { searchParams: ReturnType<typeof us
           <AlertCircle className="w-16 h-16 text-amber-500 mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-foreground mb-2">No booking found</h1>
           <p className="text-muted-foreground mb-6">
-            We couldn&apos;t find a booking reference. Please check your email or return to the chat.
+            We couldn&apos;t find a booking reference. Please check your email or return to the trip planner.
           </p>
-          <Link href="/chat" className="btn-primary">
+          <Link href={HOME_HREF} className="btn-primary">
             Back to FlexeTravels
           </Link>
         </div>
@@ -143,13 +151,13 @@ function ConfirmationView({ searchParams }: { searchParams: ReturnType<typeof us
             {/* Actions */}
             <div className="flex gap-3 pt-2">
               <Link
-                href="/chat"
+                href={FRESH_TRIP_HREF}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl
                            border border-border text-sm font-medium text-muted-foreground
                            hover:bg-muted transition-colors"
               >
                 <ArrowLeft className="w-4 h-4" />
-                Back to chat
+                {FRESH_TRIP_HREF.startsWith('/trip') ? 'Plan another trip' : 'Back to chat'}
               </Link>
               <button
                 onClick={() => window.print()}
@@ -180,17 +188,27 @@ const CART_STALE_MS = 4 * 60 * 1000; // 4 minutes
 interface CartData {
   flight:     FlightResult | null;
   hotel:      HotelResult  | null;
+  // Multi-leg cart — every leg's flight + hotel in trip order. Canvas-mode
+  // checkouts populate these alongside `flight` / `hotel` (which point at the
+  // first entry for backwards compat with the older /chat → /booking flow).
+  flights?:   FlightResult[];
+  hotels?:    HotelResult[];
   adults?:    number;    // adults count from search — pre-fills checkout forms
   children?:  { count: number; ages: number[] } | null;
   savedAt?:   number;    // epoch ms — for stale-rate detection
   sessionId?: string;    // chat session ID — for DB persistence
+  source?:    string;    // 'canvas' | 'chat' — where the cart originated
+  tripId?:    string;    // canvas trip id when source='canvas' — used for the
+                          // "Back to your trip" link so user doesn't lose work
 }
 
 function CheckoutView() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [cart, setCart]         = useState<CartData | null>(null);
   const [cartLoaded, setCartLoaded] = useState(false);
   const [isStale, setIsStale]   = useState(false);
+  const [backHref, setBackHref] = useState<string>('/chat');
 
   // Read cart from sessionStorage after hydration
   useEffect(() => {
@@ -207,6 +225,28 @@ function CheckoutView() {
     setCartLoaded(true);
   }, []);
 
+  // Resolve where "Back" should go. Priority:
+  //   1. cart.tripId (the canvas wrote it on the way out)
+  //   2. ?tripId= query param (in case sessionStorage was cleared)
+  //   3. localStorage 'ft_last_trip_id' (cold open / new tab — we still
+  //      know which canvas this user was last on)
+  //   4. Fall back to /trip (which itself resumes-or-creates)
+  //   5. ...or /chat when the canvas flag is off
+  useEffect(() => {
+    const canvasOn = process.env.NEXT_PUBLIC_TRIP_CANVAS === 'true';
+    const fallback = canvasOn ? '/trip' : '/chat';
+    const fromCart  = cart?.tripId;
+    const fromQuery = searchParams?.get('tripId') || undefined;
+    let fromStorage: string | undefined;
+    try { fromStorage = window.localStorage.getItem('ft_last_trip_id') || undefined; } catch { /* ignore */ }
+    const tripId = fromCart || fromQuery || fromStorage;
+    if (tripId && /^[0-9a-f-]{36}$/i.test(tripId)) {
+      setBackHref(`/trip/${tripId}`);
+    } else {
+      setBackHref(fallback);
+    }
+  }, [cart, searchParams]);
+
   // Loading state
   if (!cartLoaded) {
     return (
@@ -217,6 +257,9 @@ function CheckoutView() {
   }
 
   // No cart — nudge back to chat
+  // Whether the back link points to the canvas (vs /chat) — affects copy.
+  const backLabel = backHref.startsWith('/trip/') ? 'Back to your trip' : 'Back to chat';
+
   if (!cart?.flight && !cart?.hotel) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
@@ -224,15 +267,17 @@ function CheckoutView() {
           <AlertCircle className="w-14 h-14 text-amber-500 mx-auto mb-4" />
           <h1 className="text-xl font-bold text-foreground mb-2">Nothing in your cart</h1>
           <p className="text-muted-foreground mb-6 text-sm">
-            Select a flight and hotel in the chat first, then come back here to complete your booking.
+            {backHref.startsWith('/trip/')
+              ? 'Looks like the cart cleared. Your trip is still saved — pick a flight and hotel there to come back here.'
+              : 'Select a flight and hotel in the chat first, then come back here to complete your booking.'}
           </p>
           <Link
-            href="/chat"
+            href={backHref}
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl
                        bg-teal-600 text-white text-sm font-bold hover:bg-teal-700 transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
-            Back to chat
+            {backLabel}
           </Link>
         </div>
       </div>
@@ -248,7 +293,8 @@ function CheckoutView() {
   };
 
   const handleClose = () => {
-    router.push('/chat');
+    // Send the user back to wherever they came from (canvas trip if known)
+    router.push(backHref);
   };
 
   return (
@@ -259,11 +305,11 @@ function CheckoutView() {
       <header className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border/50">
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center gap-3">
           <Link
-            href="/chat"
+            href={backHref}
             className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
-            Back to chat
+            {backLabel}
           </Link>
           <span className="text-border/60 mx-1">·</span>
           <span className="text-sm font-bold text-foreground">
@@ -292,6 +338,8 @@ function CheckoutView() {
         <CheckoutCard
           flight={cart.flight}
           hotel={cart.hotel}
+          flights={cart.flights}
+          hotels={cart.hotels}
           onClose={handleClose}
           onConfirmed={handleConfirmed}
           initialAdults={cart.adults ?? cart.flight?.searchedAdults ?? cart.flight?.passengers ?? cart.hotel?.searchedAdults ?? 1}
@@ -377,10 +425,10 @@ function HotelPaymentCompleteView() {
           <AlertCircle className="w-14 h-14 text-red-500 mx-auto" />
           <h1 className="text-xl font-bold text-foreground">Booking could not be completed</h1>
           <p className="text-sm text-muted-foreground">{errorMsg}</p>
-          <Link href="/chat"
+          <Link href={HOME_HREF}
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl
                        bg-teal-600 text-white text-sm font-bold hover:bg-teal-700 transition-colors">
-            <ArrowLeft className="w-4 h-4" /> Back to chat
+            <ArrowLeft className="w-4 h-4" /> {HOME_HREF === '/trip' ? 'Back to your trip' : 'Back to chat'}
           </Link>
         </div>
       </div>

@@ -8,6 +8,7 @@
 // from the cache key.
 
 import type { FlightSearchParams, NormalizedFlight } from './types';
+import { evaluateTransitVisaIssues } from './transitVisa';
 
 // ─── Region hub tables ────────────────────────────────────────────────────────
 const REGION_HUBS: Record<'pacific' | 'europe' | 'middleeast', string[]> = {
@@ -80,6 +81,11 @@ export function applyFlightFilters(
     }
     if (params.avoidAirlines?.length && flightUsesAirline(f, params.avoidAirlines)) return false;
     if (params.viaRegions?.length && !flightRoutesThroughRegion(f, params.viaRegions)) return false;
+    if (params.transitProfile?.mode !== 'warn' && params.transitProfile?.passportCountry) {
+      const blockingIssues = evaluateTransitVisaIssues(f, params.transitProfile)
+        .filter(issue => issue.severity === 'blocked');
+      if (blockingIssues.length > 0) return false;
+    }
     if (params.departAfter) {
       const hhmm = f.departure?.slice(11, 16);
       if (hhmm && hhmm < params.departAfter) return false;

@@ -1,13 +1,11 @@
-const path = require('path');
-
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Standalone output — minimal Docker image for Railway (~50MB vs ~500MB)
   output: 'standalone',
-  // Fix workspace root detection in git worktrees (Railway monorepo support)
-  // NOTE: Comment this line out for local builds — it causes the build to hang
-  // by scanning the entire parent directory tree. Only needed on Railway.
-  outputFileTracingRoot: path.join(__dirname, '../../..'),
+  // Keep tracing inside this app. Pointing at the conductor/workspace parent can
+  // make standalone builds chase files outside the repo and fail during trace
+  // finalization.
+  outputFileTracingRoot: __dirname,
 
   // Skip ESLint during production builds — lint is enforced in CI/pre-commit instead
   eslint: { ignoreDuringBuilds: true },
@@ -61,16 +59,19 @@ const nextConfig = {
           { key: 'X-XSS-Protection', value: '1; mode=block' },
           // HSTS — force HTTPS for 1 year, including subdomains
           { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains; preload' },
-          // Content Security Policy — scoped to allow Stripe Elements and LiteAPI payment SDK
+          // Content Security Policy — scoped to allow Stripe Elements, LiteAPI payment SDK, and Mapbox GL JS
           {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://payment-wrapper.liteapi.travel",
-              "style-src 'self' 'unsafe-inline'",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://payment-wrapper.liteapi.travel https://api.mapbox.com",
+              // Mapbox GL JS uses a tile-decoding worker created from a Blob URL
+              "worker-src 'self' blob:",
+              "style-src 'self' 'unsafe-inline' https://api.mapbox.com",
               "img-src 'self' data: https: blob:",
-              "font-src 'self' data:",
-              "connect-src 'self' https://api.stripe.com https://*.supabase.co https://payment-wrapper.liteapi.travel",
+              "font-src 'self' data: https://api.mapbox.com",
+              // Mapbox runtime endpoints: styles, tiles, fonts, sprites, telemetry
+              "connect-src 'self' https://api.stripe.com https://*.supabase.co https://payment-wrapper.liteapi.travel https://api.mapbox.com https://events.mapbox.com",
               "frame-src https://js.stripe.com https://hooks.stripe.com https://payment-wrapper.liteapi.travel",
               "object-src 'none'",
               "base-uri 'self'",

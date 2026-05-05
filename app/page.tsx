@@ -17,6 +17,11 @@ import {
 import { Nav } from '@/components/Nav';
 import type { DiscoverCard, DiscoverData } from './api/discover/route';
 
+// Trip-canvas v2 routes the planning UI to /trip when the flag is on. The
+// middleware also redirects /chat → /trip in that case, so this is a perf
+// optimization (no client-side redirect hop) more than a behavioural change.
+const PLAN_HREF = process.env.NEXT_PUBLIC_TRIP_CANVAS === 'true' ? '/trip' : '/chat';
+
 // ─── Geo recommendations type ────────────────────────────────────────────────
 interface GeoPackage {
   id: string; destination: string; country: string; tag: string; tagColor: string;
@@ -274,7 +279,7 @@ function Hero({ onPrompt }: { onPrompt: (p: string) => void }) {
           </p>
 
           <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 mb-8">
-            <Link href="/chat"
+            <Link href={PLAN_HREF}
               className="flex items-center justify-center gap-2.5 px-7 py-4 rounded-2xl text-base font-bold
                          bg-gradient-to-r from-teal-500 to-cyan-500 text-white
                          shadow-[0_8px_36px_rgba(13,148,136,0.45)]
@@ -485,7 +490,7 @@ function WhyDifferent() {
               flight and hotel reservations — not referral links — directly and securely,
               right here in one conversation.
             </p>
-            <Link href="/chat"
+            <Link href={PLAN_HREF}
               className="inline-flex items-center gap-2 mt-6 text-teal-400 font-semibold text-sm
                          hover:text-teal-300 transition-colors group">
               Experience the difference
@@ -526,47 +531,50 @@ function WhyDifferent() {
   );
 }
 
-// ─── Social proof / Testimonials ────────────────────────────────────────────────
+// ─── How it actually works — transparent value props ───────────────────────────
+// Replaces an early-stage testimonial section. We don't show pseudonymous
+// "James T." quotes — when we have real, opt-in customer reviews we'll wire a
+// proper review provider and show those instead.
 function Testimonials() {
-  const quotes = [
-    { text: 'Booked our Cancun trip in 5 minutes — flights, hotel, everything. My wife couldn\'t believe it.',
-      name: 'James T.', role: 'Family of 4', avatar: 'JT' },
-    { text: 'The AI found us a boutique hotel in Lisbon that was cheaper than anything on Booking.com. Game changer.',
-      name: 'Sarah M.', role: 'Couple', avatar: 'SM' },
-    { text: 'I normally spend hours comparing tabs. This did it all in one conversation. Worth every penny of the $20 fee.',
-      name: 'David K.', role: 'Solo traveler', avatar: 'DK' },
+  const claims = [
+    {
+      headline: 'Real prices, direct from airlines',
+      body:     'Flights are searched live through Duffel — same fares the airline\'s own site shows, no markup baked in.',
+      icon:     'plane' as const,
+    },
+    {
+      headline: 'Flat $20 service fee — that\'s it',
+      body:     'No commission, no upsell, no resort-fee mystery line. The airline charges its fare, the hotel charges its rate, we add $20.',
+      icon:     'card' as const,
+    },
+    {
+      headline: 'Booked end-to-end in one place',
+      body:     'Confirmation email, flight ref, hotel voucher — all delivered before you close the tab. No "we\'ll get back to you".',
+      icon:     'check' as const,
+    },
   ];
 
   return (
     <section className="relative z-10 py-20 px-5 sm:px-8">
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-14">
-          <p className="text-teal-400 text-xs font-bold uppercase tracking-[0.2em] mb-4">Loved by travelers</p>
+          <p className="text-teal-400 text-xs font-bold uppercase tracking-[0.2em] mb-4">How it actually works</p>
           <h2 className="text-3xl sm:text-4xl font-extrabold text-white">
-            What our early users are saying
+            Honest pricing, real bookings, zero theatre
           </h2>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {quotes.map(q => (
-            <div key={q.name}
+          {claims.map((c) => (
+            <div key={c.headline}
               className="bg-white/[0.04] border border-white/[0.08] rounded-2xl p-6
                          hover:bg-white/[0.06] hover:border-white/[0.14] transition-all duration-300">
-              <div className="flex gap-1 mb-4">
-                {[...Array(5)].map((_, i) => (
-                  <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
-                ))}
+              <div className="w-10 h-10 rounded-xl bg-teal-500/15 border border-teal-400/25 flex items-center justify-center mb-5">
+                {c.icon === 'plane'  && <Plane          className="w-5 h-5 text-teal-300" />}
+                {c.icon === 'card'   && <CreditCard     className="w-5 h-5 text-teal-300" />}
+                {c.icon === 'check'  && <CheckCircle2   className="w-5 h-5 text-teal-300" />}
               </div>
-              <p className="text-white/70 text-sm leading-relaxed mb-5">&ldquo;{q.text}&rdquo;</p>
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-teal-500 to-teal-700
-                                flex items-center justify-center text-white text-xs font-bold">
-                  {q.avatar}
-                </div>
-                <div>
-                  <p className="text-white text-sm font-semibold">{q.name}</p>
-                  <p className="text-white/35 text-xs">{q.role}</p>
-                </div>
-              </div>
+              <p className="text-white text-base font-semibold mb-2">{c.headline}</p>
+              <p className="text-white/65 text-sm leading-relaxed">{c.body}</p>
             </div>
           ))}
         </div>
@@ -626,7 +634,7 @@ function GeoRecommendations({ onPrompt }: { onPrompt: (p: string) => void }) {
               Curated for your location and the current season — real flights, live hotel rates.
             </p>
           </div>
-          <Link href="/chat"
+          <Link href={PLAN_HREF}
             className="flex-shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold
                        border border-white/15 text-white/65 hover:text-white hover:border-white/30
                        bg-white/[0.04] hover:bg-white/[0.07] transition-all duration-200">
@@ -714,7 +722,7 @@ function VerifiedDestinations({ onPrompt }: { onPrompt: (p: string) => void }) {
               Every destination below is end-to-end bookable — confirmed flights from major Canadian airports, live hotel rates. Tap any card to start.
             </p>
           </div>
-          <Link href="/chat"
+          <Link href={PLAN_HREF}
             className="flex-shrink-0 flex items-center gap-2 text-sm font-semibold text-teal-400
                        hover:text-teal-300 transition-colors group whitespace-nowrap">
             Any destination <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
@@ -831,7 +839,7 @@ export default function LandingPage() {
 
   const handlePrompt = useCallback((prompt: string) => {
     try { sessionStorage.setItem('ft_auto_prompt', prompt); } catch { /* ignore */ }
-    router.push('/chat');
+    router.push(PLAN_HREF);
   }, [router]);
 
   return (
@@ -910,7 +918,7 @@ export default function LandingPage() {
                 Join thousands of smart travellers who&apos;ve replaced hours of tab-switching with a single
                 AI-powered chat. Free to start — flat $20 when you book.
               </p>
-              <Link href="/chat"
+              <Link href={PLAN_HREF}
                 className="inline-flex items-center gap-3 px-10 py-4 rounded-2xl font-bold text-lg
                            bg-gradient-to-r from-teal-500 to-cyan-500 text-white
                            shadow-[0_8px_40px_rgba(13,148,136,0.45)]
@@ -951,7 +959,7 @@ export default function LandingPage() {
                 { href: '/about',        label: 'About' },
                 { href: '/partners',     label: 'For Partners' },
                 { href: '/contact',      label: 'Contact' },
-                { href: '/chat',         label: 'Start Planning' },
+                { href: PLAN_HREF,       label: 'Start Planning' },
               ].map(l => (
                 <Link key={l.href} href={l.href}
                   className="text-white/35 hover:text-white/75 text-sm transition-colors">

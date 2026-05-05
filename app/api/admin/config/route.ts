@@ -121,7 +121,7 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
 }
 
 /** Returns the current set of honeypot-blocked IPs (for health/admin endpoints). */
-export function getHoneypotBlocks(): Map<string, number> {
+function getHoneypotBlocks(): Map<string, number> {
   const now = Date.now();
   // Prune expired entries
   for (const [ip, until] of honeypotBlocks) {

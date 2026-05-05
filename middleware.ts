@@ -285,6 +285,44 @@ function trackFingerprint(req: NextRequest, ip: string): void {
   }
 }
 
+// ─── Trip Canvas (v2) feature flag ────────────────────────────────────────────
+// `/trip*` and `/api/trip/*` are gated behind NEXT_PUBLIC_TRIP_CANVAS=true.
+// Staff can opt in early by setting the `ft_canvas=1` cookie.
+// When gated off, page requests rewrite to /chat (graceful) and API requests
+// return 404 (avoids leaking the existence of the feature).
+
+function isCanvasGatedAllowed(req: NextRequest): boolean {
+  if (process.env.NEXT_PUBLIC_TRIP_CANVAS === 'true') return true;
+  if (req.cookies.get('ft_canvas')?.value === '1')   return true;
+  return false;
+}
+
+function checkCanvasGate(req: NextRequest, pathname: string): NextResponse | null {
+  // When the canvas flag is ON, /chat redirects to /trip — the canvas
+  // is the unified interface (Cmd+K + Chat slide-over inside it).
+  // When OFF, /chat continues to work standalone (rollback path).
+  if (pathname === '/chat' && isCanvasGatedAllowed(req)) {
+    const url = req.nextUrl.clone();
+    url.pathname = '/trip';
+    return NextResponse.redirect(url);
+  }
+
+  const isCanvasPage = pathname === '/trip' || pathname.startsWith('/trip/');
+  const isCanvasApi  = pathname.startsWith('/api/trip/') || pathname === '/api/trip';
+  if (!isCanvasPage && !isCanvasApi) return null;
+
+  if (isCanvasGatedAllowed(req)) return null;
+
+  if (isCanvasApi) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+  // Page request — rewrite to /chat so the URL stays the same but the user
+  // gets the existing chat experience. No data loss, no confusion.
+  const url = req.nextUrl.clone();
+  url.pathname = '/chat';
+  return NextResponse.rewrite(url);
+}
+
 // ─── Main middleware ──────────────────────────────────────────────────────────
 
 export async function middleware(request: NextRequest) {
@@ -292,6 +330,11 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
   const ip       = getIP(request);
+
+  // Trip Canvas feature flag — runs before anything else so gated traffic
+  // never spends a slot in the rate-limit window.
+  const canvasBlock = checkCanvasGate(request, pathname);
+  if (canvasBlock) return canvasBlock;
 
   // Only apply DDoS layers to API routes (pages and static files are excluded
   // by the matcher below, but this adds clarity and safety).

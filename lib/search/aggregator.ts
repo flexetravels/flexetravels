@@ -16,6 +16,10 @@ import { lookupFlightCache, storeFlightCache } from './flightCache';
 import { applyFlightFilters, rankByDurationPrice } from './flightFilters';
 import { lookupHotelCache, storeHotelCache } from './hotelCache';
 import { applyHotelFilters, rankByRatingPrice } from './hotelFilters';
+import {
+  enrichHotelsWithGoogleRatingsTimed,
+  googleRatingKey,
+} from '@/lib/canvas/google-hotel-ratings';
 import { logEvent } from '@/lib/logger';
 
 // ─── North America airport geography (for context + validation) ───────────────
@@ -164,7 +168,7 @@ export async function aggregateFlights(params: FlightSearchParams): Promise<{
       api:         'system',
       level:       'info',
       success:     ranked.length > 0,
-      params:      params as Record<string, unknown>,
+      params:      params as unknown as Record<string, unknown>,
       resultCount: ranked.length,
       sources:     ['cache', ...cached.sources],
       durationMs:  latencyMs,
@@ -263,7 +267,7 @@ export async function aggregateHotels(params: HotelSearchParams): Promise<HotelA
       api:         'system',
       level:       'info',
       success:     ranked.length > 0,
-      params:      params as Record<string, unknown>,
+      params:      params as unknown as Record<string, unknown>,
       resultCount: ranked.length,
       sources:     ['cache', ...cached.sources],
       durationMs:  latencyMs,
@@ -380,6 +384,26 @@ export async function aggregateHotels(params: HotelSearchParams): Promise<HotelA
       latencyMs: Date.now() - start,
       noResultsMessage: `No live hotel inventory found for ${params.destination} on these dates. Here are indicative options to give you an idea of pricing:`,
     };
+  }
+
+  // ── Google Places rating enrichment ──────────────────────────────────────
+  // Real guest scores for the hotels we're about to show. Capped at the top
+  // 10 results (the slice the picker actually renders) and at a 1.5 s
+  // wall-clock budget so a slow Places API never balloons the search
+  // response. Soft-fails when GOOGLE_PLACES_API_KEY is unset.
+  const top = filtered.slice(0, 10);
+  const ratings = await enrichHotelsWithGoogleRatingsTimed(
+    top.map(h => ({ name: h.name, city: h.city })),
+    1500,
+  );
+  if (ratings.size > 0) {
+    for (const h of filtered) {
+      const r = ratings.get(googleRatingKey(h.name, h.city));
+      if (r) {
+        h.googleRating      = r.googleRating;
+        h.googleRatingCount = r.googleRatingCount;
+      }
+    }
   }
 
   return { hotels: filtered, sources, errors, isSample: false, latencyMs: Date.now() - start };

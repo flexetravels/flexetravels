@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import { ThemeProvider } from 'next-themes';
 import { CurrencyProvider } from '@/components/CurrencyContext';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import './globals.css';
 
 const inter = Inter({
@@ -69,7 +70,9 @@ export default function RootLayout({
           disableTransitionOnChange={false}
         >
           <CurrencyProvider>
-            {children}
+            <ErrorBoundary>
+              {children}
+            </ErrorBoundary>
           </CurrencyProvider>
         </ThemeProvider>
       </body>

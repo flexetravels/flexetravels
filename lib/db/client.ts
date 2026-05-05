@@ -3,6 +3,8 @@
 // Set SUPABASE_URL + SUPABASE_SERVICE_KEY in env to activate persistence.
 // Every method degrades gracefully (returns null / empty) when not configured.
 
+import type { TripCanvasRow } from '@/lib/canvas/types';
+
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
 // Accept either naming convention (Supabase dashboard uses SERVICE_ROLE_KEY)
 const SERVICE_KEY  =
@@ -67,7 +69,11 @@ async function rest<T>(
       return null;
     }
 
-    if (res.status === 204 || res.status === 201) return null;
+    // 204 No Content has no body. 201 Created CAN have a body when the caller
+    // sent `Prefer: return=representation` (i.e. `returning: true`). Don't
+    // short-circuit on 201 — parse the body if present so inserts that pass
+    // `returning: true` actually return the inserted row.
+    if (res.status === 204) return null;
     const text = await res.text();
     if (!text) return null;
     return JSON.parse(text) as T;
@@ -233,6 +239,56 @@ export const db = {
     },
   },
 
+  // ── Payment ledger v2 (quote/idempotency/reconciliation) ──────────────────
+  paymentQuotes: {
+    async create(data: Partial<PaymentQuoteRow>): Promise<PaymentQuoteRow | null> {
+      const rows = await rest<PaymentQuoteRow[]>('POST', 'payment_quotes', { body: data as Json, returning: true });
+      return rows?.[0] ?? null;
+    },
+    async get(id: string): Promise<PaymentQuoteRow | null> {
+      const rows = await rest<PaymentQuoteRow[]>('GET', 'payment_quotes', { filter: { id: `eq.${id}` } });
+      return rows?.[0] ?? null;
+    },
+    async consumeOpen(id: string): Promise<PaymentQuoteRow | null> {
+      const rows = await rest<PaymentQuoteRow[]>('PATCH', 'payment_quotes', {
+        filter: { id: `eq.${id}`, status: 'eq.open' },
+        body: { status: 'consumed', consumed_at: new Date().toISOString() },
+        returning: true,
+      });
+      return rows?.[0] ?? null;
+    },
+  },
+
+  paymentTransactions: {
+    async create(data: Partial<PaymentTransactionRow>): Promise<PaymentTransactionRow | null> {
+      const rows = await rest<PaymentTransactionRow[]>('POST', 'payment_transactions', { body: data as Json, returning: true });
+      return rows?.[0] ?? null;
+    },
+    async getByProviderPaymentId(provider: string, providerPaymentId: string): Promise<PaymentTransactionRow | null> {
+      const rows = await rest<PaymentTransactionRow[]>('GET', 'payment_transactions', {
+        filter: {
+          provider: `eq.${provider}`,
+          provider_payment_id: `eq.${providerPaymentId}`,
+        },
+      });
+      return rows?.[0] ?? null;
+    },
+  },
+
+  supplierBookings: {
+    async create(data: Partial<SupplierBookingRow>): Promise<SupplierBookingRow | null> {
+      const rows = await rest<SupplierBookingRow[]>('POST', 'supplier_bookings', { body: data as Json, returning: true });
+      return rows?.[0] ?? null;
+    },
+  },
+
+  ledgerEntries: {
+    async createMany(rows: Array<Partial<LedgerEntryRow>>): Promise<void> {
+      if (!rows.length) return;
+      await rest('POST', 'ledger_entries', { body: rows as Json[] });
+    },
+  },
+
   // ── Search Logs (growth analytics) ───────────────────────────────────────
   searchLogs: {
     async create(data: Partial<SearchLogRow>): Promise<SearchLogRow | null> {
@@ -291,6 +347,35 @@ export const db = {
     },
   },
 
+  // ── Trip Canvas (v2 visual canvas — additive) ─────────────────────────────
+  tripsCanvas: {
+    async create(data: Partial<TripCanvasRow>): Promise<TripCanvasRow | null> {
+      const rows = await rest<TripCanvasRow[]>('POST', 'trips_canvas', { body: data, returning: true });
+      return rows?.[0] ?? null;
+    },
+    async get(id: string): Promise<TripCanvasRow | null> {
+      const rows = await rest<TripCanvasRow[]>('GET', 'trips_canvas', { filter: { id: `eq.${id}` } });
+      return rows?.[0] ?? null;
+    },
+    async listBySession(sessionId: string, limit = 20): Promise<TripCanvasRow[]> {
+      return await rest<TripCanvasRow[]>('GET', 'trips_canvas', {
+        filter: { session_id: `eq.${sessionId}`, status: 'neq.archived', order: 'updated_at.desc', limit: String(limit) },
+      }) ?? [];
+    },
+    async update(id: string, data: Partial<TripCanvasRow>): Promise<TripCanvasRow | null> {
+      const rows = await rest<TripCanvasRow[]>('PATCH', 'trips_canvas', {
+        filter: { id: `eq.${id}` }, body: data, returning: true,
+      });
+      return rows?.[0] ?? null;
+    },
+    async archive(id: string): Promise<void> {
+      await rest('PATCH', 'trips_canvas', {
+        filter: { id: `eq.${id}` },
+        body:   { status: 'archived' },
+      });
+    },
+  },
+
   // ── Execution Logs ─────────────────────────────────────────────────────────
   executionLogs: {
     async create(data: Partial<ExecutionLogRow>): Promise<ExecutionLogRow | null> {
@@ -318,6 +403,10 @@ export const db = {
 };
 
 // ─── Row types ────────────────────────────────────────────────────────────────
+
+// TripCanvas row type re-exported for convenience (defined in lib/canvas/types).
+export type { TripCanvasRow };
+
 
 export interface TripRow {
   id:          string;
@@ -405,6 +494,80 @@ export interface PaymentRow {
   status:            'succeeded' | 'failed' | 'refunded';
   paid_at:           string;
   created_at:        string;
+}
+
+export interface PaymentQuoteRow {
+  id:                  string;
+  session_id:          string;
+  trip_canvas_id:      string | null;
+  market:              'CA' | 'US' | 'IN' | 'OTHER';
+  strategy:            'duffel_payments_markup' | 'stripe_balance' | 'razorpay_balance' | 'supplier_direct';
+  merchant_of_record:  string;
+  supplier:            string;
+  fare_amount_cents:   number;
+  fare_currency:       string;
+  fee_amount_cents:    number;
+  fee_currency:        string;
+  charge_amount_cents: number;
+  charge_currency:     string;
+  offer_ids:           string[];
+  cart_hash:           string;
+  caveats:             string[];
+  expires_at:          string;
+  status:              'open' | 'consumed' | 'expired' | 'cancelled';
+  metadata:            Record<string, unknown>;
+  created_at:          string;
+  consumed_at:         string | null;
+}
+
+export interface PaymentTransactionRow {
+  id:                    string;
+  quote_id:              string;
+  provider:              'stripe' | 'razorpay' | 'duffel';
+  provider_payment_id:   string;
+  idempotency_key:       string;
+  status:                'created' | 'requires_action' | 'succeeded' | 'failed' | 'refunding' | 'refunded' | 'partially_refunded';
+  amount_cents:          number;
+  currency:              string;
+  expected_amount_cents: number;
+  expected_currency:     string;
+  failure_reason:        string | null;
+  raw_payload:           Record<string, unknown>;
+  created_at:            string;
+  updated_at:            string;
+}
+
+export interface SupplierBookingRow {
+  id:                     string;
+  quote_id:               string;
+  payment_transaction_id: string | null;
+  leg_index:              number;
+  supplier:               'duffel' | 'liteapi' | 'amadeus' | 'travelport' | 'manual';
+  product_type:           'flight' | 'hotel' | 'activity' | 'insurance';
+  supplier_offer_id:      string | null;
+  supplier_booking_id:    string | null;
+  supplier_reference:     string | null;
+  status:                 'pending' | 'confirmed' | 'failed' | 'cancelled' | 'requires_action' | 'refund_due' | 'refunded';
+  amount_cents:           number;
+  currency:               string;
+  failure_reason:         string | null;
+  raw_request:            Record<string, unknown>;
+  raw_response:           Record<string, unknown>;
+  created_at:             string;
+  updated_at:             string;
+}
+
+export interface LedgerEntryRow {
+  id:                     string;
+  quote_id:               string | null;
+  payment_transaction_id: string | null;
+  supplier_booking_id:    string | null;
+  account:                'customer_cash' | 'stripe_cash' | 'razorpay_cash' | 'duffel_balance' | 'supplier_payable' | 'service_fee_revenue' | 'refund_payable';
+  direction:              'debit' | 'credit';
+  amount_cents:           number;
+  currency:               string;
+  memo:                   string | null;
+  created_at:             string;
 }
 
 export interface SearchLogRow {

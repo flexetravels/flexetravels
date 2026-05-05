@@ -320,9 +320,9 @@ export default function TermsPage() {
             </h2>
             <div className="space-y-4 text-white/60 leading-relaxed">
               <p>
-                These terms are governed by the laws of the Province of Ontario, Canada, without regard to its
-                conflict of law provisions. You consent to the exclusive jurisdiction of the courts located in
-                Ontario for the resolution of disputes, except as otherwise required by law.
+                These terms are governed by the laws of the Province of British Columbia, Canada, without regard
+                to its conflict of law provisions. You consent to the exclusive jurisdiction of the courts located
+                in British Columbia for the resolution of disputes, except as otherwise required by law.
               </p>
             </div>
           </div>

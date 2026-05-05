@@ -11,6 +11,29 @@ import type {
 
 const LITEAPI_BASE = 'https://api.liteapi.travel/v3.0';
 
+// ─── Rate-limit-aware fetch ───────────────────────────────────────────────────
+// LiteAPI returns 429 when we exceed ~100 req/s on the production tier.
+// Retries up to 2 times with exponential backoff. Honors Retry-After header
+// when present (capped at 3s so we don't stall the whole search).
+async function fetchWithRetry429(input: string, init: RequestInit, maxRetries = 2): Promise<Response> {
+  let lastRes: Response | null = null;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const res = await fetch(input, init);
+    if (res.status !== 429) return res;
+    lastRes = res;
+    if (attempt === maxRetries) break;
+
+    // Determine wait: prefer Retry-After header, else 800ms × 2^attempt + jitter
+    const ra = res.headers.get('retry-after');
+    const headerMs = ra ? Math.min(parseInt(ra, 10) * 1000, 3000) : 0;
+    const backoffMs = 800 * Math.pow(2, attempt) + Math.floor(Math.random() * 200);
+    const waitMs = Math.max(headerMs, backoffMs);
+    console.warn(`[LiteAPI] 429 on ${input.split('?')[0].split('/').pop()}, retry ${attempt + 1}/${maxRetries} in ${waitMs}ms`);
+    await new Promise(r => setTimeout(r, waitMs));
+  }
+  return lastRes!;
+}
+
 // ─── Multi-room occupancy builder ─────────────────────────────────────────────
 // Most hotels enforce a maximum of 2 adults per room. This helper distributes
 // N adults across the minimum number of rooms (ceil(N/2)), returning a valid
@@ -440,9 +463,9 @@ export class LiteApiProvider implements SearchProvider {
         `${LITEAPI_BASE}/data/hotels?countryCode=${countryCode}` +
         `&cityName=${encodeURIComponent(cityName)}&limit=${perCityLimit}`;
       try {
-        const res = await fetch(url, {
+        const res = await fetchWithRetry429(url, {
           headers: this.headers,
-          signal: AbortSignal.timeout(8_000),
+          signal: AbortSignal.timeout(12_000),  // bumped from 8s to give retries headroom
         });
         if (!res.ok) {
           console.warn(`[LiteAPI] hotel list ${res.status} for "${cityName}"`);
@@ -537,7 +560,7 @@ export class LiteApiProvider implements SearchProvider {
     }
 
     const fetchRatesBatch = async (batchIds: string[]): Promise<LiteRateHotel[]> => {
-      const res = await fetch(`${LITEAPI_BASE}/hotels/rates`, {
+      const res = await fetchWithRetry429(`${LITEAPI_BASE}/hotels/rates`, {
         method: 'POST',
         headers: this.headers,
         body: JSON.stringify({
@@ -550,7 +573,7 @@ export class LiteApiProvider implements SearchProvider {
           roomMapping:      true,
           timeout:          3,
         }),
-        signal: AbortSignal.timeout(7_000),
+        signal: AbortSignal.timeout(12_000),
       });
       if (!res.ok) {
         const txt = await res.text();

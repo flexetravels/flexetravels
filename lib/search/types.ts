@@ -29,6 +29,11 @@ export interface FlightSearchParams {
   maxDurationMinutes?: number;        // total (outbound + return if RT) trip duration cap
   departAfter?: string;               // ISO time (HH:MM) — earliest outbound departure
   departBefore?: string;              // ISO time (HH:MM) — latest outbound departure
+  transitProfile?: {
+    passportCountry?: string;          // ISO 3166-1 alpha-2, e.g. "IN"
+    visaCountries?: string[];          // Countries/areas where traveller already has valid transit/entry permission
+    mode?: 'filter' | 'warn';          // default filter: remove known blocked transits
+  };
 }
 
 export interface HotelSearchParams {
@@ -163,8 +168,14 @@ export interface NormalizedHotel {
   currency: string;
   image: string;
   images?: string[];           // full image URLs from /data/hotel API
-  rating: number;              // 0–10
+  rating: number;              // 0–10 (synthetic baseline derived from stars)
   reviewCount?: number;
+  // Real Google Places rating, populated post-search by the aggregator when
+  // GOOGLE_PLACES_API_KEY is configured. Use this in the UI in preference to
+  // `rating` when present — Google's review data is the most authoritative
+  // and recognised by users.
+  googleRating?: number;       // 0–5 (Places scale, NOT 0–10)
+  googleRatingCount?: number;
   amenities: string[];         // real facility list from /data/hotel API
   distanceCenter?: string;
   cancellation?: string;

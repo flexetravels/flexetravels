@@ -152,6 +152,25 @@ export default function PrivacyPage() {
                     Card details and billing address for payment processing. We do not handle these directly.
                   </p>
                 </div>
+                <div className="border-t border-white/[0.07]" />
+                <div>
+                  <h3 className="text-teal-400 font-semibold mb-1">Anthropic</h3>
+                  <p className="text-sm">
+                    The natural-language messages you send to our AI concierge are processed by
+                    Anthropic to generate trip suggestions. Anthropic does not retain your messages
+                    for model training. Avoid sharing sensitive identifiers (passport, card numbers)
+                    in chat — use the secure checkout form for that.
+                  </p>
+                </div>
+                <div className="border-t border-white/[0.07]" />
+                <div>
+                  <h3 className="text-teal-400 font-semibold mb-1">Supabase</h3>
+                  <p className="text-sm">
+                    Account credentials, session tokens, and your saved trip canvases (cities, dates,
+                    chosen flights/hotels) are stored on Supabase&apos;s managed Postgres in a Canadian
+                    or US region, encrypted in transit and at rest.
+                  </p>
+                </div>
               </div>
 
               <p className="text-sm">

@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel in-progress runs of the same workflow on the same branch — saves
+# minutes when a PR gets multiple rapid pushes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Type-check + production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Production build
+        # `next build` does its own type-check pass; if anything fails to
+        # compile or type-check the build fails. We don't run `tsc --noEmit`
+        # separately because the test files (vitest stubs, e2e Playwright)
+        # have known-noisy type errors that aren't relevant to the deploy.
+        run: npx next build
+        env:
+          # Stub vars so `next build` succeeds without secrets — actual prod
+          # config is set on Railway. The build is purely compile-time so no
+          # network calls happen with these placeholder values.
+          NEXT_PUBLIC_TRIP_CANVAS: 'true'
+          NEXT_PUBLIC_APP_URL: 'http://localhost:3000'
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: 'pk_test_ci_placeholder'
+          NEXT_PUBLIC_MAPBOX_TOKEN: 'pk.ci_placeholder'
+          ANTHROPIC_API_KEY: 'sk-ant-ci-placeholder'
+
+  e2e:
+    name: Playwright e2e suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Only run when the Playwright secrets are set. Forks PRs from external
+    # contributors won't have access to repo secrets — the build job above
+    # still gates merge readiness for that case.
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright suite
+        run: npx playwright test --reporter=line
+        env:
+          NEXT_PUBLIC_TRIP_CANVAS: 'true'
+          NEXT_PUBLIC_APP_URL: 'http://localhost:3920'
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_MAPBOX_TOKEN: ${{ secrets.NEXT_PUBLIC_MAPBOX_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DUFFEL_ACCESS_TOKEN: ${{ secrets.DUFFEL_ACCESS_TOKEN }}
+          LITEAPI_KEY: ${{ secrets.LITEAPI_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          ADMIN_SECRET: ${{ secrets.ADMIN_SECRET }}
+
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            e2e/.results/
+          retention-days: 7

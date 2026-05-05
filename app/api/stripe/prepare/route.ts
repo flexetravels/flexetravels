@@ -1,44 +1,73 @@
 // ─── /api/stripe/prepare ─────────────────────────────────────────────────────
-// Creates a Stripe PaymentIntent for FlexeTravels' flat $20 USD service fee only.
-// The flight fare itself is collected by Duffel at order creation time in the
-// airline's native currency — NOT through Stripe. Mixing the two into one PI
-// produced nonsense totals (e.g. "€1,220" when flight was €1,200 EUR + $20 USD).
+// Creates a Stripe PaymentIntent for the selected payment strategy.
+//
+// For Canada / merchant-of-record balance mode, Stripe collects the flight fare
+// plus FlexeTravels' transparent service fee, then /api/book-trip pays Duffel
+// from Balance. For supplier-direct modes, Stripe can collect only the fee.
 //
 // Security:
-//   - We still look up the flight offer by ID (when provided) to surface the
-//     verified flight price/currency in the response breakdown, but those cents
-//     are NOT added to the PI amount.
-//   - PI is always created for 2000 USD cents.
-//   - The PI metadata stores expected_amount (= 2000) and flight_offer_id so
+//   - We look up Duffel offer IDs server-side when possible and ignore client
+//     fare claims for the amount charged.
+//   - The PI metadata stores expected amount/currency and offer IDs so
 //     /api/book-trip can cross-verify before touching Duffel/LiteAPI.
 //
 // Flow:
-//   1. Client calls this route with flightOfferId + metadata
-//   2. We (optionally) fetch real offer price from Duffel for the receipt line
-//   3. We create a PaymentIntent for $20 USD in Stripe
+//   1. Client calls this route with selected offer IDs + metadata
+//   2. We fetch real offer prices from Duffel where a fare is collected
+//   3. We create a strategy-specific PaymentIntent:
+//        - stripe_balance: verified flight fare + transparent service fee
+//        - supplier_direct: service fee only
 //   4. Client mounts Stripe Elements using the returned clientSecret
-//   5. User enters card and pays the $20 service fee
+//   5. User enters card and pays the disclosed amount
 //   6. Client calls /api/book-trip with paymentIntentId as proof of payment
-//   7. /api/book-trip verifies PI status === 'succeeded' + metadata integrity
-//   8. Duffel charges the flight separately to the same card at order time
+//   7. /api/book-trip verifies PI status, amount, currency, and metadata
+//   8. Supplier booking runs only after payment verification
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { createHash } from 'crypto';
 import { createPaymentIntent } from '@/lib/stripe';
+import { db } from '@/lib/db/client';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
+import {
+  buildCheckoutQuote,
+  moneyToMinorUnits,
+  type PaymentStrategy,
+} from '@/lib/payments/strategy';
+import { getRates } from '@/lib/fx/rates';
 
 const SERVICE_FEE_CENTS = 2000; // $20.00
+const SERVICE_FEE_AMOUNT = 20;
+const SERVICE_FEE_CURRENCY = 'USD';
+
+function quoteCartHash(input: unknown): string {
+  return createHash('sha256')
+    .update(JSON.stringify(input))
+    .digest('hex');
+}
 
 const schema = z.object({
   bookingReference:  z.string().min(1),
   customerEmail:     z.string().email().optional(),
-  // Flight offer ID — required when charging a flight fare; used to fetch real price from Duffel
+  paymentStrategy:   z.enum(['stripe_balance', 'supplier_direct']).default('stripe_balance'),
+  // Single-leg flight offer ID — used to fetch real price from Duffel and to
+  // pin the offer in PI metadata so /api/book-trip can detect bait-and-switch.
   flightOfferId:     z.string().optional(),
+  // Multi-leg flight offer IDs (one per leg). When present, ALL of these are
+  // pinned into PI metadata. /api/book-trip then verifies every leg's
+  // flightOfferId is in this set — closes the bait-and-switch hole that
+  // existed in the multi-leg path before this commit.
+  flightOfferIds:    z.array(z.string().min(6).max(256)).max(10).optional(),
+  flightItems:       z.array(z.object({
+    offerId:  z.string().min(6).max(256),
+    amount:   z.number().min(0).max(100_000),
+    currency: z.string().min(3).max(3),
+  })).max(10).optional(),
   // Client-provided price is ONLY used as a fallback for the description; actual price comes from Duffel
-  flightPriceCents:  z.number().int().min(0).max(600_000).default(0),   // max $6 000 per pax
+  flightPriceCents:  z.number().int().min(0).max(10_000_000).default(0),
   flightCurrency:    z.string().min(3).max(3).default('USD'),
   flightDescription: z.string().optional(),   // e.g. "YYZ → CUN (Air Canada)"
-  hotelTotalCents:   z.number().int().min(0).optional(),  // informational only — not charged here
+  hotelTotalCents:   z.number().int().min(0).optional(),  // informational only
   passengerCount:    z.number().int().min(1).optional(),  // total passengers for metadata
 });
 
@@ -112,22 +141,36 @@ export async function POST(req: Request) {
   }
 
   const {
-    bookingReference, customerEmail, flightOfferId,
+    bookingReference, customerEmail, paymentStrategy, flightOfferId, flightOfferIds, flightItems,
     flightPriceCents: clientFlightPriceCents,
     flightCurrency, flightDescription, hotelTotalCents, passengerCount,
   } = parsed.data;
 
-  // ── Server-side price verification ────────────────────────────────────────
-  // If a flight offer is included, fetch the real price from Duffel.
-  // If the client claims a non-zero flight price but provides no offer ID, reject.
-  let verifiedFlightPriceCents: number;
-  let verifiedCurrency: string;
+  const requestedOfferIds = (flightItems && flightItems.length > 0)
+    ? flightItems.map(i => i.offerId)
+    : (flightOfferIds && flightOfferIds.length > 0)
+      ? flightOfferIds
+      : (flightOfferId ? [flightOfferId] : []);
 
-  if (flightOfferId) {
-    // Fetch actual price from Duffel — ignore client-provided price
-    let offerPrice: { priceCents: number; currency: string };
+  if (clientFlightPriceCents > 0 && requestedOfferIds.length === 0) {
+    return NextResponse.json(
+      { error: 'A flight offer ID is required to charge a flight fare.' },
+      { status: 400 },
+    );
+  }
+
+  // ── Server-side price verification ────────────────────────────────────────
+  // Prefer live Duffel lookups. In non-flight / unavailable cases, fall back to
+  // explicit client line items only when no fare is being collected.
+  let verifiedFlights: Array<{ offerId: string; priceCents: number; currency: string }> = [];
+  if (requestedOfferIds.length > 0) {
     try {
-      offerPrice = await getDuffelOfferPrice(flightOfferId);
+      verifiedFlights = await Promise.all(
+        requestedOfferIds.map(async id => {
+          const p = await getDuffelOfferPrice(id);
+          return { offerId: id, priceCents: p.priceCents, currency: p.currency.toUpperCase() };
+        }),
+      );
     } catch (e) {
       console.error('[/api/stripe/prepare] Duffel offer price fetch failed:', e);
       return NextResponse.json(
@@ -135,46 +178,96 @@ export async function POST(req: Request) {
         { status: 502 },
       );
     }
-    verifiedFlightPriceCents = offerPrice.priceCents;
-    verifiedCurrency         = offerPrice.currency;
-    console.log(
-      '[/api/stripe/prepare] Duffel price verified:',
-      `${verifiedFlightPriceCents} cents ${verifiedCurrency.toUpperCase()}`,
-      `(client claimed: ${clientFlightPriceCents} cents)`,
-    );
-  } else if (clientFlightPriceCents > 0) {
-    // Client is claiming a non-zero flight price without a verifiable offer ID — reject
-    return NextResponse.json(
-      { error: 'A flight offer ID is required to charge a flight fare.' },
-      { status: 400 },
-    );
   } else {
-    // No flight (hotel-only or service-fee-only) — charge only the service fee
-    verifiedFlightPriceCents = 0;
-    verifiedCurrency         = flightCurrency.toLowerCase();
+    verifiedFlights = [];
   }
 
-  // The Stripe PaymentIntent always charges exactly the flat $20 USD service fee.
-  // The flight fare is charged separately by Duffel in its native currency at order time.
-  const chargeAmount   = SERVICE_FEE_CENTS;
-  const chargeCurrency = 'usd';
+  const verifiedFlightItems = verifiedFlights.map(f => ({
+    amount:   f.priceCents / 100,
+    currency: f.currency,
+  }));
+  const fallbackCurrency = flightCurrency.toUpperCase();
+  const provisionalFareCurrency = verifiedFlightItems[0]?.currency ?? fallbackCurrency;
+  const rates = await getRates();
+  const serviceFeeInFareCurrency = provisionalFareCurrency === SERVICE_FEE_CURRENCY
+    ? SERVICE_FEE_AMOUNT
+    : Math.round((SERVICE_FEE_AMOUNT * (rates.rates[provisionalFareCurrency] ?? 1)) * 100) / 100;
+
+  const quote = buildCheckoutQuote({
+    market: 'CA',
+    supplier: 'duffel',
+    flights: verifiedFlightItems.length > 0
+      ? verifiedFlightItems
+      : (clientFlightPriceCents > 0 ? [{ amount: clientFlightPriceCents / 100, currency: fallbackCurrency }] : []),
+    serviceFeeAmount: serviceFeeInFareCurrency,
+    serviceFeeCurrency: provisionalFareCurrency,
+  });
+
+  const strategy = paymentStrategy as PaymentStrategy;
+  const chargeAmount = strategy === 'supplier_direct'
+    ? SERVICE_FEE_CENTS
+    : moneyToMinorUnits(quote.chargeAmount);
+  const chargeCurrency = strategy === 'supplier_direct'
+    ? 'usd'
+    : quote.chargeCurrency.toLowerCase();
+
+  if (strategy === 'stripe_balance' && quote.caveats.some(c => c.includes('mixed currencies'))) {
+    return NextResponse.json(
+      { error: 'Mixed flight currencies must be checked out separately.' },
+      { status: 400 },
+    );
+  }
 
   // Build a human-readable description for the Stripe dashboard and receipt
   const flightLabel      = flightDescription ?? 'Flight';
-  const flightCur        = verifiedCurrency.toUpperCase();
+  const flightCur        = quote.fareCurrency.toUpperCase();
+  const verifiedFlightPriceCents = moneyToMinorUnits(quote.fareSubtotal);
   const flightFormatted  = verifiedFlightPriceCents > 0
-    ? `$${(verifiedFlightPriceCents / 100).toFixed(2)} ${flightCur} (charged by airline)`
+    ? `$${(verifiedFlightPriceCents / 100).toFixed(2)} ${flightCur}`
     : '';
-  const feeFormatted     = `$${(SERVICE_FEE_CENTS / 100).toFixed(2)} USD`;
+  const feeFormatted     = `${serviceFeeInFareCurrency.toFixed(2)} ${quote.chargeCurrency}`;
   const passengerSuffix  = passengerCount ? ` | Passengers: ${passengerCount}` : '';
   const hotelSuffix      = hotelTotalCents && hotelTotalCents > 0
     ? ` | Hotel: $${(hotelTotalCents / 100).toFixed(2)} ${flightCur} (separate)`
     : '';
   const description = flightFormatted
-    ? `FlexeTravels service fee: ${feeFormatted} for ${flightLabel} ${flightFormatted}${passengerSuffix}${hotelSuffix}`
+    ? `FlexeTravels checkout: ${flightLabel} flight ${flightFormatted} + service fee ${feeFormatted}${passengerSuffix}${hotelSuffix}`
     : `FlexeTravels service fee: ${feeFormatted} for ${flightLabel}${passengerSuffix}${hotelSuffix}`;
 
   try {
+    const quoteRow = await db.paymentQuotes.create({
+      session_id:           bookingReference,
+      market:               'CA',
+      strategy,
+      merchant_of_record:   'FlexeTravels and Tours Inc.',
+      supplier:             'duffel',
+      fare_amount_cents:    verifiedFlightPriceCents,
+      fare_currency:        flightCur,
+      fee_amount_cents:     moneyToMinorUnits(serviceFeeInFareCurrency),
+      fee_currency:         quote.chargeCurrency,
+      charge_amount_cents:  chargeAmount,
+      charge_currency:      chargeCurrency.toUpperCase(),
+      offer_ids:            requestedOfferIds,
+      cart_hash:            quoteCartHash({
+        bookingReference,
+        strategy,
+        requestedOfferIds,
+        verifiedFlights,
+        chargeAmount,
+        chargeCurrency,
+        serviceFeeInFareCurrency,
+        passengerCount,
+      }),
+      caveats:              quote.caveats,
+      expires_at:           new Date(Date.now() + 15 * 60_000).toISOString(),
+      status:               'open',
+      metadata: {
+        flightDescription: flightLabel,
+        customerEmail: customerEmail ?? null,
+        hotelTotalCents: hotelTotalCents ?? 0,
+      },
+    });
+
     const result = await createPaymentIntent({
       bookingReference,
       bookingType:   'flight',
@@ -183,14 +276,24 @@ export async function POST(req: Request) {
       currency:      chargeCurrency,
       description,
       metadata: {
-        // /api/book-trip verifies pi.amount === expected_amount + pi.currency === 'usd'
+        // /api/book-trip verifies pi.amount/currency against these values.
         expected_amount:    String(chargeAmount),
         expected_currency:  chargeCurrency,
         flight_offer_id:    flightOfferId ?? '',
+        // Comma-separated set of every leg's flight offer ID. Used by
+        // /api/book-trip to verify EVERY booked leg's offer was on the cart
+        // when payment was made — closes the multi-leg bait-and-switch path.
+        // Stripe metadata values must be ≤ 500 chars; we trim defensively.
+        flight_offer_ids:   (requestedOfferIds.join(',')).slice(0, 500),
         flight_price_cents: String(verifiedFlightPriceCents),   // informational — charged by Duffel
         flight_currency:    flightCur,                           // informational — charged by Duffel
-        service_fee_cents:  String(SERVICE_FEE_CENTS),
+        service_fee_cents:  String(moneyToMinorUnits(serviceFeeInFareCurrency)),
+        service_fee_currency: quote.chargeCurrency,
+        service_fee_usd_cents: String(SERVICE_FEE_CENTS),
         total_cents:        String(chargeAmount),
+        payment_strategy:   strategy,
+        merchant_of_record: 'FlexeTravels and Tours Inc.',
+        quote_id:           quoteRow?.id ?? '',
         flight_description: flightLabel,
         booking_reference:  bookingReference,
         passenger_count:    String(passengerCount ?? 1),
@@ -205,12 +308,21 @@ export async function POST(req: Request) {
       currency:        result.currency,
       // Breakdown so the frontend can display what's being charged where
       breakdown: {
-        flightCents:      verifiedFlightPriceCents,  // NOT charged here — Duffel charges at order time
+        strategy,
+        flightCents:      verifiedFlightPriceCents,
         flightCurrency:   flightCur,
-        serviceFeeCents:  SERVICE_FEE_CENTS,
-        serviceFeeCurrency: 'USD',
+        serviceFeeCents:  moneyToMinorUnits(serviceFeeInFareCurrency),
+        serviceFeeCurrency: quote.chargeCurrency,
+        serviceFeeUsdCents: SERVICE_FEE_CENTS,
         chargeCents:      chargeAmount,
         chargeCurrency:   chargeCurrency.toUpperCase(),
+        chargedNowLabel:  strategy === 'supplier_direct'
+          ? 'FlexeTravels service fee'
+          : 'Flight fare + FlexeTravels service fee',
+        supplierPaymentLabel: strategy === 'supplier_direct'
+          ? 'Supplier charges travel fare separately.'
+          : 'FlexeTravels pays the airline from Duffel Balance after payment.',
+        quoteId: quoteRow?.id,
       },
     });
   } catch (err) {
