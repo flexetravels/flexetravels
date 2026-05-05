@@ -264,6 +264,14 @@ function toTitleCase(str: string): string {
   return str.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
+function placeKey(str: string): string {
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
 // When a city name returns 0 hotels from LiteAPI /data/hotels, try these alternatives.
 // LiteAPI indexes by specific municipality names, not regions/islands.
 // For REGION destinations (marked with __parallel: true), ALL cities are searched in
@@ -310,7 +318,7 @@ export function resolveCityCountry(destination: string): { city: string; country
   }
 
   // Handle city name matching (longest match wins to handle "playa del carmen" over "carmen")
-  const lower = destination.toLowerCase().trim();
+  const lower = placeKey(destination);
   let best: [string, string] | null = null;
   for (const [key, code] of Object.entries(CITY_COUNTRY)) {
     if (lower === key || lower.startsWith(key + ' ') || lower.endsWith(' ' + key) || lower.includes(key)) {
@@ -454,8 +462,9 @@ export class LiteApiProvider implements SearchProvider {
     // For REGION destinations (Bali, Maldives, etc.), search ALL sub-cities in
     // parallel and merge results. For single-city destinations, try primary city
     // first, then fall back sequentially. This dramatically improves coverage.
-    const isRegion   = PARALLEL_REGIONS.has(city.toLowerCase());
-    const fallbacks  = CITY_FALLBACKS[city.toLowerCase()] ?? [];
+    const cityKey = placeKey(city);
+    const isRegion   = PARALLEL_REGIONS.has(cityKey);
+    const fallbacks  = CITY_FALLBACKS[cityKey] ?? [];
     const perCityLimit = isRegion ? 30 : 25;
 
     const fetchHotelList = async (cityName: string): Promise<{ city: string; hotels: LiteHotelListItem[] }> => {

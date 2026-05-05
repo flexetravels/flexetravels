@@ -536,6 +536,7 @@ function FlightOptionCard({ flight, onPick }: { flight: NormalizedFlight; onPick
 function HotelResults({ leg, legIndex, state, tripId, sessionId, onPickHotel, onClose }: Props) {
   const [results, setResults] = useState<NormalizedHotel[] | null>(null);
   const [error,   setError]   = useState<string | null>(null);
+  const [noResultsMessage, setNoResultsMessage] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<'price' | 'rating'>('price');
   const [viewingDetail, setViewingDetail] = useState<NormalizedHotel | null>(null);
   const [sandbox, setSandbox] = useState(false);
@@ -550,6 +551,7 @@ function HotelResults({ leg, legIndex, state, tripId, sessionId, onPickHotel, on
     let cancelled = false;
     setResults(null);
     setError(null);
+    setNoResultsMessage(null);
 
     if (!leg.city || leg.city.length < 2) {
       setError('Add a destination city to search hotels.');
@@ -592,6 +594,7 @@ function HotelResults({ leg, legIndex, state, tripId, sessionId, onPickHotel, on
         if (!cancelled) {
           setResults(Array.isArray(data.hotels) ? data.hotels : []);
           setSandbox(!!data.sandbox);
+          setNoResultsMessage(typeof data.noResultsMessage === 'string' ? data.noResultsMessage : null);
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Search failed');
@@ -781,7 +784,7 @@ function HotelResults({ leg, legIndex, state, tripId, sessionId, onPickHotel, on
           <p className="text-navy-200 italic mb-2" style={{ fontFamily: 'var(--font-spectral), Georgia, serif' }}>
             No hotels found for these dates.
           </p>
-          <p className="text-navy-400 text-sm">Try a slightly different city name (e.g. &quot;Paris&quot; instead of &quot;CDG&quot;).</p>
+          <p className="text-navy-400 text-sm">{noResultsMessage ?? 'Try a slightly different city name or nearby area.'}</p>
         </div>
       )}
 
@@ -1094,6 +1097,13 @@ function toCanvasHotel(
     currency:       h.currency || 'USD',
     cancellationPolicy: h.cancellation,
     image:          h.image,
+    boardType:      h.boardType,
+    boardName:      h.boardName,
+    maxOccupancy:   h.maxOccupancy,
+    taxesAndFees:   h.taxesAndFees,
+    cancelPolicies: h.cancelPolicies,
+    refundableTag:  h.refundableTag,
+    allRoomTypes:   h.allRoomTypes,
     pricedFor,
   };
 }
@@ -1695,7 +1705,7 @@ function HotelDetailView({
             first. Tap a card to switch the picked rate (updates price + the
             bookingToken used at checkout). LiteAPI doesn't return per-room
             photos, so we cycle through the hotel's gallery for visual variety. */}
-        {rateOptions.length > 1 && (
+        {rateOptions.length > 0 ? (
           <div className="px-5 pb-4">
             <p className="text-[10px] uppercase tracking-[0.18em] text-teal-500 font-mono mb-2">
               Rooms · {rateOptions.length} options
@@ -1767,6 +1777,13 @@ function HotelDetailView({
                 );
               })}
             </ul>
+          </div>
+        ) : (
+          <div className="px-5 pb-4">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-teal-500 font-mono mb-2">Rooms</p>
+            <div className="rounded-lg bg-navy-900/40 hairline px-3 py-3 text-xs text-navy-300 leading-relaxed">
+              Live room/rate details were not returned for this property. Pick another hotel or adjust dates to see bookable room types; checkout will revalidate the final supplier rate before booking.
+            </div>
           </div>
         )}
 

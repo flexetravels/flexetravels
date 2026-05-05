@@ -15,7 +15,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { z } from 'zod';
 import { db, DB_AVAILABLE } from '@/lib/db/client';
 import { aggregateFlights, aggregateHotels } from '@/lib/search/aggregator';
-import type { NormalizedFlight } from '@/lib/search/types';
+import type { NormalizedFlight, NormalizedHotel } from '@/lib/search/types';
 import { type CanvasState, type CanvasLeg, type CanvasFlightSelection, type CanvasHotelSelection } from '@/lib/canvas/types';
 import { applyOp, type CanvasOp, makeLegId } from '@/lib/canvas/state';
 
@@ -547,6 +547,14 @@ async function searchAndPickHotel(
   const best = result.hotels[0];
   if (!best) return null;
   void childrenAges;
+  return hotelToCanvasSelection(best, destinationCity, state);
+}
+
+function hotelToCanvasSelection(
+  best: NormalizedHotel,
+  destinationCity: string,
+  state: CanvasState,
+): CanvasHotelSelection {
   return {
     rateId:        best.bookingToken || best.id,
     hotelId:       best.id,
@@ -558,6 +566,13 @@ async function searchAndPickHotel(
     totalCents:    Math.round(best.totalPrice * 100),
     currency:      best.currency || 'USD',
     image:         best.image,
+    boardType:     best.boardType,
+    boardName:     best.boardName,
+    maxOccupancy:  best.maxOccupancy,
+    taxesAndFees:  best.taxesAndFees,
+    cancelPolicies: best.cancelPolicies,
+    refundableTag: best.refundableTag,
+    allRoomTypes:  best.allRoomTypes,
     pricedFor: {
       adults:    state.travellers.adults,
       children:  state.travellers.children,

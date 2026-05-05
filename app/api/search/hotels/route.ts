@@ -82,6 +82,7 @@ export async function POST(req: NextRequest) {
       sources:   result.sources,
       errors:    result.errors,
       latencyMs: result.latencyMs,
+      noResultsMessage: result.noResultsMessage,
       sandbox,
     });
   } catch (err) {

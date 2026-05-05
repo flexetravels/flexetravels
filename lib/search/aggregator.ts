@@ -373,16 +373,17 @@ export async function aggregateHotels(params: HotelSearchParams): Promise<HotelA
     };
   }
 
-  // No real results at all — use sample hotels as last resort.
+  // No real results at all. Do not fabricate sample hotels in the booking
+  // canvas; fake room data breaks trust and cannot be booked. The UI should
+  // show this message and let the user adjust dates/area/provider filters.
   if (filtered.length === 0) {
-    const samples = sampleHotels(params);
     return {
-      hotels: samples,
-      sources: ['sample'],
+      hotels: [],
+      sources,
       errors,
-      isSample: true,
+      isSample: false,
       latencyMs: Date.now() - start,
-      noResultsMessage: `No live hotel inventory found for ${params.destination} on these dates. Here are indicative options to give you an idea of pricing:`,
+      noResultsMessage: `No live hotel inventory found for ${params.destination} on these dates. Try nearby areas or different dates.`,
     };
   }
 

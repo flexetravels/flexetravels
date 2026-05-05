@@ -141,6 +141,27 @@ export interface CanvasHotelSelection {
   currency:       string;
   cancellationPolicy?: string;
   image?:         string;           // main thumbnail URL (carried from picker into the docked card)
+  boardType?:     string;
+  boardName?:     string;
+  maxOccupancy?:  number;
+  taxesAndFees?:  Array<{ included?: boolean; description?: string; amount?: number; currency?: string }>;
+  cancelPolicies?: Array<{ cancelTime?: string; amount?: number; currency?: string; type?: string; timezone?: string }>;
+  refundableTag?: string;
+  allRoomTypes?: Array<{
+    offerId?:      string;
+    name?:         string;
+    maxOccupancy?: number;
+    rates?: Array<{
+      rateId?:     string;
+      name?:       string;
+      boardType?:  string;
+      boardName?:  string;
+      price?:      number;
+      currency?:   string;
+      commission?: number;
+      refundable?: boolean;
+    }>;
+  }>;
   pricedFor?:     { adults: number; children: number; childAges?: number[] };
 }
 
