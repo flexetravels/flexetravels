@@ -297,6 +297,32 @@ export const db = {
     },
   },
 
+  // ── AI + Product Analytics ───────────────────────────────────────────────
+  aiInteractions: {
+    async create(data: Partial<AiInteractionRow>): Promise<AiInteractionRow | null> {
+      const rows = await rest<AiInteractionRow[]>('POST', 'ai_interactions', { body: data as Json, returning: true });
+      return rows?.[0] ?? null;
+    },
+  },
+
+  tripActivityEvents: {
+    async create(data: Partial<TripActivityEventRow>): Promise<TripActivityEventRow | null> {
+      const rows = await rest<TripActivityEventRow[]>('POST', 'trip_activity_events', { body: data as Json, returning: true });
+      return rows?.[0] ?? null;
+    },
+  },
+
+  customerPreferenceSignals: {
+    async create(data: Partial<CustomerPreferenceSignalRow>): Promise<CustomerPreferenceSignalRow | null> {
+      const rows = await rest<CustomerPreferenceSignalRow[]>('POST', 'customer_preference_signals', { body: data as Json, returning: true });
+      return rows?.[0] ?? null;
+    },
+    async createMany(rows: Array<Partial<CustomerPreferenceSignalRow>>): Promise<void> {
+      if (!rows.length) return;
+      await rest('POST', 'customer_preference_signals', { body: rows as Json[] });
+    },
+  },
+
   // ── User Sessions (anonymous engagement) ─────────────────────────────────
   userSessions: {
     async upsert(sessionId: string, userAgentHash?: string): Promise<void> {
@@ -574,17 +600,69 @@ export interface SearchLogRow {
   id:               string;
   session_id:       string;
   search_type:      'flight' | 'hotel';
+  trip_canvas_id:   string | null;
+  leg_id:           string | null;
   origin:           string | null;
   destination:      string;
   depart_date:      string | null;
   return_date:      string | null;
   adults:           number;
   children:         number;
+  cabin_class:      string | null;
+  child_ages:       number[];
+  flexible_dates:   string[];
+  filters:          Record<string, unknown>;
+  request_payload:  Record<string, unknown>;
+  provider_errors:  string[];
+  search_intent:    string | null;
+  selected_result_id: string | null;
   result_count:     number;
   provider_sources: string[];
   latency_ms:       number | null;
   converted:        boolean;
   created_at:       string;
+}
+
+export interface AiInteractionRow {
+  id:             string;
+  session_id:     string;
+  trip_canvas_id: string | null;
+  surface:        'chat' | 'canvas_command' | 'command_bar' | 'system';
+  model:          string | null;
+  user_message:   string | null;
+  sanitized:      boolean;
+  history_turns:  number;
+  state_before:   Record<string, unknown>;
+  state_after:    Record<string, unknown>;
+  ops:            Record<string, unknown>[];
+  response_text:  string | null;
+  tool_summary:   Record<string, unknown>;
+  clarification:  boolean;
+  error:          string | null;
+  latency_ms:     number | null;
+  created_at:     string;
+}
+
+export interface TripActivityEventRow {
+  id:             string;
+  session_id:     string;
+  trip_canvas_id: string | null;
+  event_type:     string;
+  leg_id:         string | null;
+  payload:        Record<string, unknown>;
+  created_at:     string;
+}
+
+export interface CustomerPreferenceSignalRow {
+  id:             string;
+  session_id:     string;
+  trip_canvas_id: string | null;
+  signal_type:    string;
+  signal_value:   string;
+  confidence:     number;
+  source:         'vibe' | 'canvas' | 'chat' | 'search' | 'checkout' | 'booking';
+  metadata:       Record<string, unknown>;
+  created_at:     string;
 }
 
 export interface UserSessionRow {

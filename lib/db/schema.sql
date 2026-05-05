@@ -277,8 +277,9 @@ create policy security_logs_service_only on security_logs
 -- ─── Setup instructions ───────────────────────────────────────────────────────
 -- 1. Go to supabase.com → New project
 -- 2. SQL Editor → Paste this file → Run
--- 3. Settings → API → copy Project URL + service_role key
--- 4. Add to Railway / .env.local:
+-- 3. Then run schema-canvas.sql, schema-payments.sql, schema-analytics.sql
+-- 4. Settings → API → copy Project URL + service_role key
+-- 5. Add to Railway / .env.local:
 --    SUPABASE_URL=https://xxxx.supabase.co
 --    SUPABASE_SERVICE_KEY=eyJ...
 --    SUPABASE_ANON_KEY=eyJ...   (optional, same as service key for now)

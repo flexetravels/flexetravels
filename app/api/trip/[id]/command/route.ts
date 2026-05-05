@@ -79,6 +79,47 @@ function isUsableClientState(input: unknown): input is CanvasState {
   });
 }
 
+function summarizeCanvasForAnalytics(state: CanvasState): Record<string, unknown> {
+  return {
+    title: state.title,
+    homeOrigin: state.homeOrigin,
+    travellers: state.travellers,
+    interests: state.meta?.interests ?? [],
+    travelDocs: state.meta?.travelDocs
+      ? {
+          passportCountry: state.meta.travelDocs.passportCountry,
+          visaCountries: state.meta.travelDocs.visaCountries ?? [],
+        }
+      : undefined,
+    legCount: state.legs.length,
+    selectedFlights: state.legs.filter(l => l.flight).length,
+    selectedHotels: state.legs.filter(l => l.hotel).length,
+    legs: state.legs.map((l, i) => ({
+      position: i + 1,
+      legId: l.id,
+      city: l.city,
+      iata: l.iata,
+      startDate: l.startDate,
+      endDate: l.endDate,
+      flight: l.flight ? {
+        offerId: l.flight.offerId,
+        airline: l.flight.airline,
+        origin: l.flight.origin,
+        destination: l.flight.destination,
+        amount: l.flight.priceCents,
+        currency: l.flight.currency,
+      } : null,
+      hotel: l.hotel ? {
+        rateId: l.hotel.rateId,
+        hotelId: l.hotel.hotelId,
+        name: l.hotel.name,
+        amount: l.hotel.totalCents,
+        currency: l.hotel.currency,
+      } : null,
+    })),
+  };
+}
+
 function legByPosition(state: CanvasState, position: number): CanvasLeg | null {
   // 1-indexed for human use; clamp to valid range
   const i = Math.max(0, Math.min(state.legs.length - 1, position - 1));
@@ -780,6 +821,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const startedAt = Date.now();
   if (!DB_AVAILABLE) {
     return NextResponse.json({ error: 'Persistence is not configured' }, { status: 503 });
   }
@@ -805,6 +847,7 @@ export async function POST(
   if (!sessionId) {
     return NextResponse.json({ error: 'Missing or invalid sessionId' }, { status: 400 });
   }
+  const ownerSessionId = sessionId;
 
   const rawMessage = (body.message ?? '').toString().trim();
   if (!rawMessage || rawMessage.length > 1000) {
@@ -845,7 +888,7 @@ export async function POST(
   // Ownership check
   const row = await db.tripsCanvas.get(id);
   if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  if (row.session_id !== sessionId) {
+  if (row.session_id !== ownerSessionId) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -857,12 +900,36 @@ export async function POST(
   // provider offer IDs/prices server-side; this state is only used to produce
   // planning ops against the user's latest visible canvas.
   let workingState: CanvasState = isUsableClientState(body.state) ? body.state : row.state;
+  const stateBeforeAnalytics = summarizeCanvasForAnalytics(workingState);
   const ops:      CanvasOp[] = [];
   const messages: string[]   = [];
 
   function pushOp(op: CanvasOp) {
     ops.push(op);
     workingState = applyOp(workingState, op);
+  }
+
+  function logInteraction(responseText: string, error: string | null = null) {
+    db.aiInteractions.create({
+      session_id: ownerSessionId,
+      trip_canvas_id: id,
+      surface: 'canvas_command',
+      model: 'claude-sonnet-4-6',
+      user_message: message.slice(0, 4000),
+      sanitized: message !== rawMessage,
+      history_turns: history.length,
+      state_before: stateBeforeAnalytics,
+      state_after: summarizeCanvasForAnalytics(workingState),
+      ops: ops as unknown as Record<string, unknown>[],
+      response_text: responseText.slice(0, 4000),
+      tool_summary: {
+        opTypes: ops.map(op => op.type),
+        partial: Boolean(error),
+      },
+      clarification: ops.length === 0 && /\?/.test(responseText),
+      error,
+      latency_ms: Date.now() - startedAt,
+    }).catch(() => {});
   }
 
   const mentionedTravelDocs = parseTravelDocsFromText(message);
@@ -880,24 +947,28 @@ export async function POST(
   const directFlexibleFlight = await maybeHandleDirectFlexibleFlightSearch(message, workingState, new Date().toISOString().slice(0, 10));
   if (directFlexibleFlight) {
     for (const op of directFlexibleFlight.ops) pushOp(op);
+    logInteraction(directFlexibleFlight.message);
     return NextResponse.json({ ops, message: directFlexibleFlight.message, partial: false });
   }
 
   const directOriginRoundTrip = await maybeHandleOriginRoundTripRewrite(message, workingState);
   if (directOriginRoundTrip) {
     for (const op of directOriginRoundTrip.ops) pushOp(op);
+    logInteraction(directOriginRoundTrip.message);
     return NextResponse.json({ ops, message: directOriginRoundTrip.message, partial: false });
   }
 
   const directAnchoredFlightChain = await maybeHandleAnchoredFlightChain(message, workingState);
   if (directAnchoredFlightChain) {
     for (const op of directAnchoredFlightChain.ops) pushOp(op);
+    logInteraction(directAnchoredFlightChain.message);
     return NextResponse.json({ ops, message: directAnchoredFlightChain.message, partial: false });
   }
 
   const directStayEdit = maybeHandleDirectStayEdit(message, workingState);
   if (directStayEdit) {
     for (const op of directStayEdit.ops) pushOp(op);
+    logInteraction(directStayEdit.message);
     return NextResponse.json({ ops, message: directStayEdit.message, partial: false });
   }
 
@@ -1250,6 +1321,7 @@ SAFETY:
   // If we collected ANY ops, return them — partial success is better than nothing.
   // Only return a hard 502 when nothing happened AND the AI errored AND there's no message.
   if (aiError && ops.length === 0 && messages.length === 0) {
+    logInteraction(aiError, aiError);
     return NextResponse.json(
       { error: 'AI command failed', message: aiError, ops: [] },
       { status: 502 },
@@ -1264,6 +1336,8 @@ SAFETY:
   if (!combinedMessage && ops.length === 0) {
     combinedMessage = fallbackClarifyingQuestion(message, workingState);
   }
+
+  logInteraction(combinedMessage, aiError);
 
   return NextResponse.json({
     ops,

@@ -8,6 +8,7 @@
 The v2 Trip Canvas freeze is ready for Railway deploy. Keep this checklist short and operational:
 - Push the freeze commit to `origin/main`; Railway should auto-deploy.
 - Confirm Railway env vars are production values: Duffel live, LiteAPI prod, Stripe live, Supabase service role, Anthropic, Gemini/Google Places, Unsplash, Mapbox, SMTP, `NEXT_PUBLIC_TRIP_CANVAS=true`.
+- Run Supabase migrations in production: `schema.sql`, `schema-canvas.sql`, `schema-payments.sql`, then `schema-analytics.sql`.
 - In Stripe Dashboard, confirm the live webhook points to `https://www.flexetravels.com/api/webhooks/stripe` and uses the matching `STRIPE_WEBHOOK_SECRET`.
 - Run a live smoke after deploy: homepage → `/trip` → create canvas → add/flexible-date flight search → passport transit filter → hotel detail → checkout review/invoice. Do not book until final operator approval.
 - Rollback path: redeploy the freeze commit/tag or the previous known-good Railway deployment.
@@ -15,7 +16,7 @@ The v2 Trip Canvas freeze is ready for Railway deploy. Keep this checklist short
 ### 0. Payment router + ledger hardening (in progress)
 The checkout now needs to support multiple money rails: Stripe + Duffel Balance for Canadian merchant-of-record bookings, Duffel Payments where available, Razorpay for India, and future Amadeus/Travelport supplier rails. See `docs/PAYMENTS.md`.
 - **Shipped:** `lib/payments/strategy.ts`, `/api/checkout/quote`, Stripe Balance charge path for fare + transparent service fee, `/api/book-trip` amount/currency verification, `lib/db/schema-payments.sql`, runtime quote consumption/idempotency hooks, `docs/AI-QUERY-TESTS.md`, `docs/END-TO-END-TESTING.md`.
-- **Next:** apply the payment migration in Supabase, automatic refund workflow, Duffel Balance threshold guard, Duffel Payments component path, Razorpay path.
+- **Next:** apply the payment + analytics migrations in Supabase, automatic refund workflow, Duffel Balance threshold guard, Duffel Payments component path, Razorpay path.
 - **Verifier:** paid quote cannot be tampered with; mixed-currency carts are blocked or split; paid-but-not-booked cases are visible and refundable.
 
 ### 1. Real Stripe sandbox booking with prod Duffel + LiteAPI keys (2 hours)

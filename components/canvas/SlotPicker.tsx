@@ -123,6 +123,8 @@ interface Props {
   leg:       CanvasLeg;
   legIndex:  number;
   state:     CanvasState;
+  tripId:    string;
+  sessionId: string;
   kind:      'flight' | 'hotel';
   onPickFlight?: (flight: CanvasFlightSelection) => void;
   onPickHotel?:  (hotel:  CanvasHotelSelection)  => void;
@@ -162,7 +164,7 @@ export function SlotPicker(props: Props) {
 
 // ─── Flight results ──────────────────────────────────────────────────────────
 
-function FlightResults({ leg, legIndex, state, onPickFlight, onClose, onSetHomeOrigin }: Props) {
+function FlightResults({ leg, legIndex, state, tripId, sessionId, onPickFlight, onClose, onSetHomeOrigin }: Props) {
   const [results, setResults] = useState<NormalizedFlight[] | null>(null);
   const [error,   setError]   = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<'price' | 'duration'>('price');
@@ -236,6 +238,10 @@ function FlightResults({ leg, legIndex, state, onPickFlight, onClose, onSetHomeO
             origin:        originIata,
             destination:   destinationIata,
             departureDate: leg.startDate,
+            sessionId,
+            tripCanvasId:  tripId,
+            legId:         leg.id,
+            searchIntent:  `canvas flight picker leg ${legIndex + 1}`,
             adults:        state.travellers.adults,
             childrenAges:  childrenAges.length > 0 ? childrenAges : undefined,
             infants:       infants > 0 ? infants : undefined,
@@ -527,7 +533,7 @@ function FlightOptionCard({ flight, onPick }: { flight: NormalizedFlight; onPick
 
 // ─── Hotel results ───────────────────────────────────────────────────────────
 
-function HotelResults({ leg, state, onPickHotel, onClose }: Props) {
+function HotelResults({ leg, legIndex, state, tripId, sessionId, onPickHotel, onClose }: Props) {
   const [results, setResults] = useState<NormalizedHotel[] | null>(null);
   const [error,   setError]   = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<'price' | 'rating'>('price');
@@ -569,6 +575,10 @@ function HotelResults({ leg, state, onPickHotel, onClose }: Props) {
             destination: leg.city,
             checkIn:     leg.startDate,
             checkOut:    leg.endDate,
+            sessionId,
+            tripCanvasId: tripId,
+            legId:       leg.id,
+            searchIntent: `canvas hotel picker leg ${legIndex + 1}`,
             adults:      state.travellers.adults,
             childrenAges: ages.length > 0 ? ages : undefined,
           }),

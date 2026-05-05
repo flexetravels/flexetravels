@@ -28,6 +28,8 @@ interface Props {
   index:      number;
   state:      CanvasState;
   dispatch:   (op: CanvasOp) => void;
+  tripId:      string;
+  sessionId:   string;
   readOnly?:  boolean;            // shared / view-only mode — hides edit controls
   // Drag-reorder wiring (CanvasPage owns the DndContext)
   isDragGhost?: boolean;          // true when this card is the active drag source
@@ -38,7 +40,7 @@ interface Props {
 }
 
 export function DayLegBlock({
-  leg, index, state, dispatch,
+  leg, index, state, dispatch, tripId, sessionId,
   readOnly,
   isDragGhost,
   onMoveUp, onMoveDown, canMoveUp, canMoveDown,
@@ -316,6 +318,8 @@ export function DayLegBlock({
           leg={leg}
           legIndex={index}
           state={state}
+          tripId={tripId}
+          sessionId={sessionId}
           kind={pickerOpen}
           onPickFlight={(f) => dispatch({ type: 'set_flight', legId: leg.id, flight: f })}
           onPickHotel={(h) => dispatch({ type: 'set_hotel',  legId: leg.id, hotel:  h })}

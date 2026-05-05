@@ -5,12 +5,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { aggregateHotels } from '@/lib/search/aggregator';
+import { db, DB_AVAILABLE } from '@/lib/db/client';
 
 export const runtime  = 'nodejs';
 export const dynamic  = 'force-dynamic';
 export const maxDuration = 30;
 
 const Schema = z.object({
+  sessionId:     z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/).optional(),
+  tripCanvasId:  z.string().uuid().optional(),
+  legId:         z.string().min(1).max(80).optional(),
+  searchIntent:  z.string().min(1).max(200).optional(),
   destination:   z.string().min(2).max(80),
   checkIn:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   checkOut:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -38,6 +43,39 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await aggregateHotels(parsed.data);
+    if (DB_AVAILABLE && parsed.data.sessionId) {
+      db.searchLogs.create({
+        session_id:       parsed.data.sessionId,
+        trip_canvas_id:   parsed.data.tripCanvasId ?? null,
+        leg_id:           parsed.data.legId ?? null,
+        search_type:      'hotel',
+        destination:      parsed.data.destination,
+        depart_date:      parsed.data.checkIn,
+        return_date:      parsed.data.checkOut,
+        adults:           parsed.data.adults,
+        children:         parsed.data.childrenAges?.length ?? 0,
+        child_ages:       parsed.data.childrenAges ?? [],
+        filters: {
+          maxPrice: parsed.data.maxPrice,
+          stars: parsed.data.stars,
+          minRating: parsed.data.minRating,
+          amenities: parsed.data.amenities,
+          freeCancellation: parsed.data.freeCancellation,
+        },
+        request_payload:  {
+          destination: parsed.data.destination,
+          checkIn: parsed.data.checkIn,
+          checkOut: parsed.data.checkOut,
+          adults: parsed.data.adults,
+          childrenAges: parsed.data.childrenAges,
+        },
+        provider_errors:  result.errors,
+        result_count:     result.hotels.length,
+        provider_sources: result.sources,
+        latency_ms:       result.latencyMs,
+        search_intent:    parsed.data.searchIntent ?? null,
+      }).catch(() => {});
+    }
     const sandbox = (process.env.LITEAPI_KEY ?? '').startsWith('sand_');
     return NextResponse.json({
       hotels:    result.hotels.slice(0, 30),

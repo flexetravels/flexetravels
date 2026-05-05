@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { aggregateFlights } from '@/lib/search/aggregator';
+import { db, DB_AVAILABLE } from '@/lib/db/client';
 
 export const runtime  = 'nodejs';
 export const dynamic  = 'force-dynamic';
@@ -17,6 +18,10 @@ export const maxDuration = 30;
 const IATA_RE = /^[A-Z]{3}$/;
 
 const Schema = z.object({
+  sessionId:     z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/).optional(),
+  tripCanvasId:  z.string().uuid().optional(),
+  legId:         z.string().min(1).max(80).optional(),
+  searchIntent:  z.string().min(1).max(200).optional(),
   origin:        z.string().regex(IATA_RE),
   destination:   z.string().regex(IATA_RE),
   departureDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -77,6 +82,49 @@ export async function POST(req: NextRequest) {
       : [r.reason instanceof Error ? r.reason.message : 'Search failed']
     );
     const latencyMs = results.reduce((sum, r) => sum + (r.status === 'fulfilled' ? r.value.latencyMs : 0), 0);
+    if (DB_AVAILABLE && parsed.data.sessionId) {
+      db.searchLogs.create({
+        session_id:       parsed.data.sessionId,
+        trip_canvas_id:   parsed.data.tripCanvasId ?? null,
+        leg_id:           parsed.data.legId ?? null,
+        search_type:      'flight',
+        origin:           parsed.data.origin,
+        destination:      parsed.data.destination,
+        depart_date:      parsed.data.departureDate,
+        return_date:      parsed.data.returnDate ?? null,
+        adults:           parsed.data.adults,
+        children:         (parsed.data.childrenAges?.length ?? 0) + (parsed.data.infants ?? 0),
+        cabin_class:      parsed.data.cabinClass,
+        child_ages:       parsed.data.childrenAges ?? [],
+        flexible_dates:   dates,
+        filters: {
+          maxConnections: parsed.data.maxConnections,
+          avoidAirlines: parsed.data.avoidAirlines,
+          viaRegions: parsed.data.viaRegions,
+          maxPrice: parsed.data.maxPrice,
+          maxDurationMinutes: parsed.data.maxDurationMinutes,
+          departAfter: parsed.data.departAfter,
+          departBefore: parsed.data.departBefore,
+          transitProfile: parsed.data.transitProfile,
+        },
+        request_payload:  {
+          origin: parsed.data.origin,
+          destination: parsed.data.destination,
+          departureDate: parsed.data.departureDate,
+          departureDates: dates,
+          returnDate: parsed.data.returnDate,
+          adults: parsed.data.adults,
+          childrenAges: parsed.data.childrenAges,
+          infants: parsed.data.infants,
+          cabinClass: parsed.data.cabinClass,
+        },
+        provider_errors:  errors,
+        result_count:     flights.length,
+        provider_sources: sources,
+        latency_ms:       latencyMs,
+        search_intent:    parsed.data.searchIntent ?? null,
+      }).catch(() => {});
+    }
     // Surface sandbox mode so the client can show a "test data" badge when
     // the Duffel key is the sandbox token. Avoids users mistaking sandbox
     // mock prices/airlines for real availability.

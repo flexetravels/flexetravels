@@ -555,6 +555,8 @@ function LoadedCanvas({
                         index={i}
                         state={state}
                         dispatch={dispatch}
+                        tripId={trip.id}
+                        sessionId={sessionId}
                         readOnly={readOnly}
                         isDragGhost={activeDragId === leg.id}
                         onMoveUp={readOnly ? undefined : () => moveLeg(leg.id, -1)}

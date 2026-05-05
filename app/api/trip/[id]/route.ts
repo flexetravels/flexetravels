@@ -40,6 +40,35 @@ function isValidCanvasState(input: unknown): input is CanvasState {
   return true;
 }
 
+function summarizeCanvasState(state: CanvasState): Record<string, unknown> {
+  return {
+    title: state.title,
+    homeOrigin: state.homeOrigin,
+    travellers: state.travellers,
+    legCount: state.legs.length,
+    selectedFlights: state.legs.filter(l => l.flight).length,
+    selectedHotels: state.legs.filter(l => l.hotel).length,
+    interests: state.meta?.interests ?? [],
+    travelDocs: state.meta?.travelDocs
+      ? {
+          passportCountry: state.meta.travelDocs.passportCountry,
+          visaCountries: state.meta.travelDocs.visaCountries ?? [],
+        }
+      : undefined,
+    legs: state.legs.map((l, i) => ({
+      position: i + 1,
+      legId: l.id,
+      city: l.city,
+      iata: l.iata,
+      startDate: l.startDate,
+      endDate: l.endDate,
+      hasFlight: Boolean(l.flight),
+      hasHotel: Boolean(l.hotel),
+      hasItinerary: Boolean(l.itinerary),
+    })),
+  };
+}
+
 // ── GET: read canvas ─────────────────────────────────────────────────────────
 
 export async function GET(
@@ -160,6 +189,30 @@ export async function PATCH(
   const updated = await db.tripsCanvas.update(id, patch);
   if (!updated) {
     return NextResponse.json({ error: 'Update failed' }, { status: 500 });
+  }
+
+  if (body.state) {
+    db.tripActivityEvents.create({
+      session_id: sessionId,
+      trip_canvas_id: id,
+      event_type: 'canvas_state_patched',
+      payload: {
+        summary: summarizeCanvasState(body.state),
+        titleChanged: typeof body.title === 'string' || body.state.title !== existing.title,
+      },
+    }).catch(() => {});
+
+    const interests = body.state.meta?.interests ?? [];
+    if (interests.length > 0) {
+      db.customerPreferenceSignals.createMany(interests.map(interest => ({
+        session_id: sessionId,
+        trip_canvas_id: id,
+        signal_type: 'interest',
+        signal_value: interest,
+        source: 'vibe',
+        metadata: { title: body.state?.title },
+      }))).catch(() => {});
+    }
   }
 
   return NextResponse.json({

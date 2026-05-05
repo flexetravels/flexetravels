@@ -82,7 +82,7 @@ lib/
   canvas/unsplash-photos.ts        — Wikipedia hero + Unsplash gallery, qualifier-aware query (24h cache)
   canvas/destination-media.ts      — Themed beach/city/mountain fallback photo bundles (no-network path)
   db/client.ts                     — Supabase REST helpers (db.tripsCanvas.{create,get,update,…})
-  db/schema.sql, schema-canvas.sql, schema-payments.sql — Full DB + canvas/payment migrations
+  db/schema.sql, schema-canvas.sql, schema-payments.sql, schema-analytics.sql — Full DB + canvas/payment/analytics migrations
   payments/strategy.ts             — Payment strategy router + quote math
   stripe.ts                        — PI helpers + HMAC-verified webhook signature
 
@@ -137,7 +137,13 @@ next.config.js                     — CSP (X-Frame DENY, HSTS, no wildcards), p
 
 ## Database (Supabase)
 
-REST API via service role key. Tables: `trips`, `bookings`, `events`, `credits`, `payments`, `search_logs`, `user_sessions`, **`trips_canvas`** (the canvas trips).
+REST API via service role key. Tables: `trips`, `bookings`, `events`, `credits`, `payments`, `search_logs`, `user_sessions`, **`trips_canvas`** (the canvas trips), plus analytics tables `ai_interactions`, `trip_activity_events`, and `customer_preference_signals`.
+
+Run migrations in this order for a new or production Supabase project:
+1. `lib/db/schema.sql`
+2. `lib/db/schema-canvas.sql`
+3. `lib/db/schema-payments.sql`
+4. `lib/db/schema-analytics.sql`
 
 ### `trips_canvas`
 ```sql

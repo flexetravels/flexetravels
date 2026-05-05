@@ -43,6 +43,7 @@ The v2 cycle's job has been to (1) ship the canvas, (2) make every part of it re
 | `/api/book-trip` verifies Stripe expected amount and expected currency before supplier booking | shipped |
 | Payment architecture documented | shipped — see `docs/PAYMENTS.md` |
 | Payment ledger schema drafted | shipped — see `lib/db/schema-payments.sql` |
+| Supabase AI analytics schema | shipped — see `lib/db/schema-analytics.sql`; captures AI turns, canvas activity, richer search context, and normalized preference signals |
 | Complex AI query regression matrix documented | shipped — see `docs/AI-QUERY-TESTS.md` |
 | Runtime payment quote/idempotency hooks | shipped — `/api/stripe/prepare` creates quote rows when migration exists; `/api/book-trip` consumes quote once and writes payment/supplier/ledger rows |
 | End-to-end manual testing runbook | shipped — see `docs/END-TO-END-TESTING.md` |
