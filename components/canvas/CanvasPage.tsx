@@ -335,18 +335,18 @@ function LoadedCanvas({
   const totalDateRange = useMemo(() => formatTripRange(state), [state]);
 
   return (
-    <div className="min-h-screen bg-navy-950 text-navy-100 antialiased">
+    <div className="min-h-screen bg-navy-950 text-navy-100 antialiased overflow-x-hidden">
       {/* Top bar */}
       <header className="sticky top-0 z-30 border-b border-navy-500/30 bg-navy-950/85 backdrop-blur-md">
-        <div className="max-w-6xl mx-auto px-6 h-14 flex items-center gap-4">
+        <div className="max-w-6xl mx-auto px-3 sm:px-6 min-h-14 py-2 sm:py-0 flex items-center gap-2 sm:gap-4">
           <Link href="/" className="flex items-center gap-2 text-navy-100 hover:text-white">
             <div className="h-6 w-6 rounded-md bg-gradient-to-br from-teal-500 to-teal-700 flex items-center justify-center text-[10px] font-bold text-white">F</div>
-            <span className="text-sm font-semibold tracking-tight">FlexeTravels</span>
+            <span className="hidden sm:inline text-sm font-semibold tracking-tight">FlexeTravels</span>
           </Link>
-          <span className="text-navy-500">/</span>
+          <span className="hidden sm:inline text-navy-500">/</span>
           {readOnly ? (
             <span
-              className="text-white italic min-w-0 flex-1 truncate px-2 py-1 -ml-2"
+              className="text-white italic min-w-0 flex-1 truncate px-1 sm:px-2 py-1 sm:-ml-2"
               style={{ fontFamily: 'var(--font-spectral), Georgia, serif', fontSize: '15px' }}
               title="Shared view — read-only"
             >
@@ -358,14 +358,14 @@ function LoadedCanvas({
               onChange={(e) => setTitleDraft(e.target.value)}
               placeholder="Untitled trip"
               maxLength={120}
-              className="bg-transparent outline-none text-white placeholder:text-navy-400 min-w-0 flex-1 hover:bg-navy-800/40 rounded px-2 py-1 -ml-2 focus:bg-navy-800/60 italic"
+              className="bg-transparent outline-none text-white placeholder:text-navy-400 min-w-0 flex-1 hover:bg-navy-800/40 rounded px-1 sm:px-2 py-1 sm:-ml-2 focus:bg-navy-800/60 italic"
               style={{ fontFamily: 'var(--font-spectral), Georgia, serif', fontSize: '15px' }}
             />
           )}
-          <span className="text-[10px] text-navy-400 font-mono uppercase tracking-wider min-w-[64px] text-right">
+          <span className="hidden sm:inline text-[10px] text-navy-400 font-mono uppercase tracking-wider min-w-[64px] text-right">
             {readOnly ? 'shared' : (titleSaving || isSaving ? 'saving…' : (lastSavedAt ? 'saved' : ''))}
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             {!readOnly && (
               <ShareButton tripId={trip.id} />
             )}
@@ -384,11 +384,11 @@ function LoadedCanvas({
                   type="button"
                   onClick={() => setCommandOpen(true)}
                   title="Type or ask Maya (Cmd+K)"
-                  className="flex items-center gap-2 px-3 h-8 rounded-md border border-navy-500/40 text-xs text-navy-200 hover:text-white hover:border-teal-500/50 transition"
+                  className="flex items-center gap-2 px-2 sm:px-3 h-8 rounded-md border border-navy-500/40 text-xs text-navy-200 hover:text-white hover:border-teal-500/50 transition"
                 >
                   <svg className="w-3.5 h-3.5 text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35m0 0A7.5 7.5 0 103.5 9.5a7.5 7.5 0 0013.15 7.15z"/></svg>
                   <span className="hidden sm:inline">type or ask</span>
-                  <span className="canvas-kbd">⌘K</span>
+                  <span className="hidden sm:inline canvas-kbd">⌘K</span>
                 </button>
               </>
             )}
@@ -410,15 +410,15 @@ function LoadedCanvas({
         )}
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-10 pb-32">
+      <main className="max-w-6xl mx-auto w-full px-3 sm:px-6 py-5 sm:py-10 pb-[calc(9rem+env(safe-area-inset-bottom))] sm:pb-32">
         {/* Trip header */}
-        <section className="mb-8">
-          <p className="text-xs uppercase tracking-[0.2em] text-teal-500 font-mono mb-3">
+        <section className="mb-5 sm:mb-8">
+          <p className="text-[10px] sm:text-xs uppercase tracking-[0.2em] text-teal-500 font-mono mb-2 sm:mb-3">
             {hasLegs ? `Trip · ${state.legs.length} leg${state.legs.length === 1 ? '' : 's'}` : 'New trip · planning'}
           </p>
           {readOnly ? (
             <h1
-              className="text-4xl md:text-5xl text-white tracking-tight font-medium"
+              className="text-3xl sm:text-4xl md:text-5xl text-white tracking-tight font-medium"
               style={{ fontFamily: 'var(--font-spectral), Georgia, serif' }}
             >
               {titleDraft || trip.title || 'Untitled trip'}
@@ -431,7 +431,7 @@ function LoadedCanvas({
                 placeholder="Name this trip"
                 maxLength={120}
                 aria-label="Trip name"
-                className="w-full bg-transparent border-b border-transparent hover:border-navy-500/50 focus:border-teal-400/70 outline-none pr-10 pb-1 text-4xl md:text-5xl text-white placeholder:text-navy-500 tracking-tight font-medium transition"
+                className="w-full bg-transparent border-b border-transparent hover:border-navy-500/50 focus:border-teal-400/70 outline-none pr-10 pb-1 text-3xl sm:text-4xl md:text-5xl text-white placeholder:text-navy-500 tracking-tight font-medium transition"
                 style={{ fontFamily: 'var(--font-spectral), Georgia, serif' }}
               />
               <span className="pointer-events-none absolute right-0 top-3 text-[10px] uppercase tracking-[0.18em] font-mono text-navy-500 group-focus-within:text-teal-300">
@@ -439,7 +439,7 @@ function LoadedCanvas({
               </span>
             </div>
           )}
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-navy-200">
+          <div className="mt-3 flex flex-wrap items-center gap-x-2.5 sm:gap-x-4 gap-y-2 text-sm text-navy-200">
             {readOnly ? (
               <span>
                 {state.travellers.adults} adult{state.travellers.adults === 1 ? '' : 's'}
@@ -587,13 +587,13 @@ function LoadedCanvas({
                   trigger={
                     <button
                       type="button"
-                      className="w-full rounded-xl py-5 text-sm text-navy-300 hover:text-white border border-dashed border-navy-500/40 hover:border-teal-500/40 hover:bg-navy-900/40 flex items-center justify-center gap-2 transition"
+                      className="w-full rounded-xl py-4 sm:py-5 text-sm text-navy-300 hover:text-white border border-dashed border-navy-500/40 hover:border-teal-500/40 hover:bg-navy-900/40 flex items-center justify-center gap-2 transition"
                     >
                       <Plus className="w-4 h-4" />
                       <span style={{ fontFamily: 'var(--font-spectral), Georgia, serif', fontStyle: 'italic' }}>
                         add another chapter
                       </span>
-                      <span className="canvas-kbd ml-2">⌘L</span>
+                      <span className="hidden sm:inline canvas-kbd ml-2">⌘L</span>
                     </button>
                   }
                   onAdd={(leg) => dispatch({ type: 'add_leg', leg })}
@@ -606,8 +606,8 @@ function LoadedCanvas({
 
       {/* Sticky checkout strip */}
       <footer className="fixed bottom-0 left-0 right-0 z-20 border-t border-navy-500/30 bg-navy-950/95 backdrop-blur-md">
-        <div className="max-w-6xl mx-auto px-6 h-20 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-6 text-sm">
+        <div className="max-w-6xl mx-auto px-3 sm:px-6 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:h-20 sm:py-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
+          <div className="w-full sm:w-auto flex items-center justify-between sm:justify-start gap-3 sm:gap-6 text-sm">
             <div>
               <p className="text-[10px] uppercase tracking-[0.18em] text-navy-400 font-mono">Total</p>
               <p className="text-white text-xl font-semibold tabular-nums">
@@ -632,7 +632,7 @@ function LoadedCanvas({
           {readOnly ? (
             <Link
               href="/trip"
-              className="h-10 px-5 rounded-md bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium flex items-center gap-2"
+              className="w-full sm:w-auto h-10 px-5 rounded-md bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium flex items-center justify-center gap-2"
             >
               Plan your own
               <Sparkles className="w-3.5 h-3.5" />
@@ -651,7 +651,7 @@ function LoadedCanvas({
                 }
                 onCheckout(state);
               }}
-              className={`h-10 px-5 rounded-md text-white text-sm font-medium flex items-center gap-2 ${
+              className={`w-full sm:w-auto h-10 px-5 rounded-md text-white text-sm font-medium flex items-center justify-center gap-2 ${
                 isCheckoutReady(state)
                   ? 'bg-teal-600 hover:bg-teal-500 cursor-pointer'
                   : 'bg-navy-700/60 cursor-not-allowed text-navy-300'
@@ -659,7 +659,7 @@ function LoadedCanvas({
               title={isCheckoutReady(state) ? 'Continue to checkout' : 'Pick at least one flight or hotel first'}
             >
               Continue to checkout
-              <span className="canvas-kbd bg-teal-700/60 border-teal-400/30 text-teal-50">⌘↵</span>
+              <span className="hidden sm:inline canvas-kbd bg-teal-700/60 border-teal-400/30 text-teal-50">⌘↵</span>
             </button>
           )}
         </div>

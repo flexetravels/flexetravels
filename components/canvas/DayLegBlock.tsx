@@ -120,31 +120,31 @@ export function DayLegBlock({
     <article
       ref={readOnly ? undefined : setNodeRef}
       style={readOnly ? undefined : style}
-      className={`rounded-xl bg-navy-900/40 overflow-hidden hairline transition-shadow ${!readOnly ? 'sm:cursor-grab active:cursor-grabbing' : ''} ${dragCls}`}
+      className={`w-full max-w-full rounded-lg sm:rounded-xl bg-navy-900/40 overflow-hidden hairline transition-shadow ${!readOnly ? 'sm:cursor-grab active:cursor-grabbing' : ''} ${dragCls}`}
       {...dragListeners}
     >
       {/* Hero — destination photo, lazy-loaded once the leg scrolls into view */}
-      <div className="relative h-56 md:h-64">
+      <div className="relative h-48 sm:h-56 md:h-64">
         <DestinationHero
           src={media.hero}
           fallbackSrc={media.gallery[0]}
           alt={leg.city}
           className="absolute inset-0"
           overlay={
-            <div className="absolute bottom-5 left-6 right-6 flex items-end justify-between pointer-events-none">
-              <div>
-                <p className="italic text-navy-100 text-sm mb-1 drop-shadow-sm" style={{ fontFamily: 'var(--font-spectral), Georgia, serif' }}>
+            <div className="absolute bottom-4 left-4 right-4 flex flex-col gap-2 pointer-events-none sm:bottom-5 sm:left-6 sm:right-6 sm:flex-row sm:items-end sm:justify-between">
+              <div className="min-w-0">
+                <p className="italic text-navy-100 text-xs sm:text-sm mb-1 drop-shadow-sm truncate" style={{ fontFamily: 'var(--font-spectral), Georgia, serif' }}>
                   Leg {index + 1}{nights > 0 ? ` · ${nights} night${nights === 1 ? '' : 's'}` : ''}
                   {media.vibe && <span className="ml-2 text-[10px] uppercase tracking-[0.2em] text-teal-300/90 not-italic font-mono">· {media.vibe}</span>}
                 </p>
-                <h2 className="text-3xl md:text-4xl text-white drop-shadow-md" style={{ fontFamily: 'var(--font-spectral), Georgia, serif' }}>
+                <h2 className="text-[2.35rem] leading-none sm:text-3xl md:text-4xl text-white drop-shadow-md truncate" style={{ fontFamily: 'var(--font-spectral), Georgia, serif' }}>
                   {leg.city || 'Untitled stop'}
                 </h2>
                 <p className="mt-1 text-[10px] text-navy-100/65 font-mono uppercase tracking-wider">
                   {photoStatus}
                 </p>
               </div>
-              <div className="text-right text-xs text-navy-100/85">
+              <div className="text-left sm:text-right text-xs text-navy-100/85 min-w-0">
                 <button
                   type="button"
                   disabled={readOnly}
@@ -152,16 +152,16 @@ export function DayLegBlock({
                     e.stopPropagation();
                     setDatesOpen(v => !v);
                   }}
-                  className={`pointer-events-auto inline-flex items-center gap-1.5 rounded-md px-2 py-1 -mr-2 tabular-nums ${readOnly ? '' : 'bg-navy-950/35 hover:bg-navy-950/70 hover:text-white border border-white/10'}`}
+                  className={`pointer-events-auto inline-flex max-w-full items-center gap-1.5 rounded-md px-2 py-1 sm:-mr-2 tabular-nums ${readOnly ? '' : 'bg-navy-950/35 hover:bg-navy-950/70 hover:text-white border border-white/10'}`}
                   title="Edit dates"
                 >
                   {!readOnly && <CalendarDays className="w-3 h-3 text-teal-300" />}
                   {formatRange(leg.startDate, leg.endDate)}
                 </button>
                 {!readOnly && (
-                  <p className="mt-1 text-[10px] text-teal-200/85 font-mono">edit dates</p>
+                  <p className="mt-1 hidden sm:block text-[10px] text-teal-200/85 font-mono">edit dates</p>
                 )}
-                {leg.iata && <p className="text-navy-100/70 mt-1 font-mono">{leg.iata}</p>}
+                {leg.iata && <p className="text-navy-100/70 mt-1 font-mono truncate">{leg.iata}</p>}
               </div>
             </div>
           }
@@ -248,7 +248,7 @@ export function DayLegBlock({
       />
 
       {/* Flight + hotel slots */}
-      <div className="p-3 space-y-2">
+      <div className="p-2.5 sm:p-3 space-y-2">
         {leg.flight ? (
           <>
             <FilledFlightCard
@@ -293,19 +293,19 @@ export function DayLegBlock({
           <button
             type="button"
             onClick={() => setDatesOpen(true)}
-            className="w-full rounded-lg p-4 hairline-hover hairline text-left group"
+            className="w-full rounded-lg p-3 sm:p-4 hairline-hover hairline text-left group"
           >
-            <div className="flex items-center gap-4">
-              <div className="flex-shrink-0 h-12 w-12 rounded-md bg-navy-800 border border-dashed border-navy-400/40 flex items-center justify-center text-navy-300">
+            <div className="flex items-center gap-3 sm:gap-4">
+              <div className="flex-shrink-0 h-11 w-11 sm:h-12 sm:w-12 rounded-md bg-navy-800 border border-dashed border-navy-400/40 flex items-center justify-center text-navy-300">
                 <CalendarDays className="w-5 h-5" />
               </div>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <p className="italic text-sm text-navy-100 mb-0.5" style={{ fontFamily: 'var(--font-spectral), Georgia, serif' }}>
                   Add stay dates
                 </p>
                 <p className="text-xs text-navy-300">This leg has 0 nights. Set a 3-night stay to search hotels.</p>
               </div>
-              <p className="text-[11px] text-navy-400 group-hover:text-teal-400 font-mono">[ dates ]</p>
+              <p className="hidden sm:block text-[11px] text-navy-400 group-hover:text-teal-400 font-mono">[ dates ]</p>
             </div>
           </button>
         ) : null}
@@ -338,21 +338,21 @@ function EmptySlotButton({ kind, label, sub, onClick }: {
   return (
     <button
       onClick={onClick}
-      className="w-full rounded-lg p-4 hairline-hover hairline text-left group"
+      className="w-full rounded-lg p-3 sm:p-4 hairline-hover hairline text-left group"
     >
-      <div className="flex items-center gap-4">
-        <div className="flex-shrink-0 h-12 w-12 rounded-md bg-navy-800 border border-dashed border-navy-400/40 flex items-center justify-center text-navy-300">
+      <div className="flex items-center gap-3 sm:gap-4">
+        <div className="flex-shrink-0 h-11 w-11 sm:h-12 sm:w-12 rounded-md bg-navy-800 border border-dashed border-navy-400/40 flex items-center justify-center text-navy-300">
           {kind === 'flight'
             ? <Plane className="w-5 h-5" />
             : <Hotel className="w-5 h-5" />}
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <p className="italic text-sm text-navy-100 mb-0.5" style={{ fontFamily: 'var(--font-spectral), Georgia, serif' }}>
             {label}
           </p>
-          <p className="text-xs text-navy-300">{sub}</p>
+          <p className="text-xs text-navy-300 truncate">{sub}</p>
         </div>
-        <p className="text-[11px] text-navy-400 group-hover:text-teal-400 font-mono">[ open ]</p>
+        <p className="hidden sm:block text-[11px] text-navy-400 group-hover:text-teal-400 font-mono">[ open ]</p>
       </div>
     </button>
   );
@@ -379,7 +379,7 @@ function DateEditor({
   }
 
   return (
-    <div className="absolute right-4 top-14 z-20 w-80 rounded-lg bg-navy-950/95 border border-navy-500/40 shadow-2xl shadow-black/40 p-4 pointer-events-auto">
+    <div className="absolute left-3 right-3 top-14 z-20 rounded-lg bg-navy-950/95 border border-navy-500/40 shadow-2xl shadow-black/40 p-4 pointer-events-auto sm:left-auto sm:right-4 sm:w-80">
       <div className="flex items-center justify-between mb-3">
         <p className="text-[10px] uppercase tracking-[0.18em] text-teal-300 font-mono">Edit dates</p>
         <button type="button" onClick={onClose} className="text-navy-400 hover:text-white">

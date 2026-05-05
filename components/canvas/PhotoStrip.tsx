@@ -40,14 +40,13 @@ export function PhotoStrip({ photos, alt }: Props) {
   return (
     <div ref={ref} className="relative">
       <div
-        className="flex gap-2 overflow-x-auto py-3 px-3 -mx-3 snap-x snap-mandatory scrollbar-thin"
+        className="flex max-w-full gap-2 overflow-x-auto py-3 px-2.5 sm:px-3 snap-x snap-mandatory scrollbar-thin"
         style={{ WebkitOverflowScrolling: 'touch' }}
       >
         {photos.slice(0, 6).map((src, i) => (
           <div
             key={src + i}
-            className="flex-shrink-0 snap-start rounded-lg overflow-hidden bg-navy-800/70"
-            style={{ width: 168, height: 112 }}
+            className="h-28 w-[46vw] max-w-[168px] flex-shrink-0 snap-start rounded-lg overflow-hidden bg-navy-800/70 sm:w-[168px]"
           >
             {visible ? (
               // eslint-disable-next-line @next/next/no-img-element
