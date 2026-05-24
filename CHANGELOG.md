@@ -11,6 +11,7 @@
 - Added `POST /api/search/flights` for validated Duffel-backed flight search.
 - Added `POST /api/search/hotels` for validated LiteAPI-backed hotel search.
 - Added flight and hotel filters that only expose actionable controls for the data returned by providers.
+- Provider failures are logged server-side and converted to customer-safe retry or availability messages before reaching the browser.
 
 ### Flight Integrity And Fare Terms
 - Treat Duffel `offerId` as the selected fare source of truth.

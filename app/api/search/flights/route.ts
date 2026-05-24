@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { aggregateFlights, NA_AIRPORTS } from '@/lib/search/aggregator';
 import { getClientIp, rateLimit } from '@/lib/rate-limit';
+import { publicSearchWarnings } from '@/lib/public-errors';
 
 const AIRPORTS: Record<string, string> = {
   ...NA_AIRPORTS,
@@ -110,11 +111,24 @@ export async function POST(req: Request) {
     cabinClass: parsed.data.cabinClass,
     maxConnections: parsed.data.maxConnections,
   });
+  if (result.errors.length > 0) {
+    console.warn('[/api/search/flights] internal provider errors', {
+      origin,
+      destination,
+      errorCount: result.errors.length,
+      errors: result.errors,
+    });
+  }
+  const publicMessages = publicSearchWarnings('flight', result.errors, {
+    hasResults: result.flights.length > 0,
+  });
 
   return NextResponse.json({
     flights: result.flights,
     sources: result.sources,
-    errors: result.errors,
+    errors: [],
+    publicMessages,
+    issueCount: result.errors.length,
     latencyMs: result.latencyMs,
     query: {
       origin,

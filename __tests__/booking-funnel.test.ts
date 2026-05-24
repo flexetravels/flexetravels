@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createBookingCart, flightPriceOrCurrencyChanged, parseTravelerAges } from '@/lib/booking-funnel';
 import { calculateServiceFeeTax, SERVICE_FEE_CENTS } from '@/lib/tax';
 import { enrichFareConditions } from '@/lib/fare-conditions';
+import { publicSearchWarnings } from '@/lib/public-errors';
 import type { FlightResult } from '@/lib/types';
 
 const selectedFlight: FlightResult = {
@@ -169,5 +170,29 @@ describe('enrichFareConditions', () => {
     expect(terms.possibleBenefits.map(item => item.value).join(' ')).toContain('Free rebooking guidance');
     expect(terms.changeTerms.uiLabel).toBe('Confirmed');
     expect(terms.refundTerms.uiLabel).toBe('Confirmed');
+  });
+});
+
+describe('publicSearchWarnings', () => {
+  it('sanitizes raw hotel provider failures before they can reach the customer UI', () => {
+    const warnings = publicSearchWarnings(
+      'hotel',
+      ['liteapi: Error: No hotels found for Maple ridge, US in LiteAPI (tried all fallbacks)'],
+      { hasResults: false },
+    );
+
+    expect(warnings).toEqual(['No live hotel inventory matched this search. Try nearby areas or different dates.']);
+    expect(warnings.join(' ')).not.toMatch(/liteapi|fallback|Maple ridge|US/i);
+  });
+
+  it('uses a generic partial-results warning when verified results are still available', () => {
+    const warnings = publicSearchWarnings(
+      'hotel',
+      ['liteapi: upstream timeout with provider trace abc123'],
+      { hasResults: true },
+    );
+
+    expect(warnings).toEqual(['Some live hotel sources did not respond. We are showing the best available options we could verify.']);
+    expect(warnings.join(' ')).not.toMatch(/liteapi|abc123|provider trace/i);
   });
 });

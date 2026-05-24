@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { aggregateHotels } from '@/lib/search/aggregator';
 import { getClientIp, rateLimit } from '@/lib/rate-limit';
+import { publicSearchWarnings } from '@/lib/public-errors';
 
 const DateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -56,11 +57,24 @@ export async function POST(req: Request) {
     maxPrice: parsed.data.maxPrice,
     stars: parsed.data.stars,
   });
+  if (result.errors.length > 0) {
+    console.warn('[/api/search/hotels] internal provider errors', {
+      destination: parsed.data.destination.trim(),
+      errorCount: result.errors.length,
+      errors: result.errors,
+    });
+  }
+  const publicMessages = publicSearchWarnings('hotel', result.errors, {
+    hasResults: result.hotels.length > 0,
+    noResultsMessage: result.noResultsMessage,
+  });
 
   return NextResponse.json({
     hotels: result.hotels,
     sources: result.sources,
-    errors: result.errors,
+    errors: [],
+    publicMessages,
+    issueCount: result.errors.length,
     isSample: result.isSample,
     latencyMs: result.latencyMs,
     noResultsMessage: result.noResultsMessage,

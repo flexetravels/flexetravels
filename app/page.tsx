@@ -26,6 +26,8 @@ interface FlightSearchResponse {
   flights: FlightResult[];
   sources: string[];
   errors: string[];
+  publicMessages?: string[];
+  issueCount?: number;
   latencyMs: number;
   error?: string;
 }
@@ -34,6 +36,8 @@ interface HotelSearchResponse {
   hotels: HotelResult[];
   sources: string[];
   errors: string[];
+  publicMessages?: string[];
+  issueCount?: number;
   latencyMs: number;
   noResultsMessage?: string;
   error?: string;
@@ -64,8 +68,8 @@ interface SearchSessionSnapshot {
   };
   flights?: FlightResult[];
   hotels?: HotelResult[];
-  flightMeta?: { sources: string[]; latencyMs: number; errors: string[] } | null;
-  hotelMeta?: { sources: string[]; latencyMs: number; errors: string[]; noResultsMessage?: string } | null;
+  flightMeta?: SearchMeta | null;
+  hotelMeta?: (SearchMeta & { noResultsMessage?: string }) | null;
   selectedFlight?: FlightResult | null;
   selectedHotel?: HotelResult | null;
   filters?: {
@@ -87,6 +91,33 @@ interface SearchSessionSnapshot {
     poolHotelOnly: boolean;
     parkingHotelOnly: boolean;
     familyHotelOnly: boolean;
+  };
+}
+
+interface SearchMeta {
+  sources: string[];
+  latencyMs: number;
+  publicMessages: string[];
+  issueCount?: number;
+  errors?: string[];
+}
+
+function normalizeSavedMeta<T extends SearchMeta>(meta: T | null | undefined, kind: ActiveTab): T | null | undefined {
+  if (!meta) return meta;
+  const legacyIssueCount = meta.issueCount ?? meta.errors?.length;
+  const fallbackMessage = kind === 'hotels'
+    ? 'Some live hotel sources did not respond. We are showing the best available options we could verify.'
+    : 'Some live fare sources did not respond. We are showing the best available options we could verify.';
+
+  return {
+    ...meta,
+    publicMessages: meta.publicMessages?.length
+      ? meta.publicMessages
+      : legacyIssueCount
+        ? [fallbackMessage]
+        : [],
+    issueCount: legacyIssueCount,
+    errors: [],
   };
 }
 
@@ -465,8 +496,8 @@ export default function HomePage() {
 
   const [flights, setFlights] = useState<FlightResult[]>([]);
   const [hotels, setHotels] = useState<HotelResult[]>([]);
-  const [flightMeta, setFlightMeta] = useState<{ sources: string[]; latencyMs: number; errors: string[] } | null>(null);
-  const [hotelMeta, setHotelMeta] = useState<{ sources: string[]; latencyMs: number; errors: string[]; noResultsMessage?: string } | null>(null);
+  const [flightMeta, setFlightMeta] = useState<SearchMeta | null>(null);
+  const [hotelMeta, setHotelMeta] = useState<(SearchMeta & { noResultsMessage?: string }) | null>(null);
   const [loading, setLoading] = useState<ActiveTab | null>(null);
   const [error, setError] = useState('');
 
@@ -523,8 +554,8 @@ export default function HomePage() {
       }
       if (saved?.flights) setFlights(saved.flights);
       if (saved?.hotels) setHotels(saved.hotels);
-      if (saved?.flightMeta !== undefined) setFlightMeta(saved.flightMeta);
-      if (saved?.hotelMeta !== undefined) setHotelMeta(saved.hotelMeta);
+      if (saved?.flightMeta !== undefined) setFlightMeta(normalizeSavedMeta(saved.flightMeta, 'flights') ?? null);
+      if (saved?.hotelMeta !== undefined) setHotelMeta(normalizeSavedMeta(saved.hotelMeta, 'hotels') ?? null);
       if (saved?.selectedFlight !== undefined) setSelectedFlight(saved.selectedFlight);
       if (saved?.selectedHotel !== undefined) setSelectedHotel(saved.selectedHotel);
       if (saved?.filters) {
@@ -811,7 +842,13 @@ export default function HomePage() {
       const data = await res.json() as FlightSearchResponse;
       if (!res.ok) throw new Error(data.error ?? 'Flight search failed');
       setFlights(data.flights ?? []);
-      setFlightMeta({ sources: data.sources ?? [], latencyMs: data.latencyMs ?? 0, errors: data.errors ?? [] });
+      setFlightMeta({
+        sources: data.sources ?? [],
+        latencyMs: data.latencyMs ?? 0,
+        publicMessages: data.publicMessages ?? [],
+        issueCount: data.issueCount,
+        errors: [],
+      });
       setTimeout(() => document.getElementById('flight-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
     } catch (e) {
       setFlights([]);
@@ -848,7 +885,14 @@ export default function HomePage() {
       const data = await res.json() as HotelSearchResponse;
       if (!res.ok) throw new Error(data.error ?? 'Hotel search failed');
       setHotels(data.hotels ?? []);
-      setHotelMeta({ sources: data.sources ?? [], latencyMs: data.latencyMs ?? 0, errors: data.errors ?? [], noResultsMessage: data.noResultsMessage });
+      setHotelMeta({
+        sources: data.sources ?? [],
+        latencyMs: data.latencyMs ?? 0,
+        publicMessages: data.publicMessages ?? [],
+        issueCount: data.issueCount,
+        errors: [],
+        noResultsMessage: data.noResultsMessage,
+      });
       setTimeout(() => document.getElementById('hotel-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
     } catch (e) {
       setHotels([]);
@@ -1173,9 +1217,9 @@ export default function HomePage() {
             </aside>
 
             <div className="space-y-4">
-              {flightMeta?.errors.length ? (
+              {flightMeta?.publicMessages.length ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                  {flightMeta.errors.join(' · ')}
+                  {flightMeta.publicMessages.join(' · ')}
                 </div>
               ) : null}
               {filteredFlights.length === 0 ? (
@@ -1379,9 +1423,9 @@ export default function HomePage() {
                   {hotelMeta.noResultsMessage}
                 </div>
               ) : null}
-              {hotelMeta?.errors.length ? (
+              {hotelMeta?.publicMessages.length ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                  {hotelMeta.errors.join(' · ')}
+                  {hotelMeta.publicMessages.join(' · ')}
                 </div>
               ) : null}
               {filteredHotels.length === 0 ? (

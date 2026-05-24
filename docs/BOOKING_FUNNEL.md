@@ -19,7 +19,7 @@ The live customer path is a simple booking funnel, not an AI-first concierge:
 
 - Validates origin/destination IATA codes, dates, trip type, passengers, children ages, cabin, and filter params with Zod.
 - Calls Duffel through the shared aggregator.
-- Returns normalized flight offers with route, legs, fare variants, baggage, refund/change information, provider errors, and latency.
+- Returns normalized flight offers with route, legs, fare variants, baggage, refund/change information, customer-safe public warnings, and latency.
 
 ### Hotels
 
@@ -27,7 +27,9 @@ The live customer path is a simple booking funnel, not an AI-first concierge:
 
 - Validates destination, dates, guests, rooms, children ages, and filter params with Zod.
 - Calls LiteAPI through the shared aggregator.
-- Returns normalized hotel results with rooms, rates, images, amenities, cancellation indicators, provider errors, and latency.
+- Returns normalized hotel results with rooms, rates, images, amenities, cancellation indicators, customer-safe public warnings, and latency.
+
+Raw provider failures are logged on the server for support/debugging and are not returned to the browser. The customer sees a plain availability or retry message instead of provider names, fallback details, stack traces, or internal identifiers.
 
 ## Cart Contract
 
