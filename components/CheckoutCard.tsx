@@ -4,7 +4,7 @@
  * CheckoutCard — Apple/Tesla-inspired 3-step checkout.
  * Step 1: Review trip summary + set passenger count
  * Step 2: Passenger details (one clean form per passenger)
- * Step 3: Strategy-aware Stripe payment with transparent fare + fee disclosure
+ * Step 3: Stripe payment for the $20 service fee
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
@@ -13,10 +13,9 @@ import {
   CheckCircle2, AlertCircle, Loader2, Lock, X, ArrowRight, ArrowLeft,
   ChevronDown, ChevronUp, Clock,
 } from 'lucide-react';
-import { cn, formatPrice, formatDate, formatTime, iataToCity, formatMoneyDual } from '@/lib/utils';
+import { cn, formatPrice, formatDate, formatTime, iataToCity } from '@/lib/utils';
 import type { FlightResult, HotelResult } from '@/lib/types';
-import { useCurrency } from '@/components/CurrencyContext';
-import { splitFlightFare, computeTripTotal, type PricedItem } from '@/lib/checkout/totals';
+import { calculateServiceFeeTax, CANADA_PROVINCES, SERVICE_FEE_CENTS, US_STATES } from '@/lib/tax';
 
 // ─── Stripe CDN loader ─────────────────────────────────────────────────────────
 
@@ -97,28 +96,9 @@ const blankChild = (): ChildPassenger => ({
   passportNumber: '', passportIssuingCountry: 'CA', passportExpiry: '',
 });
 
-const PLACEHOLDER_ID_RE = /^(<.*>|N\/A|TBD|pending|unknown|loading|undefined|null|example|test|sample)$/i;
-
-function validLiteApiHotelToken(token: string | undefined): boolean {
-  if (!token) return false;
-  if (!token.startsWith('liteapi_')) return false;
-  const raw = token.replace('liteapi_', '').trim();
-  return raw.length >= 6 && !PLACEHOLDER_ID_RE.test(raw);
-}
-
-function itemCountLabel(count: number, singular: string): string {
-  return `${count} ${singular}${count === 1 ? '' : 's'}`;
-}
-
 interface CheckoutCardProps {
   flight:           FlightResult | null;
   hotel:            HotelResult  | null;
-  // Multi-leg cart — every leg's flight + hotel in trip order. When present,
-  // the Review and Invoice steps render each leg as its own line and sum the
-  // Trip total over the full set. When absent (legacy /chat flow), we fall
-  // back to the single `flight` / `hotel` props above.
-  flights?:         FlightResult[];
-  hotels?:          HotelResult[];
   onClose:          () => void;
   onConfirmed?:     (flightRef?: string, hotelRef?: string) => void;
   initialAdults?:   number;    // pre-fill from search (e.g. "2 passengers")
@@ -218,11 +198,6 @@ function SegmentList({ segs, baggage }: { segs: FlightResult['segments']; baggag
                 <p className="text-muted-foreground mt-0.5">
                   {formatDate(seg.departure)} · {formatTime(seg.departure)} – {formatTime(seg.arrival)}
                 </p>
-                {seg.operatingCarrier && seg.operatingCarrier !== seg.carrier && (
-                  <p className="text-[10px] text-muted-foreground/70 mt-0.5">
-                    Operated by {seg.operatingCarrier}
-                  </p>
-                )}
                 <div className="flex items-center gap-3 mt-0.5 text-muted-foreground/70 text-[10px]">
                   <span className="flex items-center gap-1">
                     <Clock className="w-3 h-3" />
@@ -259,16 +234,63 @@ function SegmentList({ segs, baggage }: { segs: FlightResult['segments']; baggag
   );
 }
 
-function TripRow({
-  flight,
-  hotel,
-  defaultFlightExpanded = true,
-}: {
-  flight: FlightResult | null;
-  hotel: HotelResult | null;
-  defaultFlightExpanded?: boolean;
-}) {
-  const [flightExpanded, setFlightExpanded] = useState(defaultFlightExpanded);
+function FareTermsDisclosure({ flight, compact = false }: { flight: FlightResult; compact?: boolean }) {
+  const terms = flight.fareTermsDetails;
+  if (!terms) {
+    if (!flight.fareTermsSummary) return null;
+    return (
+      <div className="rounded-lg border border-amber-400/25 bg-amber-50/60 px-2.5 py-2 text-[10px] text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+        <p className="font-semibold">{flight.fareBrandName ?? 'Selected fare'}: {flight.fareTermsSummary}</p>
+        {flight.fareTermsCaveats?.slice(0, 2).map(item => (
+          <p key={item} className="mt-0.5">{item}</p>
+        ))}
+        <p className="mt-0.5 text-amber-700/80 dark:text-amber-300/75">
+          Terms confidence: {flight.fareTermsConfidence ?? 'Exact rule unavailable'}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-muted/30 px-2.5 py-2 text-[10px] text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <p className="font-semibold text-foreground">{terms.displayName}: {terms.customerLabel}</p>
+        <span className="rounded-full border border-teal-500/30 bg-teal-500/10 px-1.5 py-0.5 text-[8px] font-bold text-teal-600 dark:text-teal-300">
+          {terms.confidenceLabel}
+        </span>
+      </div>
+      {!compact && (
+        <p className="mt-1">
+          Best for: <span className="text-foreground/85">{terms.bestFor}</span>
+        </p>
+      )}
+      <div className="mt-1 grid gap-1 sm:grid-cols-2">
+        <p>
+          <span className="font-semibold text-foreground">Change: </span>
+          {terms.changeTerms.simpleSummary}
+        </p>
+        <p>
+          <span className="font-semibold text-foreground">Refund: </span>
+          {terms.refundTerms.simpleSummary}
+        </p>
+      </div>
+      {!compact && terms.possibleBenefits.length > 0 && (
+        <div className="mt-1">
+          <p className="font-semibold text-foreground">Fare-family guidance</p>
+          {terms.possibleBenefits.slice(0, 2).map(item => (
+            <p key={`${item.label}-${item.value}`}>{item.value} ({item.uiLabel})</p>
+          ))}
+        </div>
+      )}
+      <p className="mt-1 text-amber-600 dark:text-amber-300">
+        {terms.caveats[0] ?? terms.checkoutDisclaimer}
+      </p>
+    </div>
+  );
+}
+
+function TripRow({ flight, hotel }: { flight: FlightResult | null; hotel: HotelResult | null }) {
+  const [flightExpanded, setFlightExpanded] = useState(false);
 
   const segs = flight?.segments ?? [];
   const returnSegs = flight?.returnSegments ?? [];
@@ -304,8 +326,7 @@ function TripRow({
                   </p>
                   <p className="text-[11px] text-muted-foreground mt-0.5">
                     {flight.airline} · {formatDate(flight.departure)} · {flight.stops === 0 ? 'Non-stop' : `${flight.stops} stop${flight.stops > 1 ? 's' : ''}`}
-                  {flight.duration ? ` · ${flight.duration}` : ''}
-                  {flight.cabinClass ? ` · ${flight.cabinClass.replace('_', ' ')}` : ''}
+                    {flight.duration ? ` · ${flight.duration}` : ''}
                   </p>
                 </>
               )}
@@ -332,20 +353,6 @@ function TripRow({
           {/* Expandable segment details */}
           {flightExpanded && hasSegments && (
             <div className="border-t border-border/40 bg-muted/20 px-3.5 py-3">
-              <div className="mb-2 grid grid-cols-2 gap-2 text-[10px] text-muted-foreground">
-                <div>
-                  <span className="font-semibold text-foreground">Cabin:</span> {flight.cabinClass?.replace('_', ' ') || 'economy'}
-                </div>
-                <div>
-                  <span className="font-semibold text-foreground">Stops:</span> {flight.stops === 0 ? 'Non-stop' : `${flight.stops} stop${flight.stops === 1 ? '' : 's'}`}
-                </div>
-                <div>
-                  <span className="font-semibold text-foreground">Fare:</span> {flight.flexibilityLabel ?? (flight.refundable ? 'Refundable' : 'Supplier rules apply')}
-                </div>
-                <div>
-                  <span className="font-semibold text-foreground">Carrier:</span> {flight.airline}
-                </div>
-              </div>
               {/* Outbound label for round-trips */}
               {isRoundTrip && (
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 flex items-center gap-1 mb-1">
@@ -371,15 +378,15 @@ function TripRow({
                   ✓ {flight.baggage} included
                 </p>
               )}
-              {!flight.baggage && (
-                <p className="text-[11px] text-muted-foreground mt-2 pl-4.5">
-                  Baggage info not available for this fare; confirm baggage allowance before payment.
-                </p>
-              )}
               {flight.flexibilitySummary && (
                 <p className="text-[10px] text-muted-foreground mt-2 pl-4.5 bg-muted/40 rounded px-2 py-1.5">
                   {flight.flexibilitySummary}
                 </p>
+              )}
+              {flight.fareTermsSummary && (
+                <div className="mt-2 pl-4.5">
+                  <FareTermsDisclosure flight={flight} />
+                </div>
               )}
             </div>
           )}
@@ -449,11 +456,6 @@ function TripRow({
                         <p className="text-muted-foreground mt-0.5">
                           {formatDate(seg.departure)} · {formatTime(seg.departure)} – {formatTime(seg.arrival)}
                         </p>
-                        {seg.operatingCarrier && seg.operatingCarrier !== seg.carrier && (
-                          <p className="text-[10px] text-muted-foreground/70 mt-0.5">
-                            Operated by {seg.operatingCarrier}
-                          </p>
-                        )}
                         <div className="flex items-center gap-3 mt-0.5 text-muted-foreground/70 text-[10px]">
                           <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{seg.duration}</span>
                         </div>
@@ -499,44 +501,6 @@ function TripRow({
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function TripRows({
-  flights,
-  hotels,
-  defaultFlightExpanded = true,
-}: {
-  flights: FlightResult[];
-  hotels: HotelResult[];
-  defaultFlightExpanded?: boolean;
-}) {
-  const max = Math.max(flights.length, hotels.length);
-  if (max === 0) return null;
-
-  return (
-    <div className="space-y-3" data-testid="checkout-trip-rows">
-      {max > 1 && (
-        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-          Selected trip items · {flights.length} flight{flights.length === 1 ? '' : 's'}
-          {hotels.length > 0 && ` · ${hotels.length} hotel${hotels.length === 1 ? '' : 's'}`}
-        </p>
-      )}
-      {Array.from({ length: max }, (_, i) => {
-        const f = flights[i] ?? null;
-        const h = hotels[i] ?? null;
-        return (
-          <div key={`trip-row-${i}`} className="space-y-2">
-            {max > 1 && (
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
-                Leg {i + 1}
-              </p>
-            )}
-            <TripRow flight={f} hotel={h} defaultFlightExpanded={defaultFlightExpanded} />
-          </div>
-        );
-      })}
     </div>
   );
 }
@@ -845,7 +809,15 @@ function PassportExpiryPicker({
 // ─── Child age + fare tier display ────────────────────────────────────────────
 
 function ChildAgeBadge({ dob }: { dob: string }) {
-  const age = ageFromDob(dob);
+  if (!dob.match(/^\d{4}-\d{2}-\d{2}$/)) return null;
+
+  const born  = new Date(dob);
+  const today = new Date();
+  // Full years, accounting for birthday not yet passed this year
+  const age = today.getFullYear() - born.getFullYear()
+    - (today < new Date(today.getFullYear(), born.getMonth(), born.getDate()) ? 1 : 0);
+
+  // Sanity check — ignore obviously wrong dates
   if (age < 0 || age > 17) return null;
 
   let tier: string;
@@ -868,48 +840,14 @@ function ChildAgeBadge({ dob }: { dob: string }) {
   );
 }
 
-function ageFromDob(dob: string): number {
-  if (!dob.match(/^\d{4}-\d{2}-\d{2}$/)) return -1;
-  const born  = new Date(dob);
-  const today = new Date();
-  return today.getFullYear() - born.getFullYear()
-    - (today < new Date(today.getFullYear(), born.getMonth(), born.getDate()) ? 1 : 0);
-}
-
-function childFareLabel(age: number | undefined): string {
-  if (age == null || age < 0) return 'Child';
-  if (age <= 1) return `Infant (age ${age})`;
-  if (age <= 3) return `Toddler (age ${age})`;
-  return `Child (age ${age})`;
-}
-
-function childFareHint(age: number | undefined): string {
-  if (age == null || age < 0) return 'under 12';
-  if (age <= 1) return 'lap infant';
-  if (age <= 3) return 'own seat';
-  if (age < 12) return 'child fare';
-  return 'adult fare';
-}
-
 // ─── Main component ────────────────────────────────────────────────────────────
 
-export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hotelsProp, onClose, onConfirmed, initialAdults, initialChildren, childAges, sessionId }: CheckoutCardProps) {
-  // Normalise to arrays so the multi-leg renderers always have something
-  // iterable. Single-flight callers (legacy /chat flow) populate `flight`
-  // alone; canvas callers populate both `flights[]` AND the singular `flight`
-  // (set to flights[0]) for backwards compat. We prefer the array when present.
-  const flightsAll: FlightResult[] = Array.isArray(flightsProp) && flightsProp.length > 0
-    ? flightsProp
-    : (flight ? [flight] : []);
-  const hotelsAll:  HotelResult[]  = Array.isArray(hotelsProp)  && hotelsProp.length  > 0
-    ? hotelsProp
-    : (hotel  ? [hotel]  : []);
-  const isMultiLeg = flightsAll.length > 1 || hotelsAll.length > 1;
+export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdults, initialChildren, childAges, sessionId }: CheckoutCardProps) {
   const [adults,          setAdults]          = useState(initialAdults ?? 1);
   const [passengers,      setPassengers]      = useState<Passenger[]>(
     Array.from({ length: initialAdults ?? 1 }, blankPassenger)
   );
-  const [children,           setChildren]           = useState(initialChildren ?? 0);
+  const [children] = useState(initialChildren ?? 0);
   const [childPassengers,    setChildPassengers]    = useState<ChildPassenger[]>(
     Array.from({ length: initialChildren ?? 0 }, blankChild)
   );
@@ -917,51 +855,23 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
   const [error,        setError]        = useState('');
   const [flightRef,    setFlightRef]    = useState('');
   const [hotelRef,     setHotelRef]     = useState('');
-  // Per-leg booking results — populated for multi-leg trips so the success
-  // view can show one row per leg with its flight ref / hotel ref / errors.
-  // Single-leg trips leave this empty and fall back to flightRef / hotelRef.
-  interface LegBooking {
-    flightOfferId?: string;
-    flightRef?:     string;
-    flightError?:   string;
-    hotelRateId?:   string;
-    hotelName?:     string;
-    hotelRef?:      string;
-    hotelError?:    string;
-    requiresHotelPayment?: boolean;
-  }
-  const [legBookings, setLegBookings] = useState<LegBooking[]>([]);
   const [clientSecret,    setClientSecret]    = useState('');
   const [paymentIntentId, setPaymentIntentId] = useState('');
   const [preparing,       setPreparing]       = useState(false);   // true while /api/stripe/prepare is in-flight
-  const [currency,        setCurrency]        = useState<'cad' | 'usd'>('usd');
   const [payComplete,     setPayComplete]     = useState(false);
-  // Total charged via Stripe depends on the selected payment strategy:
-  // Canada launch mode collects verified Duffel fare + transparent fee;
-  // supplier-direct modes collect only the FlexeTravels fee.
+  // Total charged via Stripe = flight fare + $20 service fee (set when PI is created)
   const [stripeTotal,     setStripeTotal]     = useState(0);        // cents
   const [stripeCurrency,  setStripeCurrency]  = useState('USD');    // currency of Stripe charge
-  const [stripeChargeLabel, setStripeChargeLabel] = useState('Flight fare + FlexeTravels service fee');
-  const [supplierPaymentLabel, setSupplierPaymentLabel] = useState('FlexeTravels pays the airline from supplier balance after payment.');
   // Confirmation state when no flight is in cart (hotel-only booking)
   const [confirmFlightless, setConfirmFlightless] = useState(false);
   // Terms & Conditions acceptance for payment
   const [termsAccepted, setTermsAccepted] = useState(false);
   // MEDIUM severity: Nationality selection — applies to all passengers
   const [nationality, setNationality] = useState('CA');
-
-  // ── Home-currency display (dual-currency conversion) ──────────────────────
-  // `convertedFlight` shows "~ CA$1,640" under the flight fare; `convertedHotel`
-  // does the same for the hotel total. Falls back to null when rates aren't loaded
-  // or when charge currency already matches the user's home currency.
-  const { homeCurrency: fxHome, rates: fxRates } = useCurrency();
-  const convertedFlight = flight
-    ? formatMoneyDual(flight.price, flight.currency, fxHome, fxRates).secondary
-    : null;
-  const convertedHotel  = hotel
-    ? formatMoneyDual(hotel.totalPrice, hotel.currency, fxHome, fxRates).secondary
-    : null;
-  const convertedServiceFee = formatMoneyDual(20, 'USD', fxHome, fxRates).secondary;
+  const [billingCountry, setBillingCountry] = useState<'CA' | 'US'>('CA');
+  const [billingRegion, setBillingRegion] = useState('BC');
+  const [serviceFeeTaxCents, setServiceFeeTaxCents] = useState(0);
+  const [serviceFeeTaxLabel, setServiceFeeTaxLabel] = useState('');
 
   // ── LiteAPI payment SDK state (production only) ─────────────────────────────
   // Populated when /api/book-trip returns requiresHotelPayment: true.
@@ -1156,7 +1066,7 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
   }, [hotelPrebookId, hotelTransactionId, passengers, flightRef, onConfirmed]);
 
   // ── Validation ──────────────────────────────────────────────────────────────
-  function validate(): string | null {
+  const validate = useCallback((): string | null => {
     if (!flight && !hotel) return 'Please select a flight or hotel first.';
 
     // MEDIUM severity: Check for unaccompanied minors
@@ -1208,11 +1118,6 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
       if (!c.lastName.trim())   return `Child ${i + 1}: last name required`;
       if (!c.dateOfBirth.match(/^\d{4}-\d{2}-\d{2}$/))
         return `Child ${i + 1}: date of birth required`;
-      const dobAge = ageFromDob(c.dateOfBirth);
-      const searchedAge = childAges?.[i];
-      if (searchedAge != null && dobAge >= 0 && dobAge !== searchedAge) {
-        return `Child ${i + 1}: date of birth makes this passenger age ${dobAge}, but the selected fare was searched for age ${searchedAge}. Go back to the trip, update the child age, and refresh selected prices.`;
-      }
       // Passport validation for children on flights
       if (flight) {
         if (!c.passportNumber.trim())
@@ -1226,7 +1131,7 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
       }
     }
     return null;
-  }
+  }, [childPassengers, flight, hotel, passengers]);
 
   function updateChildPassenger(i: number, field: keyof ChildPassenger, value: string) {
     setChildPassengers(prev => {
@@ -1239,28 +1144,17 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
   // Dev-only: fill all passengers with test data so the form can be bypassed
   const isDev = process.env.NODE_ENV === 'development';
   function fillTestData() {
-    const childDobForAge = (age: number | undefined, idx: number): string => {
-      const safeAge = Number.isFinite(age) ? Math.max(0, Math.min(17, Math.floor(age as number))) : 8;
-      const d = new Date();
-      d.setFullYear(d.getFullYear() - safeAge);
-      d.setMonth(Math.min(11, idx + 5), 10);
-      return d.toISOString().slice(0, 10);
-    };
     const adultBase: Passenger[] = [
       { firstName: 'John',  lastName: 'Doe',   dateOfBirth: '1990-01-15', email: 'test@flexetravels.com',  phone: '+14165551234', title: 'mr', gender: 'm', passportNumber: 'AB123456', passportIssuingCountry: 'CA', passportExpiry: '2029-06-30' },
       { firstName: 'Jane',  lastName: 'Doe',   dateOfBirth: '1992-03-22', email: 'test2@flexetravels.com', phone: '+14165551235', title: 'ms', gender: 'f', passportNumber: 'CD789012', passportIssuingCountry: 'CA', passportExpiry: '2028-09-15' },
       { firstName: 'Alice', lastName: 'Smith', dateOfBirth: '1985-07-04', email: 'test3@flexetravels.com', phone: '+14165551236', title: 'ms', gender: 'f', passportNumber: 'EF345678', passportIssuingCountry: 'CA', passportExpiry: '2027-12-31' },
       { firstName: 'Bob',   lastName: 'Smith', dateOfBirth: '1983-11-30', email: 'test4@flexetravels.com', phone: '+14165551237', title: 'mr', gender: 'm', passportNumber: 'GH901234', passportIssuingCountry: 'CA', passportExpiry: '2030-03-22' },
     ];
-    const childBase: ChildPassenger[] = ['Emma', 'Liam', 'Olivia'].map((firstName, i) => ({
-      firstName,
-      lastName: 'Doe',
-      dateOfBirth: childDobForAge(childAges?.[i], i),
-      gender: i === 1 ? 'm' : 'f',
-      passportNumber: ['IJ567890', 'KL123456', 'MN789012'][i] ?? 'IJ567890',
-      passportIssuingCountry: 'CA',
-      passportExpiry: ['2028-06-10', '2027-11-22', '2029-03-05'][i] ?? '2028-06-10',
-    }));
+    const childBase: ChildPassenger[] = [
+      { firstName: 'Emma',  lastName: 'Doe',   dateOfBirth: '2016-06-10', gender: 'f', passportNumber: 'IJ567890', passportIssuingCountry: 'CA', passportExpiry: '2028-06-10' },
+      { firstName: 'Liam',  lastName: 'Doe',   dateOfBirth: '2018-11-22', gender: 'm', passportNumber: 'KL123456', passportIssuingCountry: 'CA', passportExpiry: '2027-11-22' },
+      { firstName: 'Olivia',lastName: 'Smith', dateOfBirth: '2019-03-05', gender: 'f', passportNumber: 'MN789012', passportIssuingCountry: 'CA', passportExpiry: '2029-03-05' },
+    ];
     setPassengers(passengers.map((_, i) => adultBase[i] ?? adultBase[0]));
     if (childPassengers.length > 0) {
       setChildPassengers(childPassengers.map((_, i) => childBase[i] ?? childBase[0]));
@@ -1291,24 +1185,28 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
     // If no flight offer ID is available, ask the user to confirm hotel-only booking
     // (catches: no flight selected, AI emitted a placeholder/broken offer ID)
     const flightId = flight?.id;
+    const PLACEHOLDER_RE = /^(<.*>|N\/A|TBD|pending|unknown|loading|undefined|null|example|test|sample)$/i;
     const hasValidFlightId = !!(
       flightId &&
       !flightId.startsWith('<') &&
       flightId.length >= 6 &&
-      !PLACEHOLDER_ID_RE.test(flightId.trim())
+      !PLACEHOLDER_RE.test(flightId.trim())
     );
     if (!hasValidFlightId && !skipFlightConfirm) {
       setConfirmFlightless(true);
       return;
     }
 
-    const invalidHotels = hotelsAll.filter(h => !h.isSample && !validLiteApiHotelToken(h.bookingToken ?? (h as { rateId?: string }).rateId));
-    if (invalidHotels.length > 0) {
-      const names = invalidHotels.map(h => h.name).filter(Boolean).slice(0, 2).join(', ');
-      setError(
-        `${names || 'A selected hotel'} cannot be booked directly because the live rate token is missing. ` +
-        `Please go back to your trip, open the hotel picker, and select a live room/rate again.`
-      );
+    // Hotel bookingToken guard — must start with 'liteapi_' and have real content after it
+    const hotelToken = hotel?.bookingToken ?? '';
+    const hasValidHotelToken = !!(
+      hotelToken &&
+      hotelToken.startsWith('liteapi_') &&
+      hotelToken.replace('liteapi_', '').length >= 6 &&
+      !PLACEHOLDER_RE.test(hotelToken.replace('liteapi_', '').trim())
+    );
+    if (hotel && !hasValidHotelToken) {
+      setError('This hotel cannot be booked directly — the rate token is missing. Please go back and select a different hotel.');
       return;
     }
 
@@ -1317,40 +1215,35 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
     setError('');
     // Validation passed — go to invoice review step (no API calls yet)
     setPhase('invoice');
-  }, [passengers, adults, children, childPassengers, flight, hotel, hotelsAll]);
+  }, [flight, hotel, validate]);
+
+  const chargeCurrency = (stripeTotal > 0 ? stripeCurrency : (flight?.currency ?? hotel?.currency ?? 'USD')).toUpperCase();
+  const taxPreview = calculateServiceFeeTax({
+    amountCents: SERVICE_FEE_CENTS,
+    country: billingCountry,
+    region: billingRegion,
+  });
+  const displayTaxCents = stripeTotal > 0 ? serviceFeeTaxCents : taxPreview.taxCents;
+  const displayTaxLabel = stripeTotal > 0 ? serviceFeeTaxLabel : taxPreview.taxLabel;
+  const serviceFeeAmount = SERVICE_FEE_CENTS / 100;
+  const feeDisplay = formatPrice(serviceFeeAmount, chargeCurrency);
+  const taxDisplay = formatPrice(displayTaxCents / 100, chargeCurrency);
+  const totalChargeCents = Math.round((flight?.price ?? 0) * 100) + SERVICE_FEE_CENTS + displayTaxCents;
 
   // ── Proceed to payment (Invoice → Pay) ────────────────────────────────────────
-  // Creates a strategy-aware Stripe PaymentIntent. In Canada balance mode this
-  // collects verified Duffel flight fares plus the FlexeTravels service fee.
-  // Supplier-direct hotel charges remain informational/separate.
+  // Creates a Stripe PaymentIntent for (flight fare + $20 service fee).
+  // The flight fare is charged here so FlexeTravels collects the full ticket cost
+  // before booking the Duffel flight from their account balance.
   const handleProceedToPayment = useCallback(async () => {
     setPreparing(true);
     setError('');
     try {
-      // Compute the primary flight price in the smallest currency unit (cents)
-      // for backwards-compatible metadata. The actual charge is computed on
-      // the server from all selected flight offer IDs.
-      const flightPriceCents = flightsAll.reduce((sum, f) => sum + Math.round((f.price ?? 0) * 100), 0);
-      const flightCurrency   = flightsAll[0]?.currency ?? flight?.currency ?? 'USD';
-      const flightDesc       = flightsAll.length > 1
-        ? `${flightsAll.length} flights`
-        : flight
+      // Compute the flight price in the smallest currency unit (cents)
+      const flightPriceCents = flight ? Math.round((flight.price ?? 0) * 100) : 0;
+      const flightCurrency   = flight?.currency ?? 'USD';
+      const flightDesc       = flight
         ? `${flight.origin} → ${flight.destination} (${flight.airline})`
         : undefined;
-
-      // Pin every leg's flight offer ID into PI metadata so /api/book-trip
-      // can detect bait-and-switch in the multi-leg path. Single-leg trips
-      // still send the singular flightOfferId for backwards compat.
-      const flightOfferIdsForPin = isMultiLeg
-        ? flightsAll.map(f => f.id).filter(Boolean)
-        : undefined;
-      const flightItems = flightsAll
-        .filter(f => f.id)
-        .map(f => ({
-          offerId:  f.id,
-          amount:   Number(f.price) || 0,
-          currency: f.currency || 'USD',
-        }));
 
       const res  = await fetch('/api/stripe/prepare', {
         method:  'POST',
@@ -1358,34 +1251,48 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
         body: JSON.stringify({
           bookingReference:  `pre_${Date.now()}`,
           customerEmail:     passengers[0]?.email,
-          paymentStrategy:   'stripe_balance',
           flightOfferId:     flight?.id ?? undefined,
-          flightOfferIds:    flightOfferIdsForPin,
-          flightItems,
           flightPriceCents,
           flightCurrency,
           flightDescription: flightDesc,
           hotelTotalCents: hotel ? Math.round((hotel.totalPrice ?? 0) * 100) : undefined,
           passengerCount: adults + children,
+          billingCountry,
+          billingRegion,
         }),
       });
       const data = await res.json() as {
         clientSecret?: string;
         paymentIntentId?: string;
         error?: string;
+        code?: string;
+        selectedFlightPriceCents?: number;
+        verifiedFlightPriceCents?: number;
+        selectedCurrency?: string;
+        verifiedCurrency?: string;
+        serviceFeeTaxCents?: number;
+        serviceFeeTaxLabel?: string;
         breakdown?: {
-          flightCents?: number;
-          flightCurrency?: string;
-          serviceFeeCents?: number;
-          serviceFeeCurrency?: string;
-          serviceFeeUsdCents?: number;
-          chargeCents?: number;
-          chargeCurrency?: string;
-          chargedNowLabel?: string;
-          supplierPaymentLabel?: string;
+          flightCents: number;
+          serviceFeeCents: number;
+          serviceFeeTaxCents?: number;
+          serviceFeeTaxLabel?: string;
+          totalCents: number;
+          currency: string;
         };
       };
       if (!res.ok || !data.clientSecret) {
+        if (data.code === 'FLIGHT_PRICE_CHANGED' && data.verifiedFlightPriceCents != null) {
+          const from = data.selectedFlightPriceCents != null
+            ? formatPrice(data.selectedFlightPriceCents / 100, data.selectedCurrency ?? flightCurrency)
+            : formatPrice(flightPriceCents / 100, flightCurrency);
+          const to = formatPrice(data.verifiedFlightPriceCents / 100, data.verifiedCurrency ?? flightCurrency);
+          setError(
+            `Flight fare changed from ${from} to ${to}. We did not change your checkout total. Please go back to results and select the current fare again.`
+          );
+          setPhase('invoice');
+          return;
+        }
         setError(data.error ?? 'Payment setup failed. Please try again.');
         setPhase('error');
         return;
@@ -1393,10 +1300,10 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
       setClientSecret(data.clientSecret);
       setPaymentIntentId(data.paymentIntentId ?? '');
       // Store the total for display on the payment screen
-      setStripeTotal(data.breakdown?.chargeCents ?? data.breakdown?.serviceFeeCents ?? 2000);
-      setStripeCurrency((data.breakdown?.chargeCurrency ?? data.breakdown?.serviceFeeCurrency ?? 'USD').toUpperCase());
-      setStripeChargeLabel(data.breakdown?.chargedNowLabel ?? 'Flight fare + FlexeTravels service fee');
-      setSupplierPaymentLabel(data.breakdown?.supplierPaymentLabel ?? 'FlexeTravels pays the airline from supplier balance after payment.');
+      setServiceFeeTaxCents(data.breakdown?.serviceFeeTaxCents ?? 0);
+      setServiceFeeTaxLabel(data.breakdown?.serviceFeeTaxLabel ?? '');
+      setStripeTotal(data.breakdown?.totalCents ?? flightPriceCents + SERVICE_FEE_CENTS + taxPreview.taxCents);
+      setStripeCurrency((data.breakdown?.currency ?? flightCurrency).toUpperCase());
       setPhase('payment');
     } catch (e) {
       setError(`Network error: ${String(e)}`);
@@ -1404,7 +1311,7 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
     } finally {
       setPreparing(false);
     }
-  }, [passengers, flight, flightsAll, hotel, adults, children, isMultiLeg]);
+  }, [passengers, flight, hotel, adults, children, billingCountry, billingRegion, taxPreview.taxCents]);
 
   // ── Pay → then Book ──────────────────────────────────────────────────────────
   // 1. Confirm payment with Stripe
@@ -1444,32 +1351,6 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
       !PH_RE.test(hotelToken.replace('liteapi_', '').trim())
     );
 
-    // Build the multi-leg request body when the cart has more than one
-    // flight or hotel. We pair flights[i] with hotels[i] by index — this
-    // matches how the canvas writes them (one per leg, in trip order). When
-    // counts differ we still ship every entry; legs that lack a flight or
-    // hotel just send the side that's present.
-    const legsBody = isMultiLeg
-      ? Array.from({ length: Math.max(flightsAll.length, hotelsAll.length) }, (_, i) => {
-          const f = flightsAll[i];
-          const h = hotelsAll[i];
-          return {
-            flightOfferId:       f?.id ?? undefined,
-            requestedPriceCents: f?.price ? Math.round(f.price * 100) : undefined,
-            flightOrigin:        f?.origin,
-            flightDestination:   f?.destination,
-            flightDepartureDate: f?.departure ? f.departure.slice(0, 10) : undefined,
-            flightCabinClass:    f?.cabinClass ?? 'economy',
-            flightPassengers:    f?.passengers ?? adults,
-            hotelRateId:         h?.bookingToken ?? (h as { rateId?: string } | undefined)?.rateId ?? undefined,
-            hotelName:           h?.name,
-            hotelId:             h?.id,
-            hotelCheckIn:        h?.checkIn,
-            hotelCheckOut:       h?.checkOut,
-          };
-        })
-      : undefined;
-
     try {
       const res = await fetch('/api/book-trip', {
         method:  'POST',
@@ -1477,7 +1358,6 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
         body: JSON.stringify({
           sessionId,
           paymentIntentId,                          // proof of payment — server verifies this
-          // Single-leg fields (legacy /chat path); ignored when legs[] is sent
           flightOfferId:       hasValidFlightId  ? flightId   : undefined,
           requestedPriceCents: flight?.price ? Math.round(flight.price * 100) : undefined,
           flightOrigin:        flight?.origin,
@@ -1490,8 +1370,6 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
           hotelId:             hotel?.id,
           hotelCheckIn:        hotel?.checkIn,
           hotelCheckOut:       hotel?.checkOut,
-          // Multi-leg array — present only when the cart has > 1 leg
-          legs:                legsBody,
           passengers:          passengers.slice(0, adults),
           childPassengers:     childPassengers.slice(0, children),
           originAirport:       flight?.origin ?? '',
@@ -1508,13 +1386,15 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
         flightError?:          string;
         hotelError?:           string;
         currency?:             'cad' | 'usd';
+        tripId?:               string;
         error?:                string;
         requiresHotelPayment?: boolean;
         hotelPrebookId?:       string;
         hotelSecretKey?:       string;
         hotelTransactionId?:   string;
         isSandboxBooking?:     boolean;
-        legs?: LegBooking[];   // multi-leg per-leg results
+        refundAttempted?:      boolean;
+        refundError?:          string;
       };
 
       if (!res.ok || !data.success) {
@@ -1522,9 +1402,14 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
         const chargedAmt = stripeTotal > 0
           ? formatPrice(stripeTotal / 100, stripeCurrency)
           : 'the service fee';
+        const refundNote = data.refundAttempted
+          ? data.refundError
+            ? ' We attempted an automatic refund, but it needs support review.'
+            : ' An automatic refund has been initiated.'
+          : '';
         setError(
           (data.error ?? data.flightError ?? data.hotelError ?? 'Booking failed.') +
-          ` Your card was charged ${chargedAmt}. Please contact support@flexetravels.com with your payment reference.`,
+          ` Your card was charged ${chargedAmt}.${refundNote} Please contact support@flexetravels.com with your payment reference.`,
         );
         setPhase('error');
         return;
@@ -1532,11 +1417,6 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
 
       if (data.flightRef) setFlightRef(data.flightRef);
       if (data.hotelRef)  setHotelRef(data.hotelRef);
-      if (data.currency)  setCurrency(data.currency);
-      // Capture per-leg results so the success view can render one row per leg
-      if (Array.isArray(data.legs) && data.legs.length > 0) {
-        setLegBookings(data.legs);
-      }
 
       // Production hotel payment via LiteAPI SDK
       if (data.requiresHotelPayment && data.hotelPrebookId && data.hotelSecretKey) {
@@ -1547,11 +1427,8 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
         return;
       }
 
-      // Hotel expected but server skipped — only treat as a hard error in the
-      // SINGLE-LEG path. Multi-leg trips can land in success with some legs
-      // missing their hotel; the per-leg success view surfaces those clearly.
-      const isMultiLegResponse = Array.isArray(data.legs) && data.legs.length > 1;
-      if (!isMultiLegResponse && hotel?.bookingToken && !data.hotelRef && !data.requiresHotelPayment) {
+      // Hotel expected but server skipped (sandbox limitation)
+      if (hotel?.bookingToken && !data.hotelRef && !data.requiresHotelPayment) {
         setError(
           (data.hotelError ?? `Hotel booking failed for ${hotel.name}.`) +
           ` Your flight (${data.flightRef ?? 'ref pending'}) was reserved. ` +
@@ -1571,6 +1448,9 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
         body: JSON.stringify({
           flightRef: data.flightRef ?? flightRef,
           hotelRef: data.hotelRef ?? hotelRef,
+          tripId: data.tripId,
+          paymentIntentId,
+          sessionId,
           flight,
           hotel,
           passengers: passengers.slice(0, adults),
@@ -1578,7 +1458,9 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
           adults,
           children,
           currency: data.currency ?? 'USD',
-          serviceFee: 20,
+          serviceFee: serviceFeeAmount,
+          serviceFeeTax: displayTaxCents / 100,
+          serviceFeeTaxLabel: displayTaxLabel,
           bookedAt: new Date().toISOString(),
         }),
       }).catch(e => console.warn('[checkout] Confirmation email failed:', e));
@@ -1592,135 +1474,10 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
       );
       setPhase('error');
     }
-  }, [paymentIntentId, stripeTotal, stripeCurrency, sessionId, flight, hotel, passengers, adults, children, childPassengers, nationality, onConfirmed]);
-
-  // Base service fee is USD $20; balance-mode checkout may convert it into the
-  // flight charge currency so the card sees one transparent total.
-  const feeDisplay = formatPrice(20, 'USD');
+  }, [paymentIntentId, stripeTotal, stripeCurrency, sessionId, flight, hotel, passengers, adults, children, childPassengers, nationality, onConfirmed, serviceFeeAmount, displayTaxCents, displayTaxLabel, flightRef, hotelRef]);
 
   // ── Success ─────────────────────────────────────────────────────────────────
   if (phase === 'success') {
-    // Multi-leg: render one row per leg with success/fail indicators and a
-    // banner summary at the top. Failures don't drop the user into the
-    // 'error' phase anymore — partial success is a real outcome we surface.
-    const isMultiLegSuccess = legBookings.length > 1;
-
-    if (isMultiLegSuccess) {
-      // Tally what booked vs what didn't, per leg
-      const tally = legBookings.map((leg, i) => {
-        const expectedFlight = !!leg.flightOfferId;
-        const expectedHotel  = !!leg.hotelRateId;
-        const flightOK = expectedFlight ? !!leg.flightRef && !leg.flightError : null;
-        const hotelOK  = expectedHotel  ? !!leg.hotelRef  && !leg.hotelError  : null;
-        const allOK   = (flightOK ?? true) && (hotelOK ?? true);
-        const someOK  = !!leg.flightRef || !!leg.hotelRef;
-        return { idx: i, leg, expectedFlight, expectedHotel, flightOK, hotelOK, allOK, someOK };
-      });
-      const fullySuccessful = tally.filter(t => t.allOK).length;
-      const partial         = tally.filter(t => !t.allOK && t.someOK).length;
-      const failed          = tally.filter(t => !t.someOK).length;
-      const flightDest = (l: LegBooking, i: number) => {
-        const f = flightsAll[i];
-        return f ? `${f.origin} → ${f.destination}` : (l.hotelName ?? `Leg ${i + 1}`);
-      };
-
-      return (
-        <div className="travel-card p-6 space-y-4 animate-fade-in-up">
-          <div className="flex items-start gap-3">
-            <div className="flex-shrink-0 w-12 h-12 rounded-full bg-teal-500/10 flex items-center justify-center">
-              <CheckCircle2 className="w-6 h-6 text-teal-600 dark:text-teal-400" />
-            </div>
-            <div>
-              <h3 className="font-black text-lg text-foreground tracking-tight leading-tight">
-                {failed === 0 && partial === 0
-                  ? 'All legs booked!'
-                  : `${fullySuccessful} of ${legBookings.length} legs fully booked`}
-              </h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                {failed === 0 && partial === 0
-                  ? 'Confirmation details sent to your email.'
-                  : `${partial + failed} ${(partial + failed) === 1 ? 'leg needs' : 'legs need'} attention. Details below.`}
-              </p>
-            </div>
-          </div>
-
-          {(partial > 0 || failed > 0) && (
-            <div className="px-3 py-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200/70 dark:border-amber-800/40 text-amber-900 dark:text-amber-200 text-[12px] leading-snug">
-              <strong className="font-semibold">What happened:</strong> we charge a single $20 service fee for the whole trip and book each leg sequentially after payment. If a later leg failed, the airline / hotel was unreachable at booking time — the earlier legs are still confirmed. Forward this screen to <a href="mailto:support@flexetravels.com" className="underline">support@flexetravels.com</a> and we&apos;ll either rebook the failed leg with no extra fee or refund what wasn&apos;t fulfilled.
-            </div>
-          )}
-
-          <ul className="space-y-2.5">
-            {tally.map(({ idx, leg, expectedFlight, expectedHotel, flightOK, hotelOK, allOK, someOK }) => {
-              const status: 'ok' | 'partial' | 'fail' = allOK ? 'ok' : someOK ? 'partial' : 'fail';
-              const ringClass =
-                status === 'ok'      ? 'border-teal-300/60 dark:border-teal-700/40 bg-teal-50/50 dark:bg-teal-950/20' :
-                status === 'partial' ? 'border-amber-300/70 dark:border-amber-800/40 bg-amber-50/40 dark:bg-amber-950/20' :
-                                       'border-red-300/70 dark:border-red-800/40 bg-red-50/40 dark:bg-red-950/20';
-              return (
-                <li key={idx} className={`rounded-xl border p-3 ${ringClass}`}>
-                  <div className="flex items-baseline justify-between gap-3 mb-2">
-                    <p className="text-sm font-semibold text-foreground">
-                      Leg {idx + 1} · {flightDest(leg, idx)}
-                    </p>
-                    <span className={`text-[10px] uppercase tracking-wider font-mono px-1.5 py-0.5 rounded ${
-                      status === 'ok'      ? 'bg-teal-500/15 text-teal-700 dark:text-teal-300' :
-                      status === 'partial' ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300' :
-                                             'bg-red-500/15 text-red-700 dark:text-red-300'
-                    }`}>
-                      {status === 'ok' ? 'booked' : status === 'partial' ? 'partial' : 'failed'}
-                    </span>
-                  </div>
-                  <div className="space-y-1">
-                    {expectedFlight && (
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="flex items-center gap-1.5 text-muted-foreground">
-                          <Plane className="w-3 h-3" />
-                          Flight
-                        </span>
-                        {flightOK
-                          ? <code className="font-mono font-bold text-foreground">{leg.flightRef}</code>
-                          : <span className="text-red-600 dark:text-red-400 text-[11px]">{leg.flightError ?? 'failed — see banner above'}</span>}
-                      </div>
-                    )}
-                    {expectedHotel && (
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="flex items-center gap-1.5 text-muted-foreground">
-                          <Building2 className="w-3 h-3" />
-                          Hotel{leg.hotelName ? ` · ${leg.hotelName}` : ''}
-                        </span>
-                        {hotelOK
-                          ? <code className="font-mono font-bold text-foreground">{leg.hotelRef}</code>
-                          : <span className="text-red-600 dark:text-red-400 text-[11px]">{leg.hotelError ?? 'failed — see banner above'}</span>}
-                      </div>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-
-          <p className="text-[10px] text-muted-foreground/60">
-            {stripeTotal > 0
-              ? `${formatPrice(stripeTotal / 100, stripeCurrency)} charged securely`
-              : `Service fee of ${feeDisplay} processed`
-            } · PCI-DSS compliant payment
-          </p>
-          <p className="text-[10px] text-muted-foreground/60">
-            Questions or complaints? Contact{' '}
-            <a href="mailto:support@flexetravels.com" className="underline">support@flexetravels.com</a>
-            {' '}· US DOT complaint line: 1-202-366-2220
-          </p>
-          <div className="px-3 py-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
-            <p className="text-[11px] text-blue-700 dark:text-blue-300 font-medium">
-              ✈️ Under US DOT rules, you may cancel each booked flight free of charge within 24 hours of booking, provided departure is 7+ days away.
-            </p>
-          </div>
-        </div>
-      );
-    }
-
-    // Single-leg success view — preserved from before for the legacy path
     return (
       <div className="travel-card p-6 space-y-4 animate-fade-in-up text-center">
         <div className="w-14 h-14 rounded-full bg-teal-500/10 flex items-center justify-center mx-auto">
@@ -1806,12 +1563,13 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
           <p className="text-sm text-muted-foreground/80 mt-1">{displayError}</p>
         </div>
         {isRateExpired ? (
-          <a
-            href="/chat"
+          <button
+            type="button"
+            onClick={onClose}
             className="block w-full py-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-sm text-center transition-colors"
           >
-            ← Back to chat to search again
-          </a>
+            Back to search
+          </button>
         ) : (
           <button
             onClick={() => { setPhase('passengers'); setError(''); }}
@@ -1839,7 +1597,7 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
               <div>
                 <p className="font-bold text-sm text-foreground">No flight selected</p>
                 <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                  It looks like no flight was found in your cart. You can continue to book the hotel only, or go back to chat and select a flight first.
+                  It looks like no flight was found in your cart. You can continue to book the hotel only, or return to search and select a flight first.
                 </p>
               </div>
             </div>
@@ -1849,7 +1607,7 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
                 className="flex-1 py-2.5 rounded-2xl border border-border/80 text-sm font-semibold
                            text-muted-foreground hover:bg-muted transition-colors"
               >
-                ← Back to chat
+                Review checkout
               </button>
               <button
                 onClick={() => { setConfirmFlightless(false); void handleBook(true); }}
@@ -1883,7 +1641,7 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
         {/* ── Step 1: Review ─────────────────────────────────────────────────── */}
         {phase === 'review' && (
           <div className="space-y-5">
-            <TripRows flights={flightsAll} hotels={hotelsAll} />
+            <TripRow flight={flight} hotel={hotel} />
 
             {/* Price-change alert — shown when live Duffel price differs from search price */}
             {error && error.startsWith('⚠️ Price updated') && (
@@ -1898,25 +1656,16 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
             )}
 
             {/* Block right here if the hotel is a sample — don't let user waste time in passengers */}
-            {hotelsAll.some(h => h.isSample) && (
+            {hotel?.isSample && (
               <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 space-y-2">
                 <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-                  ⚠ Some selected hotels are estimated prices — not bookable
+                  ⚠ &ldquo;{hotel.name}&rdquo; is an estimated price — not bookable
                 </p>
                 <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
-                  Live hotel rates aren&apos;t available for {hotelsAll.filter(h => h.isSample).map(h => h.name).join(', ')}.
-                  Please go back and choose a live room/rate before checkout.
+                  Live hotel rates aren&apos;t available for this destination. Please go back and search for hotels — try a more specific city name or different dates to see real bookable options.
                 </p>
               </div>
             )}
-
-            <div className="rounded-xl border border-blue-200/70 dark:border-blue-800/40 bg-blue-50/70 dark:bg-blue-950/20 px-3 py-2.5 text-[11px] text-blue-800 dark:text-blue-300 leading-relaxed">
-              <p className="font-semibold mb-1">Before you continue</p>
-              <p>
-                Flight prices, taxes, baggage, fare rules, and seat availability are re-verified at payment/booking time.
-                FlexeTravels displays the supplier fare plus our transparent service fee; hotels shown as separate payment are not charged by Stripe in this step.
-              </p>
-            </div>
 
             {/* Passenger counts */}
             <div className="space-y-2">
@@ -1933,7 +1682,7 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
                       </div>
                       {atMax && (
                         <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 leading-tight">
-                          Seats locked to search count. Go back to chat to change.
+                          Seats locked to searched count. Return to search to change.
                         </p>
                       )}
                     </div>
@@ -1975,132 +1724,67 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
               )}
             </div>
 
-            {/* Cost overview — every leg's flight + hotel itemised. Multi-leg
-                trips show one row per booking; single-leg falls into the same
-                code path with one row each. */}
+            {/* Cost overview — full breakdown shown on Invoice step */}
             <div className="border-t border-border/40 pt-3 space-y-1.5">
-              {flightsAll.map((f, i) => (
-                <div key={`f-${i}`} className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>
-                    {flightsAll.length > 1 && <span className="text-muted-foreground/70 mr-1">{i + 1}.</span>}
-                    Flight ({f.origin} → {f.destination})
-                    {f.airline && <span className="text-muted-foreground/60"> · {f.airline}</span>}
-                  </span>
-                  <span className="text-right">
-                    {formatPrice(f.price, f.currency)}
-                  </span>
-                </div>
-              ))}
-              {/* Per-passenger split. Duffel returns the selected offer total;
-                  exact per-passenger fare components are airline-controlled
-                  and confirmed at booking. We therefore show an allocation per
-                  flight leg, never one child number for the whole itinerary. */}
-              {children > 0 && flightsAll.map((f, flightIdx) => {
-                const breakdown = splitFlightFare({
-                  totalAmount: Number(f.price) || 0,
-                  currency:    (f.currency || 'USD').toUpperCase(),
-                  adults,
-                  childAges:   childAges ?? [],
-                });
-                if (breakdown.lines.length === 0) return null;
-                return (
-                  <div key={`pax-${flightIdx}`} className="pl-3 space-y-0.5" data-testid="flight-pax-breakdown">
-                    {flightsAll.length > 1 && (
-                      <p className="text-[9px] text-muted-foreground/60 font-mono uppercase tracking-wider">
-                        Passenger allocation for flight {flightIdx + 1}: {f.origin} → {f.destination}
-                      </p>
-                    )}
-                    {breakdown.lines.map((line, i) => (
-                      <div key={i} className="flex items-center justify-between text-[10px] text-muted-foreground/70">
-                        <span>{line.label}</span>
-                        <span className="tabular-nums">
-                          {line.zeroFare
-                            ? <span className="text-muted-foreground/60">included</span>
-                            : formatPrice(line.amount, breakdown.currency)}
-                        </span>
-                      </div>
-                    ))}
-                    <p className="text-[9px] text-muted-foreground/50 italic">
-                      Allocation estimate; the selected offer total is {formatPrice(breakdown.totalAmount, breakdown.currency)} and exact passenger fare/taxes are confirmed by the airline at booking.
-                    </p>
+              {flight && (
+                <>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Flight ({flight.origin} → {flight.destination})</span>
+                    <span>{formatPrice(flight.price, flight.currency)}</span>
                   </div>
-                );
-              })}
-              {hotelsAll.filter(h => !h.isSample).map((h, i) => (
-                <div key={`h-${i}`} className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>
-                    {hotelsAll.length > 1 && <span className="text-muted-foreground/70 mr-1">{i + 1}.</span>}
-                    Hotel ({h.name})
-                    {h.checkIn && h.checkOut && (
-                      <span className="text-muted-foreground/60"> · {h.checkIn.slice(5)} → {h.checkOut.slice(5)}</span>
-                    )}
-                  </span>
-                  <span className="text-right">
-                    {formatPrice(h.totalPrice, h.currency)}
-                  </span>
+                  {/* Per-passenger breakdown when mixed adults + children */}
+                  {children > 0 && (() => {
+                    const totalPax = flight.passengers ?? (adults + children);
+                    if (totalPax <= 1) return null;
+                    const perPax = Math.round(flight.price / totalPax * 100) / 100;
+                    return (
+                    <div className="pl-3 space-y-0.5">
+                      <div className="flex items-center justify-between text-[10px] text-muted-foreground/70">
+                        <span>{adults} × Adult</span>
+                        <span>~{formatPrice(perPax * adults, flight.currency)}</span>
+                      </div>
+                      {childAges?.map((age, i) => (
+                        <div key={i} className="flex items-center justify-between text-[10px] text-muted-foreground/70">
+                          <span>{age <= 1 ? `Infant (age ${age})` : age <= 3 ? `Toddler (age ${age})` : `Child (age ${age})`}</span>
+                          <span>{age <= 1 ? 'Lap seat' : `~${formatPrice(perPax, flight.currency)}`}</span>
+                        </div>
+                      )) ?? (
+                        <div className="flex items-center justify-between text-[10px] text-muted-foreground/70">
+                          <span>{children} × Child</span>
+                          <span>~{formatPrice(perPax * children, flight.currency)}</span>
+                        </div>
+                      )}
+                      <p className="text-[9px] text-muted-foreground/50 italic">Exact child fares confirmed at booking</p>
+                    </div>
+                    );
+                  })()}
+                </>
+              )}
+              {hotel && !hotel.isSample && (
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>Hotel ({hotel.name})</span>
+                  <span>{formatPrice(hotel.totalPrice, hotel.currency)}</span>
                 </div>
-              ))}
+              )}
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <div className="flex items-center gap-1.5">
                   <Lock className="w-3 h-3" />
                   FlexeTravels service fee
                 </div>
-                <span className="text-right">
-                  <span className="text-teal-700 dark:text-teal-300 font-bold">{feeDisplay}</span>
-                  {convertedServiceFee && <span className="block text-[10px] font-bold text-teal-700 dark:text-teal-300">{convertedServiceFee}</span>}
-                </span>
+                <span className="text-teal-700 dark:text-teal-300 font-bold">{feeDisplay}</span>
               </div>
-
-              {/* Trip total — sums every flight + hotel; service fee is only
-                  added when the trip is wholly in USD (since we charge it in
-                  USD via Stripe). Mixed-currency trips show a hint instead of
-                  a wrong sum. */}
-              {(() => {
-                const allItems: PricedItem[] = [
-                  ...flightsAll.map(f => ({ amount: Number(f.price) || 0, currency: f.currency || 'USD' })),
-                  ...hotelsAll.filter(h => !h.isSample).map(h => ({ amount: Number(h.totalPrice) || 0, currency: h.currency || 'USD' })),
-                ];
-                const t = computeTripTotal(allItems);
-                if (allItems.length === 0) return null;
-                if (!t.singleCurrency) {
-                  return (
-                    <div className="mt-2 pt-2 border-t border-border/40" data-testid="trip-total-mixed">
-                      <p className="text-[10px] text-muted-foreground/70 leading-snug">
-                        Mixed currencies ({t.currencies.join(' / ')}) — total isn&apos;t shown because adding across currencies would mislead. Each charge listed above is what the airline / hotel will bill in its own currency.
-                      </p>
-                    </div>
-                  );
-                }
-                return (
-                  <div className="mt-2 pt-2 border-t border-border/40 flex items-baseline justify-between" data-testid="trip-total">
-                    <span className="text-sm font-bold text-foreground">Trip total</span>
-                    <span className="text-sm font-bold text-foreground tabular-nums" data-testid="trip-total-amount">
-                      {formatPrice(t.total, t.currency)}
-                      {t.serviceFee === 0 && (
-                        <span className="ml-1 text-[10px] text-muted-foreground font-normal">+ $20 fee charged separately in USD</span>
-                      )}
-                    </span>
-                  </div>
-                );
-              })()}
-              <p className="text-[10px] text-muted-foreground/60 leading-snug">
-                Charged today: <strong>{feeDisplay}</strong> service fee.
-                {flightsAll.length > 0 && ` Each airline charges its own fare in its own currency.`}
-                {hotelsAll.length > 0 && ` Each hotel charges room cost at check-in or via secure gateway.`}
-              </p>
-              {isMultiLeg && (
-                <div className="mt-2 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-800/40 text-[11px] text-amber-800 dark:text-amber-300 leading-snug">
-                  <strong className="font-semibold">Multi-leg booking</strong> — we book each flight + hotel sequentially after payment. If a later booking fails, earlier ones stay confirmed and we&apos;ll show you exactly what to do for the remaining legs.
-                </div>
-              )}
+              <div className="flex items-center justify-between text-[10px] text-muted-foreground/70">
+                <span>Applicable tax is calculated from your billing location before payment.</span>
+                <span>Shown next</span>
+              </div>
             </div>
 
             <button
               onClick={() => setPhase('passengers')}
-              disabled={hotelsAll.some(h => h.isSample)}
+              disabled={!!hotel?.isSample}
               className={cn(
                 'w-full py-3.5 rounded-2xl text-white font-bold text-sm flex items-center justify-center gap-2 transition-all duration-150',
-                hotelsAll.some(h => h.isSample)
+                hotel?.isSample
                   ? 'bg-muted text-muted-foreground cursor-not-allowed opacity-50'
                   : 'bg-teal-600 hover:bg-teal-700 active:scale-[0.98] shadow-md shadow-teal-500/20 hover:shadow-lg hover:shadow-teal-500/30'
               )}
@@ -2302,12 +1986,13 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
 
             {/* ── Child passengers ─────────────────────────────────────── */}
             {childPassengers.map((child, i) => {
-              const searchedAge = childAges?.[i];
-              const dobAge = ageFromDob(child.dateOfBirth);
-              const displayAge = dobAge >= 0 ? dobAge : searchedAge;
-              const childLabel = childFareLabel(displayAge);
-              const ageHint = childFareHint(displayAge);
-              const ageMismatch = searchedAge != null && dobAge >= 0 && dobAge !== searchedAge;
+              const age = childAges?.[i];
+              const childLabel = age != null
+                ? age <= 1 ? `Infant (age ${age})` : age <= 3 ? `Toddler (age ${age})` : `Child (age ${age})`
+                : `Child ${i + 1}`;
+              const ageHint = age != null
+                ? age <= 1 ? 'lap infant' : age <= 3 ? 'toddler' : 'under 12'
+                : 'under 12';
               return (
               <div key={`child-${i}`} className="space-y-3">
                 <div className="flex items-center gap-2">
@@ -2357,11 +2042,6 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
                     />
                     <div className="mt-1.5">
                       <ChildAgeBadge dob={child.dateOfBirth} />
-                      {ageMismatch && (
-                        <p className="mt-1.5 text-[10px] text-red-600 dark:text-red-300">
-                          This DOB makes the child age {dobAge}, but this trip was priced for age {searchedAge}. Update the child age on the trip and refresh selected prices.
-                        </p>
-                      )}
                     </div>
                   </div>
 
@@ -2449,7 +2129,7 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
                             [scrollbar-width:thin] [scrollbar-color:theme(colors.border)_transparent]">
 
               {/* ── Trip summary ─────────────────────────────────────────── */}
-              <TripRows flights={flightsAll} hotels={hotelsAll} />
+              <TripRow flight={flight} hotel={hotel} />
 
               {/* ── Passenger details (full, for verification) ──────────── */}
               <div className="space-y-2">
@@ -2474,9 +2154,10 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
                   </div>
                 ))}
                 {childPassengers.map((child, i) => {
-                  const searchedAge = childAges?.[i];
-                  const dobAge = ageFromDob(child.dateOfBirth);
-                  const childTypeLabel = childFareLabel(dobAge >= 0 ? dobAge : searchedAge);
+                  const age = childAges?.[i];
+                  const childTypeLabel = age != null
+                    ? age <= 1 ? `Infant (age ${age})` : age <= 3 ? `Toddler (age ${age})` : `Child (age ${age})`
+                    : `Child ${i + 1}`;
                   return (
                   <div key={`inv-child-${i}`} className="p-3 rounded-xl bg-muted/30 border border-border/50 space-y-0.5">
                     <p className="text-sm font-bold text-foreground">
@@ -2497,78 +2178,125 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
                 })}
               </div>
 
+              <div className="rounded-xl bg-muted/30 border border-border/50 p-3 space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  Billing tax location
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <label className="space-y-1">
+                    <span className="text-[10px] font-semibold text-muted-foreground">Country</span>
+                    <select
+                      value={billingCountry}
+                      onChange={e => {
+                        const next = e.target.value as 'CA' | 'US';
+                        setBillingCountry(next);
+                        setBillingRegion(next === 'CA' ? 'BC' : 'WA');
+                        setStripeTotal(0);
+                      }}
+                      className="w-full h-10 rounded-xl border border-border bg-background px-3 text-xs font-semibold text-foreground outline-none focus:border-teal-500"
+                    >
+                      <option value="CA">Canada</option>
+                      <option value="US">United States</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-[10px] font-semibold text-muted-foreground">
+                      {billingCountry === 'CA' ? 'Province/Territory' : 'State'}
+                    </span>
+                    <select
+                      value={billingRegion}
+                      onChange={e => {
+                        setBillingRegion(e.target.value);
+                        setStripeTotal(0);
+                      }}
+                      className="w-full h-10 rounded-xl border border-border bg-background px-3 text-xs font-semibold text-foreground outline-none focus:border-teal-500"
+                    >
+                      {billingCountry === 'CA'
+                        ? CANADA_PROVINCES.map(province => (
+                          <option key={province.code} value={province.code}>{province.name}</option>
+                        ))
+                        : US_STATES.map(state => (
+                          <option key={state} value={state}>{state}</option>
+                        ))}
+                    </select>
+                  </label>
+                </div>
+                <p className="text-[10px] leading-relaxed text-muted-foreground">
+                  Provider fares include airline or hotel taxes returned by the supplier. We calculate applicable tax only on the FlexeTravels service fee.
+                </p>
+              </div>
+
               {/* ── Cost breakdown ───────────────────────────────────────── */}
               <div className="border border-border/50 rounded-xl overflow-hidden">
-                {/* ── Card charge section — merchant-of-record balance mode ─ */}
+                {/* ── Card charge section ────────────────────────── */}
                 <div className="px-3 pt-3 pb-2 space-y-2">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1">
                     <Lock className="w-3 h-3" /> Charged to your card now
                   </p>
-                  {flightsAll.map((f, i) => (
-                    <div key={`invoice-flight-${i}`} className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">
-                        Flight fare{i + 1 > 1 ? ` ${i + 1}` : ''} · {f.airline} · {f.origin} → {f.destination}
-                      </span>
-                      <span className="font-semibold text-foreground flex-shrink-0 ml-2">
-                        {formatPrice(f.price, f.currency)}
-                      </span>
+                  {flight && (
+                    <div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">
+                          ✈ Flight · {flight.airline} · {flight.origin} → {flight.destination}
+                        </span>
+                        <span className="font-semibold text-foreground flex-shrink-0 ml-2">
+                          {formatPrice(flight.price, flight.currency)}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                        Provider fare is verified again before payment. Internal offer references are never shown in checkout.
+                      </p>
+                      {flight.fareTermsSummary && (
+                        <div className="mt-1">
+                          <FareTermsDisclosure flight={flight} compact />
+                        </div>
+                      )}
+                      {/* MEDIUM severity: Child pricing disclosure */}
+                      {children > 0 && flight && (
+                        <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 leading-tight">
+                          Note: Child fares may differ from adult pricing shown. Final child seat prices are confirmed at booking time by the airline.
+                        </p>
+                      )}
                     </div>
-                  ))}
+                  )}
+                  {!flight && (
+                    <p className="text-xs text-muted-foreground italic">No flight selected</p>
+                  )}
                   <div className="flex justify-between text-xs">
                     <span className="text-muted-foreground">FlexeTravels service fee</span>
-                    <span className="font-semibold text-teal-700 dark:text-teal-300 flex-shrink-0 ml-2">
-                      {feeDisplay} or local equivalent
+                    <span className="font-semibold text-teal-700 dark:text-teal-300 flex-shrink-0 ml-2">{feeDisplay}</span>
+                  </div>
+                  {displayTaxCents > 0 && (
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">{displayTaxLabel} on service fee</span>
+                      <span className="font-semibold text-foreground flex-shrink-0 ml-2">{taxDisplay}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-xs border-t border-border/40 pt-2 mt-1">
+                    <span className="font-bold text-foreground">Total charged via card</span>
+                    <span className="font-black text-foreground flex-shrink-0 ml-2">
+                      {formatPrice(totalChargeCents / 100, chargeCurrency)}
                     </span>
                   </div>
                 </div>
 
-                {/* ── Flight settlement disclosure ─────── */}
-                {flightsAll.length > 0 && (
-                  <div className="px-3 pt-2 pb-3 border-t border-border/40 bg-muted/20 space-y-1.5">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                      How flight payment is settled
-                    </p>
-                    {children > 0 && (
-                      <p className="text-[10px] text-amber-600 dark:text-amber-400 leading-tight">
-                        Note: Child fares may differ from adult pricing shown. Final child seat prices are confirmed at booking time by the airline.
-                      </p>
-                    )}
-                    <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
-                      FlexeTravels and Tours Inc. is merchant of record for this checkout. Your card is charged before booking, then FlexeTravels pays each selected airline through Duffel Balance and confirms each flight sequentially. If a later flight cannot be booked after payment, the unbooked flight fare is refunded or resolved by support.
-                    </p>
-                    <div className="space-y-1">
-                      {flightsAll.map((f, i) => (
-                        <div key={`settle-flight-${i}`} className="flex justify-between gap-3 text-[10px] text-muted-foreground/80">
-                          <span>{i + 1}. {f.airline} · {f.origin} → {f.destination}</span>
-                          <span className="font-semibold">{formatPrice(f.price, f.currency)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {flightsAll.length === 0 && (
-                  <p className="px-3 py-2 text-xs text-muted-foreground italic border-t border-border/40">No flight selected</p>
-                )}
-
                 {/* ── Hotel — separate payment ──────────────────── */}
-                {hotelsAll.filter(h => !h.isSample).length > 0 && (
+                {hotel && !hotel.isSample && (
                   <div className="px-3 pt-2 pb-3 border-t border-border/40 bg-muted/20 space-y-1.5">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                       Hotel — paid separately after booking
                     </p>
-                    {hotelsAll.filter(h => !h.isSample).map((h, i) => (
-                      <div key={`invoice-hotel-${i}`} className="flex justify-between text-xs gap-3">
-                        <span className="text-muted-foreground">
-                          {hotelsAll.length > 1 ? `${i + 1}. ` : ''}🏨 {h.name} · {h.checkIn} → {h.checkOut}
-                        </span>
-                        <span className="font-semibold text-foreground flex-shrink-0 ml-2">
-                          {formatPrice(h.totalPrice, h.currency)}
-                        </span>
-                      </div>
-                    ))}
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">
+                        🏨 {hotel.name} · {hotel.checkIn} → {hotel.checkOut}
+                      </span>
+                      <span className="font-semibold text-foreground flex-shrink-0 ml-2">
+                        {formatPrice(hotel.totalPrice, hotel.currency)}
+                      </span>
+                    </div>
                     <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
-                      Hotel payment is processed via a secure gateway after flight confirmation.
-                      You will enter card details again for hotel costs only. Hotel taxes, resort fees, deposits, and local charges may be collected by the property or hotel payment provider when disclosed by the supplier.
+                      Hotel payment is processed via a secure gateway after this service-fee step.
+                      You will enter card details again for the hotel cost only.
                     </p>
                   </div>
                 )}
@@ -2581,33 +2309,25 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
                 </p>
                 <ol className="text-xs text-teal-700/80 dark:text-teal-400/70 leading-relaxed space-y-0.5 list-decimal list-inside">
                   <li>
-                    Your card is charged for {flightsAll.length > 0 ? `${itemCountLabel(flightsAll.length, 'selected flight fare')}` : 'the selected trip'} plus the transparent FlexeTravels service fee.
+                    Your card is charged{' '}
+                    <strong>{formatPrice(totalChargeCents / 100, chargeCurrency)}</strong>
+                    {' '}
+                    {flight ? `(flight fare + ${feeDisplay} service fee${displayTaxCents > 0 ? ` + ${displayTaxLabel}` : ''}).` : `(the ${feeDisplay} service fee${displayTaxCents > 0 ? ` + ${displayTaxLabel}` : ''}).`}
                   </li>
-                  {flightsAll.length > 0 && (
+                  {flight ? (
+                    <li>We instantly confirm your flight with {flight.airline}.</li>
+                  ) : hotel && !hotel.isSample ? (
+                    <li>We reserve your selected hotel rate after the service fee is authorized.</li>
+                  ) : null}
+                  {hotel && !hotel.isSample && (
                     <li>
-                      FlexeTravels pays each selected airline through Duffel Balance after payment succeeds.
-                    </li>
-                  )}
-                  {flightsAll.length > 0 && (
-                    <li>
-                      We book all {flightsAll.length} flight{flightsAll.length === 1 ? '' : 's'} sequentially and show per-leg confirmation references.
-                    </li>
-                  )}
-                  {hotelsAll.filter(h => !h.isSample).length > 0 && (
-                    <li>
-                      You&apos;ll complete hotel payment for {hotelsAll.filter(h => !h.isSample).length} hotel{hotelsAll.filter(h => !h.isSample).length === 1 ? '' : 's'} via a secure gateway.
+                      You&apos;ll complete hotel payment ({formatPrice(hotel.totalPrice, hotel.currency)}) via a secure gateway.
                     </li>
                   )}
                   <li>
                     Confirmation sent to <strong>{passengers[0]?.email || 'your email'}</strong>.
                   </li>
                 </ol>
-              </div>
-
-              <div className="rounded-xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-800/40 px-3 py-2.5 space-y-1 text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
-                <p className="font-semibold">Regulatory and supplier disclosures</p>
-                <p>For eligible US itineraries, US DOT rules may allow free cancellation within 24 hours when departure is 7+ days away. For Canadian itineraries, APPR rights may apply for delays, cancellations, denied boarding, and baggage issues.</p>
-                <p>Fare rules, baggage allowance, operating carrier/codeshare details, schedule changes, passport/visa requirements, and hotel cancellation penalties are governed by the selected suppliers and are confirmed in the booking record.</p>
               </div>
 
             </div>{/* end scrollable invoice area */}
@@ -2629,11 +2349,11 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
                   className="mt-0.5 w-4 h-4 rounded border-border accent-teal-600"
                 />
                 <span className="text-[11px] text-muted-foreground leading-relaxed">
-                  I agree to FlexeTravels'{' '}
+                  I agree to FlexeTravels&apos;{' '}
                   <a href="/terms" className="underline hover:text-teal-600">Terms of Service</a>
                   {' '}and acknowledge the{' '}
                   <a href="/privacy" className="underline hover:text-teal-600">Privacy Policy</a>.
-                  I understand the $20 service fee is non-refundable, supplier fares/rules apply, and eligible US DOT / Canadian APPR rights are handled according to applicable law.
+                  I understand the service fee and applicable tax are charged before booking, selected fare terms are based on provider-visible data plus clearly labeled caveats, and flight cancellation rights follow applicable airline and government rules including US DOT regulations where they apply.
                 </span>
               </label>
             </div>
@@ -2658,7 +2378,7 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
               >
                 {preparing
                   ? <><Loader2 className="w-4 h-4 animate-spin" /> Setting up payment…</>
-                  : <><Lock className="w-4 h-4" /> Continue to secure payment <ArrowRight className="w-4 h-4" /></>
+                  : <><Lock className="w-4 h-4" /> Pay {formatPrice(totalChargeCents / 100, chargeCurrency)} <ArrowRight className="w-4 h-4" /></>
                 }
               </button>
             </div>
@@ -2676,33 +2396,34 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1">
                 <Lock className="w-3 h-3" /> Charging to your card now
               </p>
-              <div className="flex justify-between text-muted-foreground">
-                <span>{stripeChargeLabel}</span>
-                <span className="font-semibold text-teal-700 dark:text-teal-300 ml-2 flex-shrink-0">
-                  {stripeTotal > 0
-                    ? formatPrice(stripeTotal / 100, stripeCurrency)
-                    : feeDisplay}
-                </span>
-              </div>
-              {flightsAll.length > 0 && (
-                <div className="pt-1 border-t border-border/30 space-y-1 text-muted-foreground/70">
-                  {flightsAll.map((f, i) => (
-                    <div key={`pay-flight-${i}`} className="flex justify-between">
-                      <span>✈ {f.airline} · {f.origin} → {f.destination}</span>
-                      <span className="ml-2 flex-shrink-0">{formatPrice(f.price, f.currency)}</span>
-                    </div>
-                  ))}
-                  <p className="text-[10px] leading-snug">{supplierPaymentLabel}</p>
+              {flight && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>✈ Flight · {flight.origin} → {flight.destination} ({flight.airline})</span>
+                  <span className="font-semibold text-foreground ml-2 flex-shrink-0">{formatPrice(flight.price, flight.currency)}</span>
                 </div>
               )}
-              {hotelsAll.filter(h => !h.isSample).length > 0 && (
-                <div className="pt-1 border-t border-border/30 space-y-1 text-muted-foreground/70">
-                  {hotelsAll.filter(h => !h.isSample).map((h, i) => (
-                    <div key={`pay-hotel-${i}`} className="flex justify-between gap-3">
-                      <span>🏨 {h.name} · paid separately after booking</span>
-                      <span className="ml-2 flex-shrink-0">{formatPrice(h.totalPrice, h.currency)}</span>
-                    </div>
-                  ))}
+              <div className="flex justify-between text-muted-foreground">
+                <span>FlexeTravels service fee</span>
+                <span className="font-semibold text-teal-700 dark:text-teal-300 ml-2 flex-shrink-0">{feeDisplay}</span>
+              </div>
+              {displayTaxCents > 0 && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>{displayTaxLabel} on service fee</span>
+                  <span className="font-semibold text-foreground ml-2 flex-shrink-0">{taxDisplay}</span>
+                </div>
+              )}
+              <div className="flex justify-between border-t border-border/40 pt-1.5 mt-0.5">
+                <span className="font-bold text-foreground">Total charged now</span>
+                <span className="font-black text-foreground ml-2 flex-shrink-0">
+                  {stripeTotal > 0
+                    ? formatPrice(stripeTotal / 100, stripeCurrency)
+                    : formatPrice(totalChargeCents / 100, chargeCurrency)}
+                </span>
+              </div>
+              {hotel && !hotel.isSample && (
+                <div className="pt-1 border-t border-border/30 flex justify-between text-muted-foreground/70">
+                  <span>🏨 Hotel paid separately after booking</span>
+                  <span className="ml-2 flex-shrink-0">{formatPrice(hotel.totalPrice, hotel.currency)}</span>
                 </div>
               )}
             </div>
@@ -2731,7 +2452,7 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
               <Lock className="w-3.5 h-3.5" />
               Pay {stripeTotal > 0
                 ? formatPrice(stripeTotal / 100, stripeCurrency)
-                : feeDisplay} securely
+                : formatPrice(totalChargeCents / 100, chargeCurrency)} securely
             </button>
             <p className="text-center text-[10px] text-muted-foreground/50">
               256-bit encrypted payment · PCI-DSS compliant · Card details never stored
@@ -2755,27 +2476,25 @@ export function CheckoutCard({ flight, hotel, flights: flightsProp, hotels: hote
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Payment summary</p>
               {stripeTotal > 0 && (
                 <div className="flex justify-between text-muted-foreground">
-                  <span>✅ Flight + service fee (already paid)</span>
+                  <span>✅ Flight + service fee + tax (already paid)</span>
                   <span className="font-semibold text-foreground ml-2 flex-shrink-0">
                     {formatPrice(stripeTotal / 100, stripeCurrency)}
                   </span>
                 </div>
               )}
-              {hotelsAll.filter(h => !h.isSample).map((h, i) => (
-                <div key={`hotel-payment-due-${i}`} className="flex justify-between gap-3">
-                  <span className="text-foreground font-semibold">
-                    🏨 Hotel payment due {hotelsAll.length > 1 ? `for leg ${i + 1}` : 'now'} · {h.name}
-                  </span>
+              {hotel && !hotel.isSample && (
+                <div className="flex justify-between">
+                  <span className="text-foreground font-semibold">🏨 Hotel payment due now</span>
                   <span className="font-black text-foreground ml-2 flex-shrink-0">
-                    {formatPrice(h.totalPrice, h.currency)}
+                    {formatPrice(hotel.totalPrice, hotel.currency)}
                   </span>
                 </div>
-              ))}
+              )}
             </div>
             <div className="space-y-1">
               <p className="text-sm font-semibold text-foreground">Enter card details for hotel</p>
               <p className="text-xs text-muted-foreground">
-                This charge covers hotel stay costs only. Payment is processed securely — FlexeTravels never stores your card data.
+                This charge covers your hotel stay only. Payment is processed securely — FlexeTravels never stores your card data.
               </p>
             </div>
 

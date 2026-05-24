@@ -66,6 +66,8 @@ export async function book(
   try {
     const result = await bookingHandler.book(req);
     if (result.ok && result.data) {
+      result.data.serviceFeeTaxCents = req.serviceFeeTaxCents ?? result.data.serviceFeeTaxCents;
+      result.data.serviceFeeTaxLabel = req.serviceFeeTaxLabel ?? result.data.serviceFeeTaxLabel;
       await _persistBooking(req, result.data);
     }
     return { ...result, durationMs: Date.now() - t0 };
@@ -195,22 +197,76 @@ async function _persistBooking(
       // Validate label against DB constraint before inserting
       const validLabels = ['Flexible', 'Moderate', 'Locked', null] as const;
       const safeLabel = validLabels.includes(label as typeof validLabels[number]) ? label : null;
+      const flightAmountCents = result.flightAmountCents ?? req.requestedPriceCents ?? 0;
+      const flightCurrency = (result.flightCurrency ?? result.currency ?? 'USD').toUpperCase();
       const bk = await db.bookings.create({
         trip_id:           tripId,
         type:              'flight',
         provider:          'duffel',
-        // 'pending' until Stripe service-fee webhook confirms payment.
-        // Webhook at /api/webhooks/stripe updates this to 'confirmed'.
-        status:            'pending',
-        provider_ref:      result.flightRef,
+        status:            req.stripePaymentIntentId ? 'confirmed' : 'pending',
+        provider_ref:      result.flightOrderId ?? result.flightRef,
         booking_ref:       result.flightRef,
-        amount_cents:      0,
-        currency:          result.currency ?? 'USD',
+        amount_cents:      flightAmountCents,
+        currency:          flightCurrency,
         flexibility_score: result.flexibilityScore?.score ?? null,
         flexibility_label: safeLabel,
+        offer_id:          req.flightOfferId ?? null,
+        raw_conditions:    result.flightConditions ?? null,
+        metadata: {
+          sessionId:                req.sessionId,
+          stripe_payment_intent_id: req.stripePaymentIntentId,
+          stripe_amount_cents:      req.stripeAmountCents,
+          stripe_currency:          req.stripeCurrency?.toUpperCase(),
+          stripe_booking_reference: req.stripeBookingReference,
+          service_fee_cents:        req.serviceFeeCents ?? result.serviceFeeCents,
+          service_fee_tax_cents:    req.serviceFeeTaxCents ?? result.serviceFeeTaxCents ?? 0,
+          service_fee_tax_label:    req.serviceFeeTaxLabel ?? result.serviceFeeTaxLabel,
+          service_fee_tax_rate_bps: req.serviceFeeTaxRateBps,
+          service_fee_tax_jurisdiction: req.serviceFeeTaxJurisdiction,
+          duffel_offer_id:          req.flightOfferId,
+          duffel_order_id:          result.flightOrderId,
+          passenger_count:          req.passengers.length + (req.childPassengers?.length ?? 0),
+          adult_count:              req.passengers.length,
+          child_count:              req.childPassengers?.length ?? 0,
+          origin:                   req.flightOrigin ?? req.originAirport,
+          destination:              req.flightDestination,
+          departure_date:           req.flightDepartureDate,
+          cabin_class:              req.flightCabinClass,
+          booked_at:                new Date().toISOString(),
+        },
       });
       if (bk) {
         console.log('[orchestrator] flight booking row created:', bk.id, '| ref:', result.flightRef);
+        if (req.stripePaymentIntentId) {
+          await db.payments.create({
+            stripe_intent_id: req.stripePaymentIntentId,
+            booking_ref:      result.flightRef,
+            amount_cents:     req.stripeAmountCents ?? (flightAmountCents + (req.serviceFeeCents ?? result.serviceFeeCents)),
+            currency:         req.stripeCurrency?.toUpperCase() ?? flightCurrency,
+            status:           'succeeded',
+            paid_at:          new Date().toISOString(),
+          }).catch(e => console.warn('[orchestrator] payment row write failed:', String(e)));
+        }
+        await db.events.insert({
+          booking_id: bk.id,
+          trip_id:    tripId,
+          source:     'system',
+          type:       'booking.flight_confirmed',
+          payload:    {
+            provider:                 'duffel',
+            provider_ref:             result.flightOrderId ?? result.flightRef,
+            booking_ref:              result.flightRef,
+            offer_id:                 req.flightOfferId,
+            amount_cents:             flightAmountCents,
+            currency:                 flightCurrency,
+            stripe_payment_intent_id: req.stripePaymentIntentId,
+            service_fee_cents:        req.serviceFeeCents ?? result.serviceFeeCents,
+            service_fee_tax_cents:    req.serviceFeeTaxCents ?? result.serviceFeeTaxCents ?? 0,
+            service_fee_tax_label:    req.serviceFeeTaxLabel ?? result.serviceFeeTaxLabel,
+            service_fee_tax_jurisdiction: req.serviceFeeTaxJurisdiction,
+          },
+          processed: true,
+        });
       } else {
         console.error('[orchestrator] _persistBooking: bookings.create returned null for flight', result.flightRef);
       }

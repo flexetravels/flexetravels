@@ -5,8 +5,7 @@
 // Rate limits: 10 req/s sandbox, 100 req/s production
 
 import type {
-  SearchProvider, FlightSearchParams, HotelSearchParams,
-  NormalizedFlight, NormalizedHotel,
+  SearchProvider, HotelSearchParams, NormalizedFlight, NormalizedHotel,
 } from './types';
 
 const LITEAPI_BASE = 'https://api.liteapi.travel/v3.0';
@@ -438,7 +437,7 @@ export class LiteApiProvider implements SearchProvider {
   }
 
   // LiteAPI is hotels-only
-  async searchFlights(_params: FlightSearchParams): Promise<NormalizedFlight[]> {
+  async searchFlights(): Promise<NormalizedFlight[]> {
     return [];
   }
 
@@ -678,7 +677,7 @@ export class LiteApiProvider implements SearchProvider {
         currency:      cheapestRate.retailRate?.total?.[0]?.currency ?? 'USD',
         image:         info.main_photo ?? info.thumbnail ?? '',
         images:        info.main_photo ? [info.main_photo] : [],
-        rating:        stars > 0 ? 7.5 + (stars - 3) * 0.4 : 0,  // 0 = unrated; 5-star ≈ 8.3, 3-star ≈ 7.5
+        rating:        0, // LiteAPI does not provide guest review scores here; do not fabricate one.
         amenities:     [],   // will be populated by liteApiGetHotelDetail (real API data)
         cancellation:  refundable ? 'Free cancellation' : 'Non-refundable',
         checkIn:       params.checkIn,
@@ -710,6 +709,34 @@ export class LiteApiProvider implements SearchProvider {
     const results = normalized
       .sort((a, b) => a.pricePerNight - b.pricePerNight)
       .slice(0, 20);
+
+    // Enrich the search result cards with facility data so amenity filters
+    // operate on real provider data instead of hiding all options.
+    const detailResults = await Promise.race([
+      Promise.allSettled(results.map(h => liteApiGetHotelDetail(h.id, this.apiKey))),
+      new Promise<'timeout'>(resolve => setTimeout(() => resolve('timeout'), 4_500)),
+    ]);
+
+    if (Array.isArray(detailResults)) {
+      detailResults.forEach((detailResult, index) => {
+        if (detailResult.status !== 'fulfilled' || !detailResult.value) return;
+        const detail = detailResult.value;
+        const images = (detail.hotelImages ?? []).map(img => img.url).filter(Boolean);
+        const detailStarNum = Math.round(Number(detail.starRating ?? results[index].stars ?? 0));
+        const detailStars = detailStarNum >= 1 && detailStarNum <= 5 ? detailStarNum : results[index].stars;
+        results[index] = {
+          ...results[index],
+          stars: detailStars,
+          description: detail.hotelDescription ?? results[index].description,
+          amenities: detail.hotelFacilities ?? results[index].amenities,
+          images: images.length ? images : results[index].images,
+          image: detail.main_photo ?? images[0] ?? results[index].image,
+          address: detail.location?.address ?? results[index].address,
+          checkinTime: detail.checkinCheckoutTimes?.checkin ?? detail.checkinCheckoutTimes?.checkinStart ?? results[index].checkinTime,
+          checkoutTime: detail.checkinCheckoutTimes?.checkout ?? results[index].checkoutTime,
+        };
+      });
+    }
 
     // Write to cache (even empty, prevents hammering the API on retries)
     HOTEL_CACHE.set(cacheKey, { data: results, ts: Date.now() });
@@ -914,7 +941,7 @@ export async function liteApiPrebook(
     if (errorCode === 4002 || errorCode === 4000) {
       return {
         success: false,
-        error: 'HOTEL_RATE_EXPIRED: Hotel rates have expired — prices refresh every few minutes. Please go back to chat and search for hotels again.',
+        error: 'HOTEL_RATE_EXPIRED: Hotel rates have expired — prices refresh every few minutes. Please return to search and choose a fresh hotel rate.',
       };
     }
 

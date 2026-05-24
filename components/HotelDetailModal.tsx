@@ -21,8 +21,8 @@ import {
   X, Star, MapPin, Clock, ChevronLeft, ChevronRight, Maximize2,
   Wifi, Car, UtensilsCrossed, Waves, Dumbbell, Wind, Coffee, Tv,
   Luggage, Baby, PawPrint, ShoppingBag, Zap, Phone, Globe,
-  CheckCircle, XCircle, AlertCircle, Users, BedDouble, Utensils,
-  RefreshCw, Loader2, ExternalLink,
+  CheckCircle, XCircle, Users, BedDouble, Utensils,
+  Loader2, ExternalLink,
 } from 'lucide-react';
 import { cn, formatPrice, formatDate } from '@/lib/utils';
 import type { HotelResult } from '@/lib/types';
@@ -116,10 +116,98 @@ function extractHighlights(text: string): Array<{ emoji: string; label: string }
 function scoreLabel(score: number): { label: string; color: string } {
   if (score >= 9.0) return { label: 'Exceptional',  color: 'bg-green-600' };
   if (score >= 8.5) return { label: 'Superb',       color: 'bg-green-500' };
-  if (score >= 8.0) return { label: 'Excellent',    color: 'bg-teal-600' };
-  if (score >= 7.5) return { label: 'Very Good',    color: 'bg-teal-500' };
+  if (score >= 8.0) return { label: 'Excellent',    color: 'bg-[#0d8a62]' };
+  if (score >= 7.5) return { label: 'Very Good',    color: 'bg-[#0d8a62]' };
   if (score >= 7.0) return { label: 'Good',         color: 'bg-blue-500' };
   return              { label: 'Pleasant',          color: 'bg-slate-500' };
+}
+
+function roomKind(roomName?: string) {
+  const name = (roomName ?? '').toLowerCase();
+  if (name.includes('suite')) return 'Suite';
+  if (name.includes('family') || name.includes('sofa')) return 'Family';
+  if (name.includes('king')) return 'King';
+  if (name.includes('queen')) return 'Queen';
+  if (name.includes('twin') || name.includes('double')) return 'Twin / double';
+  if (name.includes('deluxe') || name.includes('premium')) return 'Premium';
+  return 'Room';
+}
+
+function roomImageMatch(images: Array<{ url: string; caption?: string }>, roomName: string | undefined, index: number) {
+  if (!images.length) return undefined;
+  const roomTerms = (roomName ?? '').toLowerCase().split(/\s+/).filter(term => term.length > 3);
+  const directIndex = images.findIndex(img => {
+    const text = `${img.caption ?? ''} ${img.url}`.toLowerCase();
+    return roomTerms.length > 0 && roomTerms.some(term => text.includes(term));
+  });
+  if (directIndex >= 0) {
+    return { image: images[directIndex], index: directIndex, label: 'Room photo match' };
+  }
+
+  const roomLikeIndex = images.findIndex(img => {
+    const text = `${img.caption ?? ''} ${img.url}`.toLowerCase();
+    return ['room', 'suite', 'bed', 'guest'].some(term => text.includes(term));
+  });
+  if (roomLikeIndex >= 0) {
+    return { image: images[roomLikeIndex], index: roomLikeIndex, label: 'Hotel gallery room photo' };
+  }
+
+  const fallbackIndex = index % images.length;
+  return { image: images[fallbackIndex], index: fallbackIndex, label: 'Property gallery photo' };
+}
+
+type DetailRoomType = NonNullable<HotelResult['allRoomTypes']>[number];
+type DetailRoomRate = NonNullable<NonNullable<HotelResult['allRoomTypes']>[number]['rates']>[number];
+
+function cheapestRoomRate(rt: DetailRoomType): DetailRoomRate | undefined {
+  return rt.rates?.reduce((min: DetailRoomRate | undefined, r) => {
+    if (!min || (r.price ?? Infinity) < (min.price ?? Infinity)) return r;
+    return min;
+  }, undefined);
+}
+
+function roomPriceExplanation({
+  room,
+  rate,
+  baselineRate,
+  baselineRoom,
+  perNight,
+  baselinePerNight,
+  currency,
+}: {
+  room: DetailRoomType;
+  rate?: DetailRoomRate;
+  baselineRate?: DetailRoomRate;
+  baselineRoom?: DetailRoomType;
+  perNight?: number;
+  baselinePerNight?: number;
+  currency: string;
+}) {
+  if (perNight == null || baselinePerNight == null) return undefined;
+  const delta = Math.round((perNight - baselinePerNight) * 100) / 100;
+  if (delta <= 0) return 'Lowest room rate shown';
+
+  const reasons: string[] = [];
+  if (room.maxOccupancy && baselineRoom?.maxOccupancy && room.maxOccupancy > baselineRoom.maxOccupancy) {
+    reasons.push(`sleeps up to ${room.maxOccupancy}`);
+  }
+  if (rate?.boardName && rate.boardName !== baselineRate?.boardName) {
+    reasons.push(rate.boardName);
+  }
+  if (rate?.refundable && !baselineRate?.refundable) {
+    reasons.push('refundable terms');
+  }
+  const roomType = roomKind(room.name);
+  const baselineType = roomKind(baselineRoom?.name);
+  if (roomType !== baselineType && roomType !== 'Room') {
+    reasons.push(roomType.toLowerCase());
+  }
+  if (rate?.name && rate.name !== baselineRate?.name && !reasons.some(reason => rate.name?.toLowerCase().includes(reason.toLowerCase()))) {
+    reasons.push(rate.name);
+  }
+
+  const reasonText = reasons.length ? ` for ${reasons.slice(0, 2).join(' + ')}` : '';
+  return `+${formatPrice(delta, rate?.currency ?? currency)}/night${reasonText}`;
 }
 
 // ── Lightbox ──────────────────────────────────────────────────────────────────
@@ -287,6 +375,18 @@ export function HotelDetailModal({ hotel, onClose, onSelect }: HotelDetailModalP
 
   // Room types for comparison
   const roomTypes = hotel.allRoomTypes ?? [];
+  const roomRateRows = roomTypes.map((rt, i) => {
+    const rate = cheapestRoomRate(rt);
+    const price = rate?.price;
+    const perNight = price != null ? price / Math.max(1, hotel.roomCount ?? 1) : undefined;
+    return { rt, index: i, rate, price, perNight };
+  });
+  const baselineRoomRow = roomRateRows
+    .filter(row => row.perNight != null)
+    .reduce<typeof roomRateRows[number] | undefined>((best, row) => {
+      if (!best) return row;
+      return (row.perNight ?? Infinity) < (best.perNight ?? Infinity) ? row : best;
+    }, undefined);
 
   return (
     <>
@@ -388,7 +488,7 @@ export function HotelDetailModal({ hotel, onClose, onSelect }: HotelDetailModalP
             {/* Loading overlay */}
             {loading && !detail && (
               <div className="absolute inset-0 bg-background/50 flex items-center justify-center">
-                <Loader2 className="w-6 h-6 animate-spin text-teal-500" />
+                <Loader2 className="w-6 h-6 animate-spin text-[#0d8a62]" />
               </div>
             )}
           </div>
@@ -402,7 +502,7 @@ export function HotelDetailModal({ hotel, onClose, onSelect }: HotelDetailModalP
                   onClick={() => { setHeroIdx(i); }}
                   className={cn(
                     'flex-none w-16 h-12 rounded-md overflow-hidden border-2 transition-all',
-                    i === heroIdx ? 'border-teal-500' : 'border-transparent opacity-60 hover:opacity-100'
+                    i === heroIdx ? 'border-[#0d8a62]' : 'border-transparent opacity-60 hover:opacity-100'
                   )}
                 >
                   <img src={img.url} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" />
@@ -412,7 +512,7 @@ export function HotelDetailModal({ hotel, onClose, onSelect }: HotelDetailModalP
                 <button
                   onClick={() => setLightbox(0)}
                   className="flex-none w-16 h-12 rounded-md bg-muted border-2 border-dashed border-muted-foreground/30
-                             flex items-center justify-center text-xs text-muted-foreground hover:border-teal-500 transition-colors"
+                             flex items-center justify-center text-xs text-muted-foreground hover:border-[#0d8a62] transition-colors"
                 >
                   +{allImages.length - 12}
                 </button>
@@ -450,7 +550,7 @@ export function HotelDetailModal({ hotel, onClose, onSelect }: HotelDetailModalP
               {/* Address */}
               {(detail?.address || hotel.location) && (
                 <div className="flex items-start gap-1.5 text-sm text-muted-foreground">
-                  <MapPin className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-teal-500" />
+                  <MapPin className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-[#0d8a62]" />
                   <span className="line-clamp-2">
                     {detail?.address ?? hotel.location}
                     {detail?.city && detail.city !== hotel.location ? `, ${detail.city}` : ''}
@@ -461,7 +561,7 @@ export function HotelDetailModal({ hotel, onClose, onSelect }: HotelDetailModalP
                       href={`https://www.google.com/maps/search/?api=1&query=${detail.coordinates.lat},${detail.coordinates.lon}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex-shrink-0 text-teal-500 hover:text-teal-400"
+                      className="flex-shrink-0 text-[#0d8a62] hover:text-[#35d49a]"
                     >
                       <ExternalLink className="w-3 h-3" />
                     </a>
@@ -473,7 +573,7 @@ export function HotelDetailModal({ hotel, onClose, onSelect }: HotelDetailModalP
               <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">
                 {(detail?.checkinTime || hotel.checkIn) && (
                   <div className="flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5 text-teal-500" />
+                    <Clock className="w-3.5 h-3.5 text-[#0d8a62]" />
                     <span>Check-in: <strong className="text-foreground">{detail?.checkinTime ?? formatDate(hotel.checkIn)}</strong></span>
                   </div>
                 )}
@@ -484,7 +584,7 @@ export function HotelDetailModal({ hotel, onClose, onSelect }: HotelDetailModalP
                   </div>
                 )}
                 {hotel.boardName && (
-                  <span className="px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-600 dark:text-teal-400 text-xs font-medium">
+                  <span className="px-2 py-0.5 rounded-full bg-[#0d8a62]/10 text-[#0d8a62] dark:text-[#35d49a] text-xs font-medium">
                     {hotel.boardName}
                   </span>
                 )}
@@ -498,7 +598,7 @@ export function HotelDetailModal({ hotel, onClose, onSelect }: HotelDetailModalP
                 <div className="flex flex-wrap gap-2">
                   {highlights.map((h, i) => (
                     <span key={i} className="inline-flex items-center gap-1.5 text-xs font-medium
-                                             px-3 py-1.5 rounded-full bg-teal-500/10 text-teal-600 dark:text-teal-400">
+                                             px-3 py-1.5 rounded-full bg-[#0d8a62]/10 text-[#0d8a62] dark:text-[#35d49a]">
                       <span>{h.emoji}</span>
                       <span>{h.label}</span>
                     </span>
@@ -518,8 +618,8 @@ export function HotelDetailModal({ hotel, onClose, onSelect }: HotelDetailModalP
                     return (
                       <div key={i} className="flex items-center gap-2 text-sm text-muted-foreground">
                         {Icon
-                          ? <Icon className="w-4 h-4 flex-shrink-0 text-teal-500" />
-                          : <div className="w-4 h-4 flex-shrink-0 rounded-full bg-teal-500/20" />
+                          ? <Icon className="w-4 h-4 flex-shrink-0 text-[#0d8a62]" />
+                          : <div className="w-4 h-4 flex-shrink-0 rounded-full bg-[#0d8a62]/20" />
                         }
                         <span className="truncate">{a}</span>
                       </div>
@@ -529,7 +629,7 @@ export function HotelDetailModal({ hotel, onClose, onSelect }: HotelDetailModalP
                 {amenities.length > 12 && (
                   <button
                     onClick={() => setShowAllAmen(v => !v)}
-                    className="mt-2 text-xs text-teal-500 hover:text-teal-400 font-medium"
+                    className="mt-2 text-xs text-[#0d8a62] hover:text-[#35d49a] font-medium"
                   >
                     {showAllAmen ? 'Show less' : `Show all ${amenities.length} amenities`}
                   </button>
@@ -550,7 +650,7 @@ export function HotelDetailModal({ hotel, onClose, onSelect }: HotelDetailModalP
                 {descPlain.length > 300 && (
                   <button
                     onClick={() => setDescExpanded(v => !v)}
-                    className="mt-1 text-xs text-teal-500 hover:text-teal-400 font-medium"
+                    className="mt-1 text-xs text-[#0d8a62] hover:text-[#35d49a] font-medium"
                   >
                     {descExpanded ? 'Read less' : 'Read more'}
                   </button>
@@ -563,27 +663,58 @@ export function HotelDetailModal({ hotel, onClose, onSelect }: HotelDetailModalP
               <div>
                 <h3 className="text-sm font-semibold text-foreground mb-2">Available Rooms</h3>
                 <div className="space-y-2">
-                  {roomTypes.map((rt, i) => {
-                    const cheapestRate = rt.rates?.reduce((min: typeof rt.rates[0] | undefined, r) => {
-                      if (!min || (r.price ?? Infinity) < (min.price ?? Infinity)) return r;
-                      return min;
-                    }, undefined);
-                    const price = cheapestRate?.price;
+                  {roomRateRows.map(({ rt, index: i, rate: cheapestRate, price, perNight }) => {
                     const refund = cheapestRate?.refundable;
                     const isSelected = selectedRoom === rt.offerId;
+                    const imageMatch = roomImageMatch(allImages, rt.name, i);
+                    const priceExplanation = roomPriceExplanation({
+                      room: rt,
+                      rate: cheapestRate,
+                      baselineRate: baselineRoomRow?.rate,
+                      baselineRoom: baselineRoomRow?.rt,
+                      perNight,
+                      baselinePerNight: baselineRoomRow?.perNight,
+                      currency: hotel.currency,
+                    });
 
                     return (
-                      <button
+                      <div
                         key={i}
-                        onClick={() => setSelectedRoom(isSelected ? null : (rt.offerId ?? null))}
                         className={cn(
                           'w-full text-left rounded-xl border p-3 transition-all',
                           isSelected
-                            ? 'border-teal-500 bg-teal-500/5 shadow-sm'
-                            : 'border-border hover:border-teal-500/50 bg-card'
+                            ? 'border-[#0d8a62] bg-[#0d8a62]/5 shadow-sm'
+                            : 'border-border hover:border-[#0d8a62]/50 bg-card'
                         )}
                       >
-                        <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-start gap-3">
+                          <button
+                            type="button"
+                            onClick={() => imageMatch && setLightbox(imageMatch.index)}
+                            className="group relative h-16 w-20 flex-shrink-0 overflow-hidden rounded-lg bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0d8a62]"
+                            aria-label={imageMatch ? `Enlarge ${imageMatch.label.toLowerCase()} for ${rt.name ?? `room ${i + 1}`}` : `Room photo unavailable for ${rt.name ?? `room ${i + 1}`}`}
+                            title={imageMatch ? 'Enlarge room photo' : 'Room photo unavailable'}
+                          >
+                            {imageMatch ? (
+                              <Image
+                                src={imageMatch.image.url}
+                                alt={imageMatch.image.caption ?? `${hotel.name} ${rt.name ?? `room ${i + 1}`}`}
+                                fill
+                                className="object-cover transition group-hover:scale-105"
+                                sizes="80px"
+                              />
+                            ) : (
+                              <BedDouble className="m-auto mt-5 h-5 w-5 text-muted-foreground" />
+                            )}
+                            {imageMatch && (
+                              <span className="absolute inset-0 hidden items-center justify-center bg-black/35 text-white group-hover:flex">
+                                <Maximize2 className="h-4 w-4" />
+                              </span>
+                            )}
+                            <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white">
+                              {roomKind(rt.name)}
+                            </span>
+                          </button>
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-foreground truncate">{rt.name}</p>
                             <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -607,20 +738,40 @@ export function HotelDetailModal({ hotel, onClose, onSelect }: HotelDetailModalP
                                 </span>
                               )}
                             </div>
+                            {imageMatch && (
+                              <p className="mt-1 text-[10px] text-muted-foreground">
+                                {imageMatch.label}. Click photo to enlarge.
+                              </p>
+                            )}
                           </div>
-                          <div className="text-right flex-shrink-0">
+                          <div className="ml-auto text-right flex-shrink-0">
                             {price && (
                               <p className="text-base font-bold text-foreground">
                                 {formatPrice(price / Math.max(1, hotel.roomCount ?? 1))}
                               </p>
                             )}
                             <p className="text-[10px] text-muted-foreground">per night</p>
+                            {priceExplanation && (
+                              <p className={cn(
+                                'mt-1 max-w-[120px] text-[10px] leading-snug',
+                                priceExplanation.startsWith('+') ? 'text-amber-500' : 'text-[#35d49a]'
+                              )}>
+                                {priceExplanation}
+                              </p>
+                            )}
                           </div>
                         </div>
                         {isSelected && (
-                          <p className="text-xs text-teal-500 mt-1.5">✓ Room selected — click "Select Hotel" below to book</p>
+                          <p className="text-xs text-[#0d8a62] mt-1.5">✓ Room selected — click &ldquo;Select Hotel&rdquo; below to book</p>
                         )}
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedRoom(isSelected ? null : (rt.offerId ?? null))}
+                          className="mt-2 text-xs font-semibold text-[#35d49a] hover:text-white"
+                        >
+                          {isSelected ? 'Selected room' : 'Select this room'}
+                        </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -679,7 +830,7 @@ export function HotelDetailModal({ hotel, onClose, onSelect }: HotelDetailModalP
                   href={`https://www.openstreetmap.org/?mlat=${detail.coordinates.lat}&mlon=${detail.coordinates.lon}&zoom=15`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-xs text-teal-500 hover:text-teal-400 mt-1 inline-flex items-center gap-1"
+                  className="text-xs text-[#0d8a62] hover:text-[#35d49a] mt-1 inline-flex items-center gap-1"
                 >
                   <ExternalLink className="w-3 h-3" />
                   Open in maps
@@ -743,7 +894,7 @@ export function HotelDetailModal({ hotel, onClose, onSelect }: HotelDetailModalP
                 onSelect?.(hotel);
                 onClose();
               }}
-              className="flex-shrink-0 px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-semibold text-sm transition-colors"
+              className="flex-shrink-0 px-5 py-2.5 rounded-xl bg-[#0d8a62] hover:bg-[#0d8a62] text-white font-semibold text-sm transition-colors"
             >
               Select Hotel
             </button>

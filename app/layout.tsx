@@ -12,13 +12,13 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'FlexeTravels – AI-Powered Trip Planner',
+  title: 'FlexeTravels – Flights and Hotels',
   description:
-    'Plan your perfect trip with real-time flights, hotels, and personalized itineraries — powered by Claude AI.',
-  keywords: ['travel', 'AI trip planner', 'flights', 'hotels', 'itinerary'],
+    'Search live flights and hotels with transparent pricing and a flat booking fee.',
+  keywords: ['travel', 'flights', 'hotels', 'booking', 'transparent pricing'],
   openGraph: {
-    title: 'FlexeTravels – AI-Powered Trip Planner',
-    description: 'Plan your dream trip with AI.',
+    title: 'FlexeTravels – Flights and Hotels',
+    description: 'Search live flights and hotels with transparent pricing.',
     type: 'website',
   },
 };
@@ -48,7 +48,7 @@ const jsonLd = {
     addressRegion: 'BC',
     addressCountry: 'CA',
   },
-  description: 'AI-powered travel booking platform. Book flights and hotels with a flat $20 service fee.',
+  description: 'Travel booking platform. Book flights and hotels with a flat $20 service fee.',
 };
 
 export default function RootLayout({

@@ -209,6 +209,36 @@ export async function getPaymentIntent(id: string): Promise<{
   return pi;
 }
 
+export async function refundPaymentIntent(paymentIntentId: string, reason = 'requested_by_customer'): Promise<{ id: string; status?: string }> {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  if (!secretKey) throw new Error('Stripe not configured');
+
+  const res = await fetch(`${STRIPE_BASE}/refunds`, {
+    method: 'POST',
+    headers: {
+      Authorization:  `Bearer ${secretKey}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: encode({
+      payment_intent: paymentIntentId,
+      reason,
+      metadata: {
+        service: 'flexetravels',
+        reason:  'booking_failed_before_confirmation',
+      },
+    }),
+    signal: AbortSignal.timeout(15_000),
+  });
+
+  if (!res.ok) {
+    const err = await res.json() as { error?: { message?: string } };
+    throw new Error(`Stripe refund error: ${err.error?.message ?? 'Unknown error'}`);
+  }
+
+  const refund = await res.json() as { id: string; status?: string };
+  return { id: refund.id, status: refund.status };
+}
+
 /**
  * Retrieve a Stripe Checkout session to verify payment status.
  */

@@ -1,5 +1,40 @@
 # FlexeTravels Changelog
 
+## [Unreleased] — 2026-05-24
+
+### Simple Booking Funnel
+- Replaced the primary AI/chat-first landing flow with a direct Flights/Hotels booking funnel.
+- Added first-screen `Flights` and `Hotels` tabs, persistent search state, and session-safe navigation between Flights, Hotels, Support, and checkout.
+- Kept AI/chat routes available as a secondary legacy path, outside the main customer journey.
+
+### Live Search
+- Added `POST /api/search/flights` for validated Duffel-backed flight search.
+- Added `POST /api/search/hotels` for validated LiteAPI-backed hotel search.
+- Added flight and hotel filters that only expose actionable controls for the data returned by providers.
+
+### Flight Integrity And Fare Terms
+- Treat Duffel `offerId` as the selected fare source of truth.
+- Persist selected offer id, fare brand, route, passengers, cabin, baggage/refundability data, displayed fare, currency, and selected timestamp into `sessionStorage('ft_cart')`.
+- Re-verify selected Duffel offers before Stripe payment setup and block silent checkout if price, currency, or availability changes.
+- Added customer fare terms enrichment with Duffel structured conditions first, airline fare-family guidance second, and clear source/confidence labels.
+- Removed raw Duffel offer ids from customer invoice line items.
+
+### Checkout, Tax, And Receipts
+- Stripe PaymentIntent setup now charges verified provider fare plus the flat `$20` service fee plus applicable tax on the FlexeTravels fee.
+- Added Canadian province/territory tax calculation for the service fee and an explicit US `0%` in-app sales tax default until nexus rules are configured.
+- `/api/book-trip` verifies paid PaymentIntent metadata before provider booking.
+- Confirmation email and booking records include selected fare caveats, payment metadata, provider references, PNR/order references when returned, and support/debug context.
+
+### Hotel UX
+- Hotel search appears in the same search module area as flight search when the hotel tab is selected.
+- Room images open in a lightbox, while room selection uses a separate booking control.
+- Room rows show refundable/breakfast indicators and price differences vs the lowest visible room rate.
+- Removed non-actionable hotel filters and the board filter from the main filter surface.
+
+### Documentation
+- Added `docs/BOOKING_FUNNEL.md` with search, cart, fare-term, hotel-room, checkout, tax, receipt, and deployment details.
+- Updated product documentation to describe the current simple booking funnel as the primary live path.
+
 ## [v1.4-stable] — 2026-04-19
 
 ### System Prompt: v1.4 Dynamic Architecture

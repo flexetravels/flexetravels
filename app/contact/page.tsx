@@ -2,7 +2,7 @@
 // Dedicated contact/support page. Phone, email, address, and business hours.
 
 import Link from 'next/link';
-import { Plane, Phone, Mail, MapPin, Clock, MessageSquare, ArrowRight } from 'lucide-react';
+import { Plane, Phone, Mail, MapPin, Clock, Search, ArrowRight } from 'lucide-react';
 import { Nav } from '@/components/Nav';
 
 export const metadata = {
@@ -134,33 +134,41 @@ export default function ContactPage() {
         </div>
       </section>
 
-      {/* ── Start planning CTA ── */}
+      {/* ── Return to search CTA ── */}
       <section className="relative py-20 px-5 sm:px-8 border-t border-white/[0.05]">
         <div className="max-w-3xl mx-auto">
           <div className="bg-gradient-to-br from-teal-500/10 to-cyan-500/10 border border-teal-500/20
                           rounded-3xl p-10 text-center">
             <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-500
                             flex items-center justify-center mx-auto mb-6 shadow-lg shadow-teal-900/40">
-              <MessageSquare className="w-6 h-6 text-white" />
+              <Search className="w-6 h-6 text-white" />
             </div>
             <h2 className="text-2xl sm:text-3xl font-extrabold text-white mb-3">
-              Ready to book your trip?
+              Ready to continue your search?
             </h2>
             <p className="text-white/50 text-base mb-8 max-w-xl mx-auto">
-              Chat with our AI travel concierge — it searches flights and hotels in real time
-              and books everything in one conversation.
+              Return to the same flight or hotel search session, adjust filters, or refresh live rates before checkout.
             </p>
-            <Link
-              href="/chat"
-              className="inline-flex items-center gap-2 px-7 py-3.5 rounded-full font-bold text-sm
-                         bg-gradient-to-r from-teal-500 to-cyan-500 text-white
-                         shadow-lg shadow-teal-900/30 hover:shadow-teal-900/50
-                         hover:from-teal-400 hover:to-cyan-400
-                         transition-all duration-200 hover:-translate-y-px"
-            >
-              Start Planning
-              <ArrowRight className="w-4 h-4" />
-            </Link>
+            <div className="flex flex-col justify-center gap-3 sm:flex-row">
+              <Link
+                href="/?tab=flights#search"
+                className="inline-flex items-center justify-center gap-2 px-7 py-3.5 rounded-full font-bold text-sm
+                           bg-[#0d8a62] text-white shadow-lg shadow-teal-900/30 hover:bg-[#0a6e50]
+                           transition-all duration-200 hover:-translate-y-px"
+              >
+                Flights
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+              <Link
+                href="/?tab=hotels#search"
+                className="inline-flex items-center justify-center gap-2 px-7 py-3.5 rounded-full font-bold text-sm
+                           border border-white/15 text-white hover:bg-white/[0.06]
+                           transition-all duration-200 hover:-translate-y-px"
+              >
+                Hotels
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+            </div>
           </div>
         </div>
       </section>
@@ -181,7 +189,8 @@ export default function ContactPage() {
               { href: '/how-it-works', label: 'How It Works' },
               { href: '/about',        label: 'About'        },
               { href: '/contact',      label: 'Contact'      },
-              { href: '/chat',         label: 'Start Planning' },
+              { href: '/?tab=flights#search', label: 'Flights' },
+              { href: '/?tab=hotels#search',  label: 'Hotels' },
             ].map(l => (
               <Link key={l.href} href={l.href} className="text-white/30 hover:text-white/70 text-xs transition-colors">
                 {l.label}

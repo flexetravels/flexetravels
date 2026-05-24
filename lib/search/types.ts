@@ -1,4 +1,6 @@
 // ─── Unified Search Provider Interface ────────────────────────────────────────
+
+import type { CustomerFareTerms } from '@/lib/fare-conditions';
 // All booking engines (Duffel, Amadeus, future providers) implement this contract.
 
 export interface FlightSearchParams {
@@ -122,6 +124,11 @@ export interface NormalizedFlight {
   childrenAges?: number[];   // ages of children (2-11) searched for
   infantCount?: number;      // number of lap infants (0-1)
   fareVariants?: FareVariant[]; // Up to 3 fare tiers for the same physical flight
+  fareBrandName?: string;       // Selected fare brand copied into checkout cart
+  fareTermsSummary?: string;    // Customer-facing fare summary shown at selection
+  fareTermsCaveats?: string[];
+  fareTermsConfidence?: string;
+  fareTermsDetails?: CustomerFareTerms;
   childFareNote?: string;    // Set when airline doesn't price children in search API;
                              // adult fare shown — child seat confirmed at booking
   // ── Round-trip return leg ───────────────────────────────────────────────

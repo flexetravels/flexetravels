@@ -1,11 +1,14 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
+const path = require('path');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Standalone output — minimal Docker image for Railway (~50MB vs ~500MB)
   output: 'standalone',
-  // Keep tracing inside this app. Pointing at the conductor/workspace parent can
-  // make standalone builds chase files outside the repo and fail during trace
-  // finalization.
-  outputFileTracingRoot: __dirname,
+  // Fix workspace root detection in git worktrees (Railway monorepo support)
+  // NOTE: Comment this line out for local builds — it causes the build to hang
+  // by scanning the entire parent directory tree. Only needed on Railway.
+  outputFileTracingRoot: path.join(__dirname, '../../..'),
 
   // Skip ESLint during production builds — lint is enforced in CI/pre-commit instead
   eslint: { ignoreDuringBuilds: true },
@@ -59,19 +62,16 @@ const nextConfig = {
           { key: 'X-XSS-Protection', value: '1; mode=block' },
           // HSTS — force HTTPS for 1 year, including subdomains
           { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains; preload' },
-          // Content Security Policy — scoped to allow Stripe Elements, LiteAPI payment SDK, and Mapbox GL JS
+          // Content Security Policy — scoped to allow Stripe Elements and LiteAPI payment SDK
           {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://payment-wrapper.liteapi.travel https://api.mapbox.com",
-              // Mapbox GL JS uses a tile-decoding worker created from a Blob URL
-              "worker-src 'self' blob:",
-              "style-src 'self' 'unsafe-inline' https://api.mapbox.com",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://payment-wrapper.liteapi.travel",
+              "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https: blob:",
-              "font-src 'self' data: https://api.mapbox.com",
-              // Mapbox runtime endpoints: styles, tiles, fonts, sprites, telemetry
-              "connect-src 'self' https://api.stripe.com https://*.supabase.co https://payment-wrapper.liteapi.travel https://api.mapbox.com https://events.mapbox.com",
+              "font-src 'self' data:",
+              "connect-src 'self' https://api.stripe.com https://*.supabase.co https://payment-wrapper.liteapi.travel",
               "frame-src https://js.stripe.com https://hooks.stripe.com https://payment-wrapper.liteapi.travel",
               "object-src 'none'",
               "base-uri 'self'",
@@ -80,10 +80,17 @@ const nextConfig = {
         ],
       },
       {
-        // Static assets — immutable cache (1 year, content-hashed by Next.js)
+        // Static assets — immutable in production, but never in dev.
+        // Next dev chunks are stable names like app/page.js, so immutable
+        // caching can make Chrome hydrate stale UI after source edits.
         source: '/_next/static/(.*)',
         headers: [
-          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+          {
+            key: 'Cache-Control',
+            value: process.env.NODE_ENV === 'production'
+              ? 'public, max-age=31536000, immutable'
+              : 'no-store, max-age=0, must-revalidate',
+          },
         ],
       },
       {

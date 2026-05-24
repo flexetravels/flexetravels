@@ -8,7 +8,6 @@ import type {
   ExperienceSearchParams, NormalizedExperience,
 } from './types';
 import { DuffelProvider } from './duffel';
-import { AmadeusProvider } from './amadeus';
 import { LiteApiProvider } from './liteapi';
 import { OpenTripMapProvider } from './opentripmap';
 import { FoursquareProvider } from './foursquare';
@@ -184,15 +183,27 @@ export async function aggregateFlights(params: FlightSearchParams): Promise<{
     return { flights: [], sources: [], errors: ['No flight providers configured'], latencyMs: 0 };
   }
 
-  // ── Hard 15 s wall-clock cap — matches Duffel's own 15s timeout in duffel.ts.
-  // Live API responses can take up to 12-15s; 15s gives full opportunity to return results.
-  // Providers still in-flight at 15s resolve as empty and are dropped silently.
-  const FLIGHT_WALL_CLOCK_MS = 15_000;
+  // Live Duffel searches can occasionally run past 15s for international routes,
+  // especially when cabin and child fare data are involved.
+  const FLIGHT_WALL_CLOCK_MS = 30_000;
 
   const withCap = (p: Promise<SearchResult<NormalizedFlight>>, provider: string): Promise<SearchResult<NormalizedFlight>> =>
     new Promise(resolve => {
-      const timer = setTimeout(() => resolve({ provider: '__timeout__', results: [], latencyMs: FLIGHT_WALL_CLOCK_MS }), FLIGHT_WALL_CLOCK_MS);
-      p.then(v => { clearTimeout(timer); resolve(v); }).catch(() => { clearTimeout(timer); resolve({ provider, results: [], latencyMs: FLIGHT_WALL_CLOCK_MS, error: 'timed out' }); });
+      const timer = setTimeout(() => resolve({
+        provider,
+        results: [],
+        latencyMs: FLIGHT_WALL_CLOCK_MS,
+        error: 'live fare search took longer than 30 seconds. Please retry, or try nearby dates if the provider is slow.',
+      }), FLIGHT_WALL_CLOCK_MS);
+      p.then(v => { clearTimeout(timer); resolve(v); }).catch(err => {
+        clearTimeout(timer);
+        resolve({
+          provider,
+          results: [],
+          latencyMs: Date.now() - start,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
     });
 
   const results = await Promise.all(

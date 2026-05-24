@@ -1,147 +1,129 @@
-// ─── /api/search/flights ─────────────────────────────────────────────────────
-// Direct flight search for the Trip Canvas. Wraps lib/search/aggregator.ts,
-// returns the same NormalizedFlight shape the chat tool returns. Used when
-// the user clicks an empty flight slot in the canvas.
-//
-// Gated by middleware (NEXT_PUBLIC_TRIP_CANVAS or ft_canvas cookie), since
-// it's only consumed by /trip/* pages.
-
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { aggregateFlights } from '@/lib/search/aggregator';
-import { db, DB_AVAILABLE } from '@/lib/db/client';
+import { aggregateFlights, NA_AIRPORTS } from '@/lib/search/aggregator';
+import { getClientIp, rateLimit } from '@/lib/rate-limit';
 
-export const runtime  = 'nodejs';
-export const dynamic  = 'force-dynamic';
-export const maxDuration = 30;
+const AIRPORTS: Record<string, string> = {
+  ...NA_AIRPORTS,
+  cancun: 'CUN',
+  'punta cana': 'PUJ',
+  london: 'LHR',
+  paris: 'CDG',
+  rome: 'FCO',
+  lisbon: 'LIS',
+  barcelona: 'BCN',
+  dubai: 'DXB',
+  tokyo: 'NRT',
+  bali: 'DPS',
+  singapore: 'SIN',
+  bangkok: 'BKK',
+  amsterdam: 'AMS',
+  frankfurt: 'FRA',
+  istanbul: 'IST',
+  doha: 'DOH',
+};
 
-const IATA_RE = /^[A-Z]{3}$/;
+const DateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
-const Schema = z.object({
-  sessionId:     z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/).optional(),
-  tripCanvasId:  z.string().uuid().optional(),
-  legId:         z.string().min(1).max(80).optional(),
-  searchIntent:  z.string().min(1).max(200).optional(),
-  origin:        z.string().regex(IATA_RE),
-  destination:   z.string().regex(IATA_RE),
-  departureDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  departureDates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).min(1).max(14).optional(),
-  returnDate:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  adults:        z.number().int().min(1).max(9).default(1),
-  childrenAges:  z.array(z.number().int().min(0).max(17)).max(8).optional(),
-  infants:       z.number().int().min(0).max(4).optional(),
-  cabinClass:    z.enum(['economy', 'premium_economy', 'business', 'first']).default('economy'),
-  maxConnections: z.number().int().min(0).max(3).optional(),
-  avoidAirlines:  z.array(z.string()).max(20).optional(),
-  viaRegions:     z.array(z.enum(['pacific', 'europe', 'middleeast'])).max(3).optional(),
-  maxPrice:       z.number().positive().optional(),
-  maxDurationMinutes: z.number().int().positive().optional(),
-  departAfter:    z.string().regex(/^\d{2}:\d{2}$/).optional(),
-  departBefore:   z.string().regex(/^\d{2}:\d{2}$/).optional(),
-  transitProfile: z.object({
-    passportCountry: z.string().regex(/^[A-Z]{2}$/).optional(),
-    visaCountries: z.array(z.string().regex(/^[A-Z]{2}$|^EU$|^SCHENGEN$/)).max(30).optional(),
-    mode: z.enum(['filter', 'warn']).optional(),
-  }).optional(),
+const schema = z.object({
+  origin: z.string().min(2).max(80),
+  destination: z.string().min(2).max(80),
+  departureDate: DateString,
+  returnDate: DateString.optional(),
+  tripType: z.enum(['round_trip', 'one_way']).default('round_trip'),
+  adults: z.number().int().min(1).max(9).default(1),
+  childrenAges: z.array(z.number().int().min(0).max(17)).max(8).default([]),
+  cabinClass: z.enum(['economy', 'premium_economy', 'business', 'first']).default('economy'),
+  maxConnections: z.number().int().min(0).max(2).optional(),
 });
 
-export async function POST(req: NextRequest) {
+function resolveAirport(value: string): string | null {
+  const trimmed = value.trim();
+  const upper = trimmed.toUpperCase();
+  if (/^[A-Z]{3}$/.test(upper)) return upper;
+  return AIRPORTS[trimmed.toLowerCase()] ?? null;
+}
+
+function isFutureDate(value: string): boolean {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const date = new Date(`${value}T00:00:00`);
+  return !Number.isNaN(date.getTime()) && date > today;
+}
+
+export async function POST(req: Request) {
+  const ip = getClientIp(req);
+  if (!rateLimit(`ip:search-flights:${ip}`, 12, 60_000)) {
+    return NextResponse.json({ error: 'Too many flight searches. Please try again shortly.' }, { status: 429 });
+  }
+
   let body: unknown;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const parsed = Schema.safeParse(body);
+  const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid request', details: parsed.error.issues }, { status: 400 });
+    return NextResponse.json({ error: 'Invalid flight search', details: parsed.error.flatten() }, { status: 400 });
   }
 
-  try {
-    const dates = parsed.data.departureDates && parsed.data.departureDates.length > 0
-      ? Array.from(new Set(parsed.data.departureDates)).slice(0, 14)
-      : [parsed.data.departureDate];
-
-    const { departureDates: _departureDates, ...baseSearch } = parsed.data;
-    const results = await Promise.allSettled(dates.map(departureDate => aggregateFlights({
-      ...baseSearch,
-      departureDate,
-    })));
-
-    const flights = results
-      .flatMap(r => r.status === 'fulfilled' ? r.value.flights : [])
-      .sort((a, b) => {
-        const priceDelta = a.price - b.price;
-        if (Math.abs(priceDelta) > 50) return priceDelta;
-        return (a.durationMinutes ?? Number.MAX_SAFE_INTEGER) - (b.durationMinutes ?? Number.MAX_SAFE_INTEGER);
-      });
-    const sources = Array.from(new Set(results.flatMap(r => r.status === 'fulfilled' ? r.value.sources : [])));
-    const errors = results.flatMap(r => r.status === 'fulfilled'
-      ? r.value.errors
-      : [r.reason instanceof Error ? r.reason.message : 'Search failed']
-    );
-    const latencyMs = results.reduce((sum, r) => sum + (r.status === 'fulfilled' ? r.value.latencyMs : 0), 0);
-    if (DB_AVAILABLE && parsed.data.sessionId) {
-      db.searchLogs.create({
-        session_id:       parsed.data.sessionId,
-        trip_canvas_id:   parsed.data.tripCanvasId ?? null,
-        leg_id:           parsed.data.legId ?? null,
-        search_type:      'flight',
-        origin:           parsed.data.origin,
-        destination:      parsed.data.destination,
-        depart_date:      parsed.data.departureDate,
-        return_date:      parsed.data.returnDate ?? null,
-        adults:           parsed.data.adults,
-        children:         (parsed.data.childrenAges?.length ?? 0) + (parsed.data.infants ?? 0),
-        cabin_class:      parsed.data.cabinClass,
-        child_ages:       parsed.data.childrenAges ?? [],
-        flexible_dates:   dates,
-        filters: {
-          maxConnections: parsed.data.maxConnections,
-          avoidAirlines: parsed.data.avoidAirlines,
-          viaRegions: parsed.data.viaRegions,
-          maxPrice: parsed.data.maxPrice,
-          maxDurationMinutes: parsed.data.maxDurationMinutes,
-          departAfter: parsed.data.departAfter,
-          departBefore: parsed.data.departBefore,
-          transitProfile: parsed.data.transitProfile,
-        },
-        request_payload:  {
-          origin: parsed.data.origin,
-          destination: parsed.data.destination,
-          departureDate: parsed.data.departureDate,
-          departureDates: dates,
-          returnDate: parsed.data.returnDate,
-          adults: parsed.data.adults,
-          childrenAges: parsed.data.childrenAges,
-          infants: parsed.data.infants,
-          cabinClass: parsed.data.cabinClass,
-        },
-        provider_errors:  errors,
-        result_count:     flights.length,
-        provider_sources: sources,
-        latency_ms:       latencyMs,
-        search_intent:    parsed.data.searchIntent ?? null,
-      }).catch(() => {});
-    }
-    // Surface sandbox mode so the client can show a "test data" badge when
-    // the Duffel key is the sandbox token. Avoids users mistaking sandbox
-    // mock prices/airlines for real availability.
-    const sandbox = (process.env.DUFFEL_ACCESS_TOKEN ?? '').startsWith('duffel_test_');
-    return NextResponse.json({
-      flights:   flights.slice(0, 30),  // cap response size; client sorts/filters from here
-      sources,
-      errors,
-      latencyMs,
-      searchedDates: dates,
-      sandbox,
-    });
-  } catch (err) {
-    console.error('[/api/search/flights] error:', err);
+  const origin = resolveAirport(parsed.data.origin);
+  const destination = resolveAirport(parsed.data.destination);
+  if (!origin || !destination) {
     return NextResponse.json(
-      { error: 'Search failed', message: err instanceof Error ? err.message : 'unknown' },
-      { status: 502 },
+      { error: 'Please enter a valid airport code or a supported city name.' },
+      { status: 400 },
     );
   }
+
+  if (origin === destination) {
+    return NextResponse.json({ error: 'Origin and destination must be different.' }, { status: 400 });
+  }
+
+  if (!isFutureDate(parsed.data.departureDate)) {
+    return NextResponse.json({ error: 'Departure date must be in the future.' }, { status: 400 });
+  }
+
+  const returnDate = parsed.data.tripType === 'round_trip' ? parsed.data.returnDate : undefined;
+  if (parsed.data.tripType === 'round_trip' && !returnDate) {
+    return NextResponse.json({ error: 'Return date is required for round trips.' }, { status: 400 });
+  }
+  if (returnDate && new Date(returnDate) <= new Date(parsed.data.departureDate)) {
+    return NextResponse.json({ error: 'Return date must be after departure date.' }, { status: 400 });
+  }
+
+  const childrenAges = parsed.data.childrenAges;
+  const infants = childrenAges.filter(age => age < 2).length;
+  const seatedChildren = childrenAges.filter(age => age >= 2 && age < 12);
+  const teenAdults = childrenAges.filter(age => age >= 12).length;
+
+  const result = await aggregateFlights({
+    origin,
+    destination,
+    departureDate: parsed.data.departureDate,
+    returnDate,
+    adults: parsed.data.adults + teenAdults,
+    childrenAges: seatedChildren,
+    infants,
+    cabinClass: parsed.data.cabinClass,
+    maxConnections: parsed.data.maxConnections,
+  });
+
+  return NextResponse.json({
+    flights: result.flights,
+    sources: result.sources,
+    errors: result.errors,
+    latencyMs: result.latencyMs,
+    query: {
+      origin,
+      destination,
+      departureDate: parsed.data.departureDate,
+      returnDate,
+      adults: parsed.data.adults,
+      childrenAges,
+      cabinClass: parsed.data.cabinClass,
+    },
+  });
 }

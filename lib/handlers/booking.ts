@@ -129,6 +129,7 @@ async function bookDuffelFlight(
   guestNationality?: string,   // ISO alpha-2, used as nationality_country_code in documents
 ): Promise<{
   success: boolean;
+  orderId?: string;
   bookingRef?: string;
   totalAmount?: string;
   currency?: string;
@@ -407,9 +408,9 @@ async function bookDuffelFlight(
             signal: AbortSignal.timeout(30_000),
           });
           if (retryRes.ok) {
-            const retryOrder = await retryRes.json() as { data?: { booking_reference?: string; total_amount?: string; total_currency?: string } };
+            const retryOrder = await retryRes.json() as { data?: { id?: string; booking_reference?: string; total_amount?: string; total_currency?: string } };
             console.log('[booking-agent] retry with fresh offer succeeded:', retryOrder.data?.booking_reference);
-            return { success: true, bookingRef: retryOrder.data?.booking_reference, totalAmount: retryOrder.data?.total_amount ?? freshAmount, currency: retryOrder.data?.total_currency ?? freshCurrency, conditions };
+            return { success: true, orderId: retryOrder.data?.id, bookingRef: retryOrder.data?.booking_reference, totalAmount: retryOrder.data?.total_amount ?? freshAmount, currency: retryOrder.data?.total_currency ?? freshCurrency, conditions };
           }
           const retryTxt = await retryRes.text().catch(() => '');
           console.error('[booking-agent] retry also failed:', retryRes.status, retryTxt.slice(0, 200));
@@ -421,11 +422,12 @@ async function bookDuffelFlight(
   }
 
   const order = await orderRes.json() as {
-    data?: { booking_reference?: string; total_amount?: string; total_currency?: string };
+    data?: { id?: string; booking_reference?: string; total_amount?: string; total_currency?: string };
   };
 
   return {
     success:     true,
+    orderId:     order.data?.id,
     bookingRef:  order.data?.booking_reference,
     totalAmount: order.data?.total_amount ?? totalAmount,
     currency:    order.data?.total_currency ?? totalCurrency,
@@ -441,6 +443,10 @@ export const bookingHandler = {
 
     const lead = req.passengers[0];
     let flightRef:            string | undefined;
+    let flightOrderId:        string | undefined;
+    let flightAmountCents:    number | undefined;
+    let flightCurrency:       string | undefined;
+    let flightConditions:     Record<string, unknown> | undefined;
     let flightError:          string | undefined;
     let hotelRef:             string | undefined;
     let hotelError:           string | undefined;
@@ -486,6 +492,10 @@ export const bookingHandler = {
           });
           if (result.success) {
             flightRef = result.bookingRef;
+            flightOrderId = result.orderId;
+            flightAmountCents = result.totalAmount ? Math.round(parseFloat(result.totalAmount) * 100) : undefined;
+            flightCurrency = result.currency;
+            flightConditions = result.conditions as unknown as Record<string, unknown> | undefined;
             // Score the flexibility from the conditions fetched during offer lookup
             if (result.conditions) {
               const fareCents = Math.round(parseFloat(result.totalAmount ?? '0') * 100);
@@ -600,6 +610,10 @@ export const bookingHandler = {
               success:              true,
               tripId:               req.tripId,
               flightRef,
+              flightOrderId,
+              flightAmountCents,
+              flightCurrency,
+              flightConditions,
               flightError,
               hotelName:            req.hotelName,
               requiresHotelPayment: true,
@@ -676,6 +690,10 @@ export const bookingHandler = {
         success:          true,
         tripId:           req.tripId,
         flightRef,
+        flightOrderId,
+        flightAmountCents,
+        flightCurrency,
+        flightConditions,
         hotelRef,
         hotelName:            req.hotelName,
         hotelConfirmedTotal,

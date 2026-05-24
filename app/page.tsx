@@ -1,984 +1,1476 @@
 'use client';
 
-// ─── FlexeTravels — Premium Landing Page ─────────────────────────────────────
-// Verified bookable destinations only (Duffel flights + LiteAPI hotels confirmed).
-// Discover feed (trending events/experiences) loaded from /api/discover daily.
-
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
 import Link from 'next/link';
 import {
-  Plane, Sparkles, ArrowRight, MapPin, Calendar,
-  RefreshCw, Music2, Compass, CheckCircle2,
-  Zap, CreditCard, Shield, Users, TrendingUp,
-  ChevronRight, Star, Clock, Navigation,
+  ArrowRight, Building2, CalendarDays, CheckCircle2, CreditCard, Filter, Hotel,
+  Loader2, Lock, Minus, Plane, Plus, Search, ShieldCheck, SlidersHorizontal, X,
 } from 'lucide-react';
-import { Nav } from '@/components/Nav';
-import type { DiscoverCard, DiscoverData } from './api/discover/route';
+import { FlightCard } from '@/components/FlightCard';
+import { HotelCard } from '@/components/HotelCard';
+import { HotelDetailModal } from '@/components/HotelDetailModal';
+import { createBookingCart, parseTravelerAges } from '@/lib/booking-funnel';
+import { cn, formatPrice } from '@/lib/utils';
+import type { FlightResult, HotelResult } from '@/lib/types';
 
-// Trip-canvas v2 routes the planning UI to /trip when the flag is on. The
-// middleware also redirects /chat → /trip in that case, so this is a perf
-// optimization (no client-side redirect hop) more than a behavioural change.
-const PLAN_HREF = process.env.NEXT_PUBLIC_TRIP_CANVAS === 'true' ? '/trip' : '/chat';
+type ActiveTab = 'flights' | 'hotels';
+type TripType = 'round_trip' | 'one_way';
+type FlightSort = 'price' | 'duration' | 'departure' | 'stops';
+type StopFilter = 'all' | '0' | '1' | '2+';
+type DepartWindow = 'all' | 'morning' | 'afternoon' | 'evening';
+type HotelSort = 'price' | 'rating' | 'stars' | 'reviews' | 'distance';
 
-// ─── Geo recommendations type ────────────────────────────────────────────────
-interface GeoPackage {
-  id: string; destination: string; country: string; tag: string; tagColor: string;
-  flightHrs: string; bestFor: string; img: string; teaser: string; prompt: string;
+interface FlightSearchResponse {
+  flights: FlightResult[];
+  sources: string[];
+  errors: string[];
+  latencyMs: number;
+  error?: string;
 }
-interface GeoData {
-  city: string; country: string; iata: string; season: string;
-  packages: GeoPackage[];
+
+interface HotelSearchResponse {
+  hotels: HotelResult[];
+  sources: string[];
+  errors: string[];
+  latencyMs: number;
+  noResultsMessage?: string;
+  error?: string;
 }
 
-// ─── Badge colour map ─────────────────────────────────────────────────────────
-const BADGE_COLORS: Record<string, string> = {
-  Trending: 'bg-rose-500', Hot: 'bg-orange-500', Popular: 'bg-violet-500',
-  Concert: 'bg-pink-500', Festival: 'bg-yellow-500', Sports: 'bg-blue-500',
-  F1: 'bg-red-600', 'Grand Prix': 'bg-red-600', Adventure: 'bg-emerald-500',
-  Wellness: 'bg-teal-500', Food: 'bg-amber-500', Culture: 'bg-indigo-500',
-  Wildlife: 'bg-lime-600', Romance: 'bg-pink-400',
-};
-const badgeCls = (badge?: string) => BADGE_COLORS[badge ?? ''] ?? 'bg-teal-500';
+const SEARCH_SESSION_KEY = 'ft_search_session';
 
-// ─── Verified end-to-end bookable destinations ────────────────────────────────
-// Each confirmed: Duffel flights from major CA airports + LiteAPI hotel inventory.
-const VERIFIED = [
-  {
-    city: 'Cancún', country: 'Mexico', tag: 'Beach & Sun', tagColor: 'bg-sky-500',
-    flightFrom: 'Toronto', flightHrs: '4h 30m',
-    bestFor: 'Beaches · Resorts · Nightlife',
-    img: 'https://images.unsplash.com/photo-1552074284-5e88ef1aef18?w=600&h=800&fit=crop&q=85',
-    prompt: 'Plan a 7 day beach vacation to Cancún Mexico for 2 adults flying from Toronto. I want a great resort with pool access.',
-  },
-  {
-    city: 'New York City', country: 'United States', tag: 'City Break', tagColor: 'bg-violet-500',
-    flightFrom: 'Toronto', flightHrs: '1h 30m',
-    bestFor: 'Culture · Food · Shopping',
-    img: 'https://images.unsplash.com/photo-1534430480872-3498386e7856?w=600&h=800&fit=crop&q=85',
-    prompt: 'Plan a 5 day New York City trip for 2 adults flying from Toronto. Mix of culture, great restaurants, and iconic sights.',
-  },
-  {
-    city: 'Punta Cana', country: 'Dominican Republic', tag: 'All-Inclusive', tagColor: 'bg-amber-500',
-    flightFrom: 'Toronto', flightHrs: '4h 45m',
-    bestFor: 'All-Inclusive · Beach · Couples',
-    img: 'https://images.unsplash.com/photo-1584553421349-3557471bed79?w=600&h=800&fit=crop&q=85',
-    prompt: 'Plan a 7 day all-inclusive beach vacation to Punta Cana Dominican Republic for 2 adults flying from Toronto. We want a luxury beach resort.',
-  },
-  {
-    city: 'Dubai', country: 'UAE', tag: 'Luxury', tagColor: 'bg-yellow-500',
-    flightFrom: 'Toronto', flightHrs: '13h 30m',
-    bestFor: 'Luxury · Shopping · Architecture',
-    img: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=600&h=800&fit=crop&q=85',
-    prompt: 'Plan a 6 day luxury trip to Dubai UAE for 2 adults flying from Toronto. We want a 5-star hotel, iconic experiences, and great food.',
-  },
-  {
-    city: 'Barcelona', country: 'Spain', tag: 'Culture', tagColor: 'bg-indigo-500',
-    flightFrom: 'Montreal', flightHrs: '7h 45m',
-    bestFor: 'Architecture · Food · Beaches',
-    img: 'https://images.unsplash.com/photo-1539037116277-4db20889f2d4?w=600&h=800&fit=crop&q=85',
-    prompt: 'Plan a 7 day food and culture trip to Barcelona Spain for 2 adults flying from Montreal. We love architecture, tapas, and beach walks.',
-  },
-  {
-    city: 'Tokyo', country: 'Japan', tag: 'Culture', tagColor: 'bg-rose-500',
-    flightFrom: 'Vancouver', flightHrs: '10h',
-    bestFor: 'Culture · Food · Temples',
-    img: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=600&h=800&fit=crop&q=85',
-    prompt: 'Plan a 10 day cultural trip to Tokyo Japan for 2 adults flying from Vancouver. We want to experience temples, street food, and city life.',
-  },
-  {
-    city: 'Bali', country: 'Indonesia', tag: 'Wellness', tagColor: 'bg-teal-500',
-    flightFrom: 'Toronto', flightHrs: '~20h',
-    bestFor: 'Wellness · Temples · Rice Fields',
-    img: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=600&h=800&fit=crop&q=85',
-    prompt: 'Plan a 10 day wellness and relaxation trip to Bali Indonesia for 2 adults departing Toronto. We want spa days, yoga, rice terraces, and beautiful villas.',
-  },
-  {
-    city: 'Paris', country: 'France', tag: 'Romance', tagColor: 'bg-pink-500',
-    flightFrom: 'Toronto', flightHrs: '8h',
-    bestFor: 'Romance · Art · Cuisine',
-    img: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=600&h=800&fit=crop&q=85',
-    prompt: 'Plan a 7 day romantic trip to Paris France for 2 adults flying from Toronto. We want a boutique hotel near the Eiffel Tower, great food, and romantic experiences.',
-  },
-  {
-    city: 'Miami', country: 'United States', tag: 'Beach', tagColor: 'bg-orange-500',
-    flightFrom: 'Toronto', flightHrs: '3h 15m',
-    bestFor: 'Beach · Art Deco · Nightlife',
-    img: 'https://images.unsplash.com/photo-1533106497176-45ae19e68ba2?w=600&h=800&fit=crop&q=85',
-    prompt: 'Plan a 5 day Miami beach trip for 2 adults flying from Toronto. We want a great South Beach hotel, pool time, and the best restaurants.',
-  },
-  {
-    city: 'London', country: 'United Kingdom', tag: 'City Break', tagColor: 'bg-blue-500',
-    flightFrom: 'Toronto', flightHrs: '7h 30m',
-    bestFor: 'History · Theatre · Pubs',
-    img: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=600&h=800&fit=crop&q=85',
-    prompt: 'Plan a 6 day trip to London UK for 2 adults flying from Toronto. We love history, world-class museums, West End shows, and great pubs.',
-  },
-  {
-    city: 'Rome', country: 'Italy', tag: 'History', tagColor: 'bg-amber-600',
-    flightFrom: 'Toronto', flightHrs: '9h 30m',
-    bestFor: 'History · Food · Art',
-    img: 'https://images.unsplash.com/photo-1552832230-c0197dd311b5?w=600&h=800&fit=crop&q=85',
-    prompt: 'Plan a 7 day food and history trip to Rome Italy for 2 adults flying from Toronto. We want incredible pasta, ancient ruins, and a charming hotel.',
-  },
-  {
-    city: 'Lisbon', country: 'Portugal', tag: 'Trending', tagColor: 'bg-emerald-500',
-    flightFrom: 'Montreal', flightHrs: '7h 15m',
-    bestFor: 'Tiles · Seafood · Trams',
-    img: 'https://images.unsplash.com/photo-1585208798174-6cedd86e019a?w=600&h=800&fit=crop&q=85',
-    prompt: 'Plan a 7 day trip to Lisbon Portugal for 2 adults flying from Montreal. We want colourful neighbourhoods, seafood, fado music, and a boutique hotel.',
-  },
+interface SearchSessionSnapshot {
+  activeTab?: ActiveTab;
+  flightForm?: {
+    tripType: TripType;
+    origin: string;
+    destination: string;
+    departureDate: string;
+    returnDate: string;
+    adults: number;
+    children: number;
+    childAgesText: string;
+    cabinClass: (typeof cabinOptions)[number]['value'];
+  };
+  hotelForm?: {
+    destination: string;
+    checkIn: string;
+    checkOut: string;
+    adults: number;
+    children: number;
+    childAgesText: string;
+  };
+  flights?: FlightResult[];
+  hotels?: HotelResult[];
+  flightMeta?: { sources: string[]; latencyMs: number; errors: string[] } | null;
+  hotelMeta?: { sources: string[]; latencyMs: number; errors: string[]; noResultsMessage?: string } | null;
+  selectedFlight?: FlightResult | null;
+  selectedHotel?: HotelResult | null;
+  filters?: {
+    flightSort: FlightSort;
+    stopFilter: StopFilter;
+    airlineFilter: string;
+    departWindow: DepartWindow;
+    maxFlightPrice: string;
+    refundableOnly: boolean;
+    baggageOnly: boolean;
+    hotelSort: HotelSort;
+    starFilter: string;
+    maxHotelPrice: string;
+    refundableHotelOnly: boolean;
+    minHotelRating: string;
+    minHotelReviews: string;
+    hotelDistance: string;
+    petFriendlyHotelOnly: boolean;
+    poolHotelOnly: boolean;
+    parkingHotelOnly: boolean;
+    familyHotelOnly: boolean;
+  };
+}
+
+const cabinOptions = [
+  { value: 'economy', label: 'Economy' },
+  { value: 'premium_economy', label: 'Premium economy' },
+  { value: 'business', label: 'Business' },
+  { value: 'first', label: 'First' },
 ] as const;
 
-// ─── Discover card components ─────────────────────────────────────────────────
-function WideCard({ card, onClick }: { card: DiscoverCard; onClick: () => void }) {
-  return (
-    <button type="button" onClick={onClick}
-      className="group relative rounded-2xl overflow-hidden cursor-pointer bg-black w-full aspect-video
-                 shadow-[0_4px_24px_rgba(0,0,0,0.2)] transition-all duration-500 ease-out
-                 hover:-translate-y-1.5 hover:shadow-[0_20px_48px_rgba(0,0,0,0.4)]
-                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400">
-      <Image src={card.image} alt={card.title} fill unoptimized
-        sizes="(max-width:640px) 100vw,(max-width:1024px) 50vw,25vw"
-        className="object-cover transition-transform duration-700 group-hover:scale-105" />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/88 via-black/30 to-transparent" />
-      {card.badge && (
-        <span className={`absolute top-3 left-3 ${badgeCls(card.badge)} text-white
-                         text-[10px] font-bold px-2.5 py-1 rounded-full shadow-md`}>
-          {card.badge}
-        </span>
-      )}
-      <div className="absolute bottom-0 left-0 right-0 p-4">
-        <p className="flex items-center gap-1 text-white/55 text-[10px] mb-1">
-          <MapPin className="w-2.5 h-2.5" />{card.destination}, {card.country}
-        </p>
-        <h3 className="text-white font-bold text-sm leading-snug line-clamp-1">{card.title}</h3>
-        <div className="mt-2 flex items-center gap-1 text-teal-300 text-[10px] font-semibold
-                        opacity-0 group-hover:opacity-100 translate-y-1 group-hover:translate-y-0
-                        transition-all duration-300">
-          Plan trip <ArrowRight className="w-2.5 h-2.5" />
-        </div>
-      </div>
-    </button>
+function dateOffset(days: number) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function durationMinutes(duration?: string) {
+  if (!duration) return 999_999;
+  const h = duration.match(/(\d+)h/)?.[1] ?? '0';
+  const m = duration.match(/(\d+)m/)?.[1] ?? '0';
+  return Number.parseInt(h, 10) * 60 + Number.parseInt(m, 10);
+}
+
+function hourOf(iso?: string) {
+  if (!iso) return -1;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? -1 : d.getHours();
+}
+
+function departWindowMatches(flight: FlightResult, window: DepartWindow) {
+  if (window === 'all') return true;
+  const h = hourOf(flight.departure);
+  if (window === 'morning') return h >= 5 && h < 12;
+  if (window === 'afternoon') return h >= 12 && h < 17;
+  return h >= 17 || (h >= 0 && h < 5);
+}
+
+function ageFieldValues(value: string, count: number) {
+  const parts = value.split(',').map(v => v.trim());
+  return Array.from({ length: count }, (_, i) => parts[i] ?? '');
+}
+
+function updateAgeField(value: string, count: number, index: number, rawAge: string) {
+  const parts = ageFieldValues(value, count);
+  parts[index] = rawAge;
+  return parts.join(', ');
+}
+
+function maxStops(flight: FlightResult) {
+  return Math.max(flight.stops, flight.isRoundTrip ? (flight.returnStops ?? 0) : 0);
+}
+
+function amenityMatches(hotel: HotelResult, terms: string[]) {
+  const haystack = [
+    hotel.name,
+    hotel.description,
+    hotel.location,
+    ...(hotel.amenities ?? []),
+    ...(hotel.allRoomTypes ?? []).flatMap(room => [
+      room.name,
+      ...(room.rates ?? []).flatMap(rate => [rate.name, rate.boardName, rate.boardType]),
+    ]),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return terms.some(term => haystack.includes(term));
+}
+
+function distanceKm(hotel: HotelResult) {
+  const raw = hotel.distanceCenter?.toLowerCase() ?? '';
+  const match = raw.match(/([\d.]+)\s*(km|mi|mile|miles)?/);
+  if (!match) return Infinity;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) return Infinity;
+  return match[2]?.startsWith('mi') ? value * 1.609 : value;
+}
+
+function canEvaluateAmenities(hotel: HotelResult) {
+  return Boolean(
+    hotel.description ||
+    hotel.amenities?.length ||
+    hotel.allRoomTypes?.some(room =>
+      room.name ||
+      room.rates?.some(rate => rate.name || rate.boardName || rate.boardType),
+    ),
   );
 }
 
-function PortraitCard({ card, onClick }: { card: DiscoverCard; onClick: () => void }) {
-  return (
-    <button type="button" onClick={onClick}
-      className="group relative rounded-2xl overflow-hidden cursor-pointer bg-black w-full aspect-[3/4]
-                 shadow-[0_8px_32px_rgba(0,0,0,0.25)] transition-all duration-500 ease-out
-                 hover:-translate-y-2 hover:shadow-[0_28px_64px_rgba(0,0,0,0.45)]
-                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400">
-      <Image src={card.image} alt={card.title} fill unoptimized
-        sizes="(max-width:640px) 50vw,(max-width:1024px) 33vw,20vw"
-        className="object-cover transition-transform duration-700 group-hover:scale-105" />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-black/10" />
-      <div className="absolute top-3 left-3 right-3 flex items-start justify-between">
-        {card.badge && (
-          <span className={`${badgeCls(card.badge)} text-white text-[10px] font-bold px-2.5 py-1 rounded-full`}>
-            {card.badge}
-          </span>
-        )}
-        {card.duration && (
-          <span className="ml-auto bg-black/55 backdrop-blur-sm text-white/90 text-[10px]
-                           font-medium px-2.5 py-1 rounded-full flex items-center gap-1">
-            <Calendar className="w-2.5 h-2.5" />{card.duration}
-          </span>
-        )}
-      </div>
-      <div className="absolute bottom-0 left-0 right-0 p-4">
-        <p className="flex items-center gap-1 text-white/60 text-[10px] mb-1.5">
-          <MapPin className="w-2.5 h-2.5 flex-shrink-0" />{card.destination}, {card.country}
-        </p>
-        <h3 className="text-white font-bold text-sm leading-snug line-clamp-2 mb-1.5">{card.title}</h3>
-        <div className="mt-2 flex items-center gap-1 text-teal-300 text-[10px] font-semibold
-                        opacity-0 group-hover:opacity-100 translate-y-1 group-hover:translate-y-0
-                        transition-all duration-300">
-          <Sparkles className="w-3 h-3" />Search &amp; book <ArrowRight className="w-2.5 h-2.5" />
-        </div>
-      </div>
-    </button>
-  );
-}
-
-const SkeletonPortrait = () => <div className="rounded-2xl bg-white/[0.06] animate-pulse w-full aspect-[3/4]" />;
-const SkeletonWide = () => <div className="rounded-2xl bg-white/[0.06] animate-pulse w-full aspect-video" />;
-
-function SectionHeader({ icon, title, subtitle }: { icon: React.ReactNode; title: string; subtitle: string }) {
-  return (
-    <div className="mb-8 flex items-start gap-3">
-      <div className="mt-0.5 w-9 h-9 rounded-xl bg-white/[0.07] border border-white/10
-                      flex items-center justify-center flex-shrink-0 text-teal-400">{icon}</div>
-      <div>
-        <h2 className="text-xl sm:text-2xl font-bold text-white">{title}</h2>
-        <p className="text-white/45 text-sm mt-0.5">{subtitle}</p>
-      </div>
-    </div>
-  );
-}
-
-// ─── Hero ──────────────────────────────────────────────────────────────────────
-function Hero({ onPrompt }: { onPrompt: (p: string) => void }) {
-  const [imgIdx, setImgIdx] = useState(0);
-  const IMGS = [
-    { src: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=900&h=1100&fit=crop&q=90', label: 'Bali, Indonesia' },
-    { src: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=900&h=1100&fit=crop&q=90', label: 'Paris, France' },
-    { src: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=900&h=1100&fit=crop&q=90', label: 'Dubai, UAE' },
-    { src: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=900&h=1100&fit=crop&q=90', label: 'Tokyo, Japan' },
-  ];
-  useEffect(() => {
-    const t = setInterval(() => setImgIdx(i => (i + 1) % IMGS.length), 4500);
-    return () => clearInterval(t);
-  }, [IMGS.length]);
-
-  return (
-    <section className="relative min-h-screen flex items-center overflow-hidden">
-      {/* Deep dark BG */}
-      <div className="absolute inset-0 bg-[#060a10]" />
-
-      {/* Ambient colour blobs */}
-      <div className="absolute inset-0 pointer-events-none" aria-hidden>
-        <div className="absolute -top-40 left-0 w-[700px] h-[700px] rounded-full bg-teal-700/10 blur-[140px]" />
-        <div className="absolute top-1/3 -right-40 w-[500px] h-[500px] rounded-full bg-cyan-600/8 blur-[110px]" />
-        <div className="absolute bottom-0 left-1/3 w-[400px] h-[400px] rounded-full bg-purple-700/6 blur-[90px]" />
-      </div>
-
-      {/* Subtle grid */}
-      <div className="absolute inset-0 opacity-[0.025] pointer-events-none" style={{
-        backgroundImage: 'linear-gradient(rgba(255,255,255,1) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,1) 1px,transparent 1px)',
-        backgroundSize: '64px 64px',
-      }} />
-
-      <div className="relative z-10 max-w-7xl mx-auto px-5 sm:px-8 w-full
-                      pt-28 pb-20 grid grid-cols-1 lg:grid-cols-2 gap-14 items-center">
-
-        {/* ── Left copy ── */}
-        <div>
-          <div className="inline-flex items-center gap-2 bg-teal-500/10 border border-teal-500/25
-                          rounded-full px-4 py-1.5 text-teal-300 text-xs font-semibold mb-8">
-            <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse" />
-            The travel app that actually books your trip
-          </div>
-
-          <h1 className="text-[2rem] sm:text-5xl md:text-6xl xl:text-[4.25rem] font-extrabold
-                         text-white leading-[1.08] tracking-tight mb-5">
-            Stop searching.
-            <br />
-            <span className="bg-gradient-to-r from-teal-400 via-cyan-300 to-teal-500
-                             bg-clip-text text-transparent">
-              Start going.
-            </span>
-          </h1>
-
-          <p className="text-white/55 text-base sm:text-xl max-w-[500px] leading-relaxed mb-8">
-            Tell us where you want to go. We search real flights and hotels, then
-            confirm your booking right here — flight ref, hotel voucher, done.
-            No tabs. No redirects. No hidden fees.
-          </p>
-
-          <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 mb-8">
-            <Link href={PLAN_HREF}
-              className="flex items-center justify-center gap-2.5 px-7 py-4 rounded-2xl text-base font-bold
-                         bg-gradient-to-r from-teal-500 to-cyan-500 text-white
-                         shadow-[0_8px_36px_rgba(13,148,136,0.45)]
-                         hover:shadow-[0_16px_56px_rgba(13,148,136,0.6)]
-                         hover:from-teal-400 hover:to-cyan-400
-                         transition-all duration-300 hover:-translate-y-0.5 touch-manipulation">
-              <Sparkles className="w-5 h-5 flex-shrink-0" />
-              Start planning free
-              <ArrowRight className="w-4 h-4 flex-shrink-0" />
-            </Link>
-            <button
-              onClick={() => onPrompt('Inspire me — what are the most exciting trips to book right now? I\'m open on destination, flexible on dates, budget around $3,000 for 2 adults.')}
-              className="flex items-center justify-center gap-2 px-6 py-4 rounded-2xl text-sm font-semibold
-                         border border-white/15 text-white/65 hover:text-white hover:border-white/30
-                         bg-white/[0.04] hover:bg-white/[0.07] transition-all duration-200 touch-manipulation">
-              Inspire me <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Trust row */}
-          <div className="flex flex-wrap gap-5">
-            {[
-              { icon: <CheckCircle2 className="w-4 h-4 text-teal-400" />, txt: 'Real confirmed bookings' },
-              { icon: <CreditCard className="w-4 h-4 text-teal-400" />, txt: '$20 flat fee, no extras' },
-              { icon: <Shield className="w-4 h-4 text-teal-400" />, txt: 'Secured by Stripe' },
-            ].map(t => (
-              <span key={t.txt} className="flex items-center gap-1.5 text-white/45 text-xs">
-                {t.icon}{t.txt}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        {/* ── Right: Rotating cinematic photo with floating UI cards ── */}
-        <div className="relative hidden lg:flex items-center justify-center">
-          {/* Main photo */}
-          <div className="relative w-[400px] h-[540px] rounded-[2rem] overflow-hidden
-                          shadow-[0_40px_100px_rgba(0,0,0,0.65)] ring-1 ring-white/10">
-            {IMGS.map((img, i) => (
-              <div key={img.src}
-                className={`absolute inset-0 transition-opacity duration-[1200ms] ${i === imgIdx ? 'opacity-100' : 'opacity-0'}`}>
-                <Image src={img.src} alt={img.label} fill className="object-cover" unoptimized />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-transparent" />
-                <div className="absolute bottom-5 left-5 flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-teal-300" />
-                  <span className="text-white font-bold text-sm">{img.label}</span>
-                </div>
-              </div>
-            ))}
-            {/* Dot controls */}
-            <div className="absolute top-4 right-4 flex gap-1.5">
-              {IMGS.map((_, i) => (
-                <button key={i} onClick={() => setImgIdx(i)}
-                  className={`h-1.5 rounded-full transition-all duration-300 ${i === imgIdx ? 'w-5 bg-teal-400' : 'w-1.5 bg-white/40'}`} />
-              ))}
-            </div>
-          </div>
-
-          {/* Floating AI bubble */}
-          <div className="absolute -left-10 top-14 max-w-[230px]
-                          bg-[#0d1e2e]/95 backdrop-blur-md border border-teal-500/30
-                          rounded-2xl p-4 shadow-[0_20px_60px_rgba(0,0,0,0.5)]">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-teal-500 to-teal-700
-                              flex items-center justify-center flex-shrink-0">
-                <Sparkles className="w-3.5 h-3.5 text-white" />
-              </div>
-              <span className="text-white text-[11px] font-bold">FlexeTravels AI</span>
-            </div>
-            <p className="text-white/65 text-[11px] leading-relaxed">
-              &ldquo;Found 3 non-stop flights from $489 and 5 hotels from $142/night. Want me to lock in the best combo?&rdquo;
-            </p>
-            <div className="mt-2.5 flex gap-1.5">
-              <span className="bg-teal-500/20 border border-teal-500/30 text-teal-300
-                               text-[9px] font-bold px-2 py-0.5 rounded-full">✈ Bookable</span>
-              <span className="bg-white/8 border border-white/10 text-white/50
-                               text-[9px] font-medium px-2 py-0.5 rounded-full">🏨 Live rates</span>
-            </div>
-          </div>
-
-          {/* Floating booking confirmed card */}
-          <div className="absolute -right-8 bottom-24
-                          bg-[#0d1e2e]/95 backdrop-blur-md border border-white/10
-                          rounded-2xl px-5 py-4 shadow-[0_20px_60px_rgba(0,0,0,0.5)]">
-            <div className="flex items-center gap-1.5 mb-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <p className="text-white/35 text-[10px] font-medium">Booking confirmed</p>
-            </div>
-            <p className="text-white font-bold text-sm">Bali — 10 nights</p>
-            <div className="mt-1.5 flex items-center gap-1">
-              {[...Array(5)].map((_, i) => (
-                <Star key={i} className="w-3 h-3 fill-amber-400 text-amber-400" />
-              ))}
-              <span className="text-white/40 text-[10px] ml-1">5-star villa</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Scroll cue */}
-      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2
-                      text-white/25 pointer-events-none">
-        <span className="text-[10px] font-semibold tracking-[0.2em] uppercase">Scroll</span>
-        <div className="w-px h-10 bg-gradient-to-b from-white/25 to-transparent" />
-      </div>
-    </section>
-  );
-}
-
-// ─── Stats ribbon ──────────────────────────────────────────────────────────────
-function StatsRibbon() {
-  return (
-    <div className="relative z-10 border-y border-white/[0.06] bg-white/[0.02]">
-      <div className="max-w-7xl mx-auto px-5 sm:px-8 py-7">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 sm:gap-8">
-          {[
-            { val: '200+',  lbl: 'Airlines worldwide',      icon: <Plane className="w-5 h-5" /> },
-            { val: '1M+',   lbl: 'Hotels worldwide',        icon: <MapPin className="w-5 h-5" /> },
-            { val: '<5 min', lbl: 'From chat to confirmed',    icon: <Sparkles className="w-5 h-5" /> },
-            { val: '$20',   lbl: 'Flat fee, every booking', icon: <CreditCard className="w-5 h-5" /> },
-          ].map(s => (
-            <div key={s.lbl} className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/20
-                              flex items-center justify-center text-teal-400 flex-shrink-0">
-                {s.icon}
-              </div>
-              <div>
-                <p className="text-white font-extrabold text-xl sm:text-2xl leading-none">{s.val}</p>
-                <p className="text-white/40 text-xs mt-0.5">{s.lbl}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── How it works ──────────────────────────────────────────────────────────────
-function HowItWorks() {
-  return (
-    <section className="relative z-10 py-24 px-5 sm:px-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="text-center mb-16">
-          <p className="text-teal-400 text-xs font-bold uppercase tracking-[0.2em] mb-4">How it works</p>
-          <h2 className="text-4xl sm:text-5xl font-extrabold text-white mb-5 leading-tight">
-            Dream to booked
-            <span className="text-white/30"> in under 5 minutes.</span>
-          </h2>
-          <p className="text-white/40 text-lg max-w-lg mx-auto">
-            No switching tabs, no copying flight codes, no calling anyone.
-            Search, select, and pay in one chat window.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[
-            { n: '01', grad: 'from-teal-500 to-cyan-500', icon: <Sparkles className="w-6 h-6 text-white" />,
-              title: 'Describe your vibe', desc: 'Tell the AI what kind of trip you\'re dreaming of — no forms, just conversation.' },
-            { n: '02', grad: 'from-violet-500 to-purple-500', icon: <Zap className="w-6 h-6 text-white" />,
-              title: 'We search everything', desc: 'Real confirmed flights, live hotel rates, local experiences — all searched simultaneously. Results in seconds, not minutes.' },
-            { n: '03', grad: 'from-amber-500 to-orange-500', icon: <Star className="w-6 h-6 text-white" />,
-              title: 'Pick your favourites', desc: 'Browse rich flight and hotel cards. The AI remembers your preferences throughout.' },
-            { n: '04', grad: 'from-rose-500 to-pink-500', icon: <CheckCircle2 className="w-6 h-6 text-white" />,
-              title: 'Book & pay in-app', desc: 'Enter passenger details and pay securely. Confirmed booking references returned immediately.' },
-          ].map((s, i) => (
-            <div key={s.n} className="relative bg-white/[0.035] border border-white/[0.07] rounded-2xl p-6
-                                       hover:bg-white/[0.055] hover:border-white/[0.13] transition-all duration-300">
-              <span className="absolute top-4 right-4 text-[3rem] font-extrabold text-white/[0.035]
-                               leading-none select-none">{s.n}</span>
-              <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${s.grad}
-                              flex items-center justify-center mb-5 shadow-lg`}>{s.icon}</div>
-              <h3 className="text-white font-bold text-lg mb-2">{s.title}</h3>
-              <p className="text-white/45 text-sm leading-relaxed">{s.desc}</p>
-              {i < 3 && (
-                <div className="hidden lg:block absolute -right-3 top-1/2 -translate-y-1/2 z-10">
-                  <ChevronRight className="w-5 h-5 text-white/20" />
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── Why different ─────────────────────────────────────────────────────────────
-function WhyDifferent() {
-  return (
-    <section className="relative z-10 py-20 px-5 sm:px-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex flex-col lg:flex-row gap-12 lg:gap-20 items-start mb-12">
-          <div className="lg:w-1/2">
-            <p className="text-teal-400 text-xs font-bold uppercase tracking-[0.2em] mb-4">Why FlexeTravels</p>
-            <h2 className="text-4xl sm:text-5xl font-extrabold text-white leading-[1.08]">
-              We didn&apos;t build a
-              <br />search engine.
-              <br /><span className="bg-gradient-to-r from-teal-400 to-cyan-300 bg-clip-text text-transparent">
-                We built a travel agent.
-              </span>
-            </h2>
-          </div>
-          <div className="lg:w-1/2 lg:pt-3">
-            <p className="text-white/50 text-lg leading-relaxed">
-              Kayak searches. Google compares. Layla links. FlexeTravels{' '}
-              <strong className="text-white font-bold">books</strong>. We process confirmed
-              flight and hotel reservations — not referral links — directly and securely,
-              right here in one conversation.
-            </p>
-            <Link href={PLAN_HREF}
-              className="inline-flex items-center gap-2 mt-6 text-teal-400 font-semibold text-sm
-                         hover:text-teal-300 transition-colors group">
-              Experience the difference
-              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-            </Link>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {[
-            { col: 'text-teal-400 bg-teal-400/10 border-teal-400/20', icon: <CheckCircle2 className="w-6 h-6" />,
-              title: 'Real bookings, not referrals',
-              desc: 'Most AI travel tools give you links and send you to Booking.com. We process the booking — flight confirmation, hotel voucher — right here in the chat.' },
-            { col: 'text-violet-400 bg-violet-400/10 border-violet-400/20', icon: <Zap className="w-6 h-6" />,
-              title: 'Instant answers, zero waiting',
-              desc: 'Flights, destination intel, hotel rates, local experiences — everything searched at once. You get a complete picture in one reply, not a list of links.' },
-            { col: 'text-amber-400 bg-amber-400/10 border-amber-400/20', icon: <CreditCard className="w-6 h-6" />,
-              title: 'One flat fee. Always.',
-              desc: 'We charge a flat $20 service fee per booking. No commissions inflating hotel prices, no per-passenger fees. What you see is what you pay.' },
-            { col: 'text-rose-400 bg-rose-400/10 border-rose-400/20', icon: <Clock className="w-6 h-6" />,
-              title: 'Minutes, not hours',
-              desc: 'Traditional agents take days. OTAs make you switch tabs endlessly. FlexeTravels goes from "I want to go to Bali" to confirmed booking in minutes.' },
-          ].map(p => (
-            <div key={p.title} className="flex gap-4 bg-white/[0.03] border border-white/[0.07] rounded-2xl p-6
-                                           hover:border-white/[0.12] hover:bg-white/[0.05] transition-all duration-300">
-              <div className={`w-12 h-12 rounded-xl border flex items-center justify-center flex-shrink-0 ${p.col}`}>
-                {p.icon}
-              </div>
-              <div>
-                <h3 className="text-white font-bold text-base mb-1.5">{p.title}</h3>
-                <p className="text-white/45 text-sm leading-relaxed">{p.desc}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── How it actually works — transparent value props ───────────────────────────
-// Replaces an early-stage testimonial section. We don't show pseudonymous
-// "James T." quotes — when we have real, opt-in customer reviews we'll wire a
-// proper review provider and show those instead.
-function Testimonials() {
-  const claims = [
-    {
-      headline: 'Real prices, direct from airlines',
-      body:     'Flights are searched live through Duffel — same fares the airline\'s own site shows, no markup baked in.',
-      icon:     'plane' as const,
-    },
-    {
-      headline: 'Flat $20 service fee — that\'s it',
-      body:     'No commission, no upsell, no resort-fee mystery line. The airline charges its fare, the hotel charges its rate, we add $20.',
-      icon:     'card' as const,
-    },
-    {
-      headline: 'Booked end-to-end in one place',
-      body:     'Confirmation email, flight ref, hotel voucher — all delivered before you close the tab. No "we\'ll get back to you".',
-      icon:     'check' as const,
-    },
-  ];
-
-  return (
-    <section className="relative z-10 py-20 px-5 sm:px-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="text-center mb-14">
-          <p className="text-teal-400 text-xs font-bold uppercase tracking-[0.2em] mb-4">How it actually works</p>
-          <h2 className="text-3xl sm:text-4xl font-extrabold text-white">
-            Honest pricing, real bookings, zero theatre
-          </h2>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {claims.map((c) => (
-            <div key={c.headline}
-              className="bg-white/[0.04] border border-white/[0.08] rounded-2xl p-6
-                         hover:bg-white/[0.06] hover:border-white/[0.14] transition-all duration-300">
-              <div className="w-10 h-10 rounded-xl bg-teal-500/15 border border-teal-400/25 flex items-center justify-center mb-5">
-                {c.icon === 'plane'  && <Plane          className="w-5 h-5 text-teal-300" />}
-                {c.icon === 'card'   && <CreditCard     className="w-5 h-5 text-teal-300" />}
-                {c.icon === 'check'  && <CheckCircle2   className="w-5 h-5 text-teal-300" />}
-              </div>
-              <p className="text-white text-base font-semibold mb-2">{c.headline}</p>
-              <p className="text-white/65 text-sm leading-relaxed">{c.body}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── Geo-personalised recommendations section ─────────────────────────────────
-// Fetches /api/geo-recommendations to detect user's origin city and show
-// curated seasonal packages "Popular from [Your City]".
-function GeoRecommendations({ onPrompt }: { onPrompt: (p: string) => void }) {
-  const [geo, setGeo]   = useState<GeoData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const loadedRef = useRef(false);
-
-  useEffect(() => {
-    if (loadedRef.current) return;
-    loadedRef.current = true;
-    fetch('/api/geo-recommendations')
-      .then(r => r.ok ? r.json() as Promise<GeoData> : Promise.reject())
-      .then(d => { setGeo(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-
-  // Don't render section while loading or if geo lookup failed with no data
-  if (!loading && !geo) return null;
-
-  const seasonLabels: Record<string, string> = {
-    winter: 'Escape Winter', spring: 'Spring Getaways',
-    summer: 'Summer Adventures', fall: 'Fall Escapes',
+function TopNav({
+  activeTab,
+  onTabChange,
+}: {
+  activeTab: ActiveTab;
+  onTabChange: (tab: ActiveTab) => void;
+}) {
+  const goToTab = (tab: ActiveTab) => {
+    onTabChange(tab);
+    const nextUrl = `/?tab=${tab}#search`;
+    window.history.replaceState(null, '', nextUrl);
+    window.requestAnimationFrame(() => {
+      document.getElementById('search')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
   };
-  const seasonLabel = geo ? (seasonLabels[geo.season] ?? 'Perfect Right Now') : '';
 
   return (
-    <section className="relative z-10 py-20 px-5 sm:px-8 border-t border-white/[0.05]">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-10">
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <Navigation className="w-4 h-4 text-teal-400" />
-              <span className="text-teal-400 text-xs font-bold uppercase tracking-[0.18em]">
-                {loading ? 'Personalised for you' : `Popular from ${geo?.city ?? 'your city'}`}
-              </span>
-            </div>
-            <h2 className="text-3xl sm:text-4xl font-extrabold text-white leading-tight">
-              {loading ? (
-                <span className="block h-9 w-72 bg-white/[0.07] rounded-lg animate-pulse" />
-              ) : (
-                <>{seasonLabel}
-                  <span className="text-white/30"> · Flights from {geo?.city}</span>
-                </>
+    <header className="sticky top-0 z-40 border-b border-white/10 bg-black/95 backdrop-blur">
+      <div className="mx-auto flex h-14 max-w-7xl items-center gap-2 px-3 sm:gap-4 sm:px-6 lg:h-15 lg:px-8">
+        <Link href="/" className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-2.5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#0d8a62] text-white shadow-sm shadow-[#0d8a62]/20">
+            <Plane className="h-4 w-4" />
+          </div>
+          <span className="truncate text-sm font-black tracking-tight text-white sm:text-base">
+            Flexe<span className="text-[#35d49a]">Travels</span>
+          </span>
+        </Link>
+
+        <nav className="flex min-w-0 flex-1 items-center justify-center gap-0.5 sm:gap-1" aria-label="Primary">
+          {[
+            ['Flights', 'flights'],
+            ['Hotels', 'hotels'],
+          ].map(([label, tab]) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => goToTab(tab as ActiveTab)}
+              className={cn(
+                'rounded-lg px-2 py-2 text-xs font-semibold transition sm:px-3 sm:text-sm',
+                activeTab === tab
+                  ? 'bg-white/10 text-white'
+                  : 'text-zinc-300 hover:bg-white/10 hover:text-white',
               )}
-            </h2>
-            <p className="text-white/40 text-sm mt-2">
-              Curated for your location and the current season — real flights, live hotel rates.
-            </p>
-          </div>
-          <Link href={PLAN_HREF}
-            className="flex-shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold
-                       border border-white/15 text-white/65 hover:text-white hover:border-white/30
-                       bg-white/[0.04] hover:bg-white/[0.07] transition-all duration-200">
-            See all destinations <ChevronRight className="w-4 h-4" />
-          </Link>
-        </div>
-
-        {/* Package cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {loading ? (
-            Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="rounded-2xl bg-white/[0.04] animate-pulse" style={{ aspectRatio: '4/5' }} />
-            ))
-          ) : (
-            (geo?.packages ?? []).slice(0, 4).map((pkg) => (
-              <button
-                key={pkg.id}
-                type="button"
-                onClick={() => onPrompt(pkg.prompt)}
-                className="group relative rounded-2xl overflow-hidden cursor-pointer bg-black
-                           shadow-[0_8px_32px_rgba(0,0,0,0.3)] transition-all duration-500 ease-out
-                           hover:-translate-y-2 hover:shadow-[0_28px_64px_rgba(0,0,0,0.5)]
-                           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
-                style={{ aspectRatio: '4/5' }}
-              >
-                <Image
-                  src={pkg.img} alt={pkg.destination} fill unoptimized
-                  sizes="(max-width:640px) 100vw,(max-width:1024px) 50vw,25vw"
-                  className="object-cover transition-transform duration-700 group-hover:scale-105"
-                />
-                {/* Gradient overlay */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/92 via-black/35 to-transparent" />
-
-                {/* Season tag */}
-                <div className="absolute top-3 left-3 right-3 flex items-start justify-between">
-                  <span className={`${pkg.tagColor} text-white text-[10px] font-bold px-2.5 py-1 rounded-full shadow-md`}>
-                    {pkg.tag}
-                  </span>
-                  <span className="bg-black/55 backdrop-blur-sm text-white/90 text-[10px] font-medium
-                                   px-2 py-1 rounded-full flex items-center gap-1">
-                    <Plane className="w-2.5 h-2.5" />{pkg.flightHrs}
-                  </span>
-                </div>
-
-                {/* Bottom info */}
-                <div className="absolute bottom-0 left-0 right-0 p-4">
-                  <p className="flex items-center gap-1 text-white/55 text-[10px] mb-1">
-                    <MapPin className="w-2.5 h-2.5" />{pkg.destination}, {pkg.country}
-                  </p>
-                  <h3 className="text-white font-bold text-base leading-snug line-clamp-1 mb-1">
-                    {pkg.destination}
-                  </h3>
-                  <p className="text-white/55 text-[11px] line-clamp-2 mb-3">{pkg.teaser}</p>
-                  <p className="text-white/40 text-[10px] line-clamp-1">{pkg.bestFor}</p>
-
-                  {/* CTA — appears on hover */}
-                  <div className="mt-3 flex items-center gap-1.5 text-teal-300 text-xs font-semibold
-                                  opacity-0 group-hover:opacity-100 translate-y-1 group-hover:translate-y-0
-                                  transition-all duration-300">
-                    <Sparkles className="w-3.5 h-3.5" />
-                    Search flights &amp; hotels <ArrowRight className="w-3 h-3" />
-                  </div>
-                </div>
-              </button>
-            ))
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── Verified destinations ─────────────────────────────────────────────────────
-function VerifiedDestinations({ onPrompt }: { onPrompt: (p: string) => void }) {
-  return (
-    <section className="relative z-10 py-20 px-5 sm:px-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-10">
-          <div>
-            <p className="text-teal-400 text-xs font-bold uppercase tracking-[0.2em] mb-3">Book today</p>
-            <h2 className="text-3xl sm:text-4xl font-extrabold text-white leading-tight">
-              End-to-end bookable destinations
-            </h2>
-            <p className="text-white/35 text-sm mt-2 max-w-lg">
-              Every destination below is end-to-end bookable — confirmed flights from major Canadian airports, live hotel rates. Tap any card to start.
-            </p>
-          </div>
-          <Link href={PLAN_HREF}
-            className="flex-shrink-0 flex items-center gap-2 text-sm font-semibold text-teal-400
-                       hover:text-teal-300 transition-colors group whitespace-nowrap">
-            Any destination <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-          </Link>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-          {VERIFIED.map(d => (
-            <button key={d.city} type="button" onClick={() => onPrompt(d.prompt)}
-              className="group relative rounded-2xl overflow-hidden bg-black text-left
-                         shadow-[0_4px_24px_rgba(0,0,0,0.4)] transition-all duration-500
-                         hover:-translate-y-2 hover:shadow-[0_24px_72px_rgba(0,0,0,0.6)]
-                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400">
-              {/* Photo */}
-              <div className="relative w-full aspect-[3/4]">
-                <Image src={d.img} alt={d.city} fill unoptimized
-                  sizes="(max-width:640px) 50vw,(max-width:1024px) 33vw,25vw"
-                  className="object-cover transition-transform duration-700 group-hover:scale-110" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/92 via-black/30 to-black/5" />
-
-                {/* Verified badge */}
-                <div className="absolute top-2.5 left-2.5 flex items-center gap-1 text-[9px] font-bold
-                                text-white bg-teal-500/90 backdrop-blur-sm px-2 py-0.5 rounded-full">
-                  <CheckCircle2 className="w-2.5 h-2.5" />Bookable
-                </div>
-
-                {/* Category tag */}
-                <span className={`absolute top-2.5 right-2.5 ${d.tagColor} text-white
-                                 text-[9px] font-bold px-2 py-0.5 rounded-full`}>{d.tag}</span>
-
-                {/* Content */}
-                <div className="absolute bottom-0 left-0 right-0 p-3.5">
-                  <h3 className="text-white font-extrabold text-[15px] leading-tight">{d.city}</h3>
-                  <p className="text-white/45 text-[11px] mb-2.5">{d.country}</p>
-
-                  {/* Meta chips */}
-                  <div className="flex flex-wrap gap-1.5 mb-3">
-                    <span className="flex items-center gap-1 text-white/55 text-[10px]
-                                     bg-white/10 px-2 py-0.5 rounded-full">
-                      <Plane className="w-2.5 h-2.5" />{d.flightHrs}
-                    </span>
-                    <span className="flex items-center gap-1 text-white/55 text-[10px]
-                                     bg-white/10 px-2 py-0.5 rounded-full">
-                      <Users className="w-2.5 h-2.5" />from {d.flightFrom}
-                    </span>
-                  </div>
-
-                  {/* Hover CTA button */}
-                  <div className="flex items-center justify-between
-                                  border border-white/15 group-hover:border-teal-500
-                                  group-hover:bg-teal-500 rounded-xl px-3 py-2
-                                  transition-all duration-300">
-                    <span className="text-white/55 group-hover:text-white text-[11px] font-bold transition-colors">
-                      Search flights &amp; hotels
-                    </span>
-                    <ArrowRight className="w-3 h-3 text-white/35 group-hover:text-white
-                                           group-hover:translate-x-0.5 transition-all" />
-                  </div>
-                </div>
-              </div>
+            >
+              {label}
             </button>
           ))}
+          <Link
+            href="/contact"
+            className="rounded-lg px-2 py-2 text-xs font-semibold text-zinc-300 transition hover:bg-white/10 hover:text-white sm:px-3 sm:text-sm"
+          >
+            Support
+          </Link>
+        </nav>
+
+        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+          <Link href="/login" className="hidden rounded-lg px-3 py-2 text-sm font-semibold text-zinc-300 hover:bg-white/10 hover:text-white lg:block">
+            Sign in
+          </Link>
+          <a
+            href={`/?tab=${activeTab}#search`}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#0d8a62] px-3 py-2 text-sm font-bold text-white shadow-sm shadow-[#0d8a62]/20 transition hover:bg-[#0a6e50] sm:gap-2 sm:px-4"
+          >
+            <span className="hidden sm:inline">Search</span><Search className="h-4 w-4" />
+          </a>
         </div>
       </div>
-    </section>
+    </header>
   );
 }
 
-// ─── Trust strip (security + booking guarantees) ───────────────────────────────
+function Field({
+  label,
+  children,
+  className,
+  tone = 'light',
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+  tone?: 'light' | 'dark';
+}) {
+  return (
+    <label className={cn('block min-w-0', className)}>
+      <span className={cn(
+        'mb-1.5 block text-xs font-bold uppercase tracking-wide',
+        tone === 'dark' ? 'text-zinc-300' : 'text-zinc-400',
+      )}>
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+const inputClass = 'h-12 w-full rounded-lg border border-zinc-700 bg-[#111512] px-3 text-sm font-semibold text-white outline-none transition placeholder:text-zinc-500 focus:border-[#0d8a62] focus:ring-2 focus:ring-[#0d8a62]/25';
+const searchInputClass = 'h-12 w-full rounded-lg border border-zinc-700 bg-[#111512] px-3 text-sm font-semibold text-white outline-none transition placeholder:text-zinc-500 focus:border-[#0d8a62] focus:ring-2 focus:ring-[#0d8a62]/25 disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-500';
+const stepperButtonClass = 'flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-700 bg-[#111512] text-zinc-200 transition hover:border-[#0d8a62] hover:text-[#35d49a] disabled:cursor-not-allowed disabled:opacity-40';
+
+function DateInput({
+  value,
+  onChange,
+  min,
+  ariaLabel,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  min?: string;
+  ariaLabel: string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const openPicker = () => {
+    const input = inputRef.current;
+    if (!input) return;
+    input.focus();
+    if ('showPicker' in input) input.showPicker();
+  };
+
+  return (
+    <div className="relative">
+      <input
+        ref={inputRef}
+        className={cn(searchInputClass, 'pr-11')}
+        type="date"
+        value={value}
+        min={min}
+        onChange={e => onChange(e.target.value)}
+        onClick={openPicker}
+        aria-label={ariaLabel}
+      />
+      <button
+        type="button"
+        onClick={openPicker}
+        className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-zinc-400 transition hover:bg-white/10 hover:text-[#35d49a]"
+        aria-label={`Open ${ariaLabel.toLowerCase()} calendar`}
+      >
+        <CalendarDays className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+function FilterPills({
+  value,
+  onChange,
+  options,
+  columns = 2,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  columns?: 2 | 3;
+  options: Array<{ value: string; label: string; count?: number; disabled?: boolean }>;
+}) {
+  return (
+    <div className={cn('grid gap-2', columns === 3 ? 'grid-cols-3' : 'grid-cols-2')}>
+      {options.map(option => {
+        const active = value === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            disabled={option.disabled}
+            onClick={() => onChange(option.value)}
+            className={cn(
+              'min-h-10 rounded-lg border px-2.5 py-2 text-left text-xs font-black transition',
+              active
+                ? 'border-[#0d8a62] bg-[#0d8a62] text-white shadow-sm shadow-[#0d8a62]/20'
+                : 'border-zinc-700 bg-[#111512] text-zinc-300 hover:border-[#0d8a62] hover:bg-[#16201b] hover:text-white',
+              option.disabled && 'cursor-not-allowed opacity-45 hover:border-zinc-700 hover:bg-[#111512] hover:text-zinc-300',
+            )}
+          >
+            <span className="block leading-tight">{option.label}</span>
+            {option.count !== undefined && (
+              <span className={cn('mt-0.5 block text-[10px]', active ? 'text-white/75' : 'text-zinc-500')}>
+                {option.count} match{option.count === 1 ? '' : 'es'}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function TrustStrip() {
   return (
-    <div className="relative z-10 border-t border-white/[0.05] py-10 px-5 sm:px-8">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-4">
-          {[
-            { icon: <Shield className="w-4 h-4" />,       text: 'Secure checkout'         },
-            { icon: <CheckCircle2 className="w-4 h-4" />, text: 'Confirmed bookings only'  },
-            { icon: <CreditCard className="w-4 h-4" />,   text: '$20 flat fee, no extras'  },
-            { icon: <Zap className="w-4 h-4" />,          text: 'Results in seconds'       },
-            { icon: <Users className="w-4 h-4" />,        text: 'No account required'      },
-          ].map(t => (
-            <div key={t.text} className="flex items-center gap-2 text-white/30 text-xs font-medium">
-              <span className="text-teal-500/70">{t.icon}</span>
-              {t.text}
-            </div>
-          ))}
+    <div className="grid gap-2 border-t border-white/10 bg-black px-4 py-3 sm:grid-cols-4 sm:px-5">
+      {[
+        { icon: CheckCircle2, text: 'Live provider rates' },
+        { icon: CreditCard, text: '$20 fee + applicable tax' },
+        { icon: Lock, text: 'Secure checkout' },
+        { icon: ShieldCheck, text: 'No commission added' },
+      ].map(item => (
+        <div key={item.text} className="flex items-center gap-2 text-xs font-bold text-zinc-200">
+          <item.icon className="h-4 w-4 text-[#35d49a]" />
+          {item.text}
         </div>
+      ))}
+    </div>
+  );
+}
+
+function CountControl({
+  label,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div>
+      <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-zinc-300">{label}</span>
+      <div className="flex h-12 items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-[#111512] px-1.5">
+        <button
+          type="button"
+          className={stepperButtonClass}
+          disabled={value <= min}
+          onClick={() => onChange(Math.max(min, value - 1))}
+          aria-label={`Decrease ${label.toLowerCase()}`}
+        >
+          <Minus className="h-4 w-4" />
+        </button>
+        <span className="min-w-8 text-center text-sm font-black text-white">{value}</span>
+        <button
+          type="button"
+          className={stepperButtonClass}
+          disabled={value >= max}
+          onClick={() => onChange(Math.min(max, value + 1))}
+          aria-label={`Increase ${label.toLowerCase()}`}
+        >
+          <Plus className="h-4 w-4" />
+        </button>
       </div>
     </div>
   );
 }
 
-// ─── Main ──────────────────────────────────────────────────────────────────────
-export default function LandingPage() {
-  const router  = useRouter();
-  const [data, setData]       = useState<DiscoverData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState(false);
-  const loadedRef             = useRef(false);
+function ResultShell({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-xl font-black tracking-tight text-white">{title}</h2>
+          <p className="text-sm text-zinc-400">{subtitle}</p>
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
 
-  const loadDiscover = useCallback(() => {
-    setLoading(true); setError(false);
-    fetch('/api/discover')
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() as Promise<DiscoverData>; })
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => { setError(true); setLoading(false); });
+export default function HomePage() {
+  const router = useRouter();
+  const [activeTab, setActiveTab] = useState<ActiveTab>('flights');
+
+  const [tripType, setTripType] = useState<TripType>('round_trip');
+  const [origin, setOrigin] = useState('YVR');
+  const [destination, setDestination] = useState('YYZ');
+  const [departureDate, setDepartureDate] = useState(dateOffset(21));
+  const [returnDate, setReturnDate] = useState(dateOffset(28));
+  const [adults, setAdults] = useState(1);
+  const [children, setChildren] = useState(0);
+  const [childAgesText, setChildAgesText] = useState('');
+  const [cabinClass, setCabinClass] = useState<(typeof cabinOptions)[number]['value']>('economy');
+
+  const [hotelDestination, setHotelDestination] = useState('Toronto');
+  const [checkIn, setCheckIn] = useState(dateOffset(21));
+  const [checkOut, setCheckOut] = useState(dateOffset(24));
+  const [hotelAdults, setHotelAdults] = useState(1);
+  const [hotelChildren, setHotelChildren] = useState(0);
+  const [hotelChildAgesText, setHotelChildAgesText] = useState('');
+
+  const [flights, setFlights] = useState<FlightResult[]>([]);
+  const [hotels, setHotels] = useState<HotelResult[]>([]);
+  const [flightMeta, setFlightMeta] = useState<{ sources: string[]; latencyMs: number; errors: string[] } | null>(null);
+  const [hotelMeta, setHotelMeta] = useState<{ sources: string[]; latencyMs: number; errors: string[]; noResultsMessage?: string } | null>(null);
+  const [loading, setLoading] = useState<ActiveTab | null>(null);
+  const [error, setError] = useState('');
+
+  const [selectedFlight, setSelectedFlight] = useState<FlightResult | null>(null);
+  const [selectedHotel, setSelectedHotel] = useState<HotelResult | null>(null);
+  const [detailHotel, setDetailHotel] = useState<HotelResult | null>(null);
+
+  const [flightSort, setFlightSort] = useState<FlightSort>('price');
+  const [stopFilter, setStopFilter] = useState<StopFilter>('all');
+  const [airlineFilter, setAirlineFilter] = useState('all');
+  const [departWindow, setDepartWindow] = useState<DepartWindow>('all');
+  const [maxFlightPrice, setMaxFlightPrice] = useState('');
+  const [refundableOnly, setRefundableOnly] = useState(false);
+  const [baggageOnly, setBaggageOnly] = useState(false);
+
+  const [hotelSort, setHotelSort] = useState<HotelSort>('price');
+  const [starFilter, setStarFilter] = useState('all');
+  const [maxHotelPrice, setMaxHotelPrice] = useState('');
+  const [refundableHotelOnly, setRefundableHotelOnly] = useState(false);
+  const [minHotelRating, setMinHotelRating] = useState('all');
+  const [minHotelReviews, setMinHotelReviews] = useState('all');
+  const [hotelDistance, setHotelDistance] = useState('all');
+  const [petFriendlyHotelOnly, setPetFriendlyHotelOnly] = useState(false);
+  const [poolHotelOnly, setPoolHotelOnly] = useState(false);
+  const [parkingHotelOnly, setParkingHotelOnly] = useState(false);
+  const [familyHotelOnly, setFamilyHotelOnly] = useState(false);
+  const [sessionReady, setSessionReady] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem(SEARCH_SESSION_KEY);
+      const saved = raw ? JSON.parse(raw) as SearchSessionSnapshot : null;
+      const urlTab = new URLSearchParams(window.location.search).get('tab');
+      const requestedTab: ActiveTab | undefined = urlTab === 'hotels' ? 'hotels' : urlTab === 'flights' ? 'flights' : undefined;
+
+      if (saved?.flightForm) {
+        setTripType(saved.flightForm.tripType);
+        setOrigin(saved.flightForm.origin);
+        setDestination(saved.flightForm.destination);
+        setDepartureDate(saved.flightForm.departureDate);
+        setReturnDate(saved.flightForm.returnDate);
+        setAdults(saved.flightForm.adults);
+        setChildren(saved.flightForm.children);
+        setChildAgesText(saved.flightForm.childAgesText);
+        setCabinClass(saved.flightForm.cabinClass);
+      }
+      if (saved?.hotelForm) {
+        setHotelDestination(saved.hotelForm.destination);
+        setCheckIn(saved.hotelForm.checkIn);
+        setCheckOut(saved.hotelForm.checkOut);
+        setHotelAdults(saved.hotelForm.adults);
+        setHotelChildren(saved.hotelForm.children);
+        setHotelChildAgesText(saved.hotelForm.childAgesText);
+      }
+      if (saved?.flights) setFlights(saved.flights);
+      if (saved?.hotels) setHotels(saved.hotels);
+      if (saved?.flightMeta !== undefined) setFlightMeta(saved.flightMeta);
+      if (saved?.hotelMeta !== undefined) setHotelMeta(saved.hotelMeta);
+      if (saved?.selectedFlight !== undefined) setSelectedFlight(saved.selectedFlight);
+      if (saved?.selectedHotel !== undefined) setSelectedHotel(saved.selectedHotel);
+      if (saved?.filters) {
+        setFlightSort(saved.filters.flightSort);
+        setStopFilter(saved.filters.stopFilter);
+        setAirlineFilter(saved.filters.airlineFilter);
+        setDepartWindow(saved.filters.departWindow);
+        setMaxFlightPrice(saved.filters.maxFlightPrice);
+        setRefundableOnly(saved.filters.refundableOnly);
+        setBaggageOnly(saved.filters.baggageOnly);
+        setHotelSort(saved.filters.hotelSort);
+        setStarFilter(saved.filters.starFilter);
+        setMaxHotelPrice(saved.filters.maxHotelPrice);
+        setRefundableHotelOnly(saved.filters.refundableHotelOnly);
+        setMinHotelRating(saved.filters.minHotelRating);
+        setMinHotelReviews(saved.filters.minHotelReviews);
+        setHotelDistance(saved.filters.hotelDistance);
+        setPetFriendlyHotelOnly(saved.filters.petFriendlyHotelOnly);
+        setPoolHotelOnly(saved.filters.poolHotelOnly);
+        setParkingHotelOnly(saved.filters.parkingHotelOnly);
+        setFamilyHotelOnly(saved.filters.familyHotelOnly);
+      }
+
+      setActiveTab(requestedTab ?? saved?.activeTab ?? 'flights');
+    } catch {
+      // Session restore is a convenience only; fresh search still works.
+    } finally {
+      setSessionReady(true);
+    }
   }, []);
 
   useEffect(() => {
-    if (loadedRef.current) return;
-    loadedRef.current = true;
-    loadDiscover();
-  }, [loadDiscover]);
+    if (!sessionReady) return;
+    const snapshot: SearchSessionSnapshot = {
+      activeTab,
+      flightForm: {
+        tripType,
+        origin,
+        destination,
+        departureDate,
+        returnDate,
+        adults,
+        children,
+        childAgesText,
+        cabinClass,
+      },
+      hotelForm: {
+        destination: hotelDestination,
+        checkIn,
+        checkOut,
+        adults: hotelAdults,
+        children: hotelChildren,
+        childAgesText: hotelChildAgesText,
+      },
+      flights,
+      hotels,
+      flightMeta,
+      hotelMeta,
+      selectedFlight,
+      selectedHotel,
+      filters: {
+        flightSort,
+        stopFilter,
+        airlineFilter,
+        departWindow,
+        maxFlightPrice,
+        refundableOnly,
+        baggageOnly,
+        hotelSort,
+        starFilter,
+        maxHotelPrice,
+        refundableHotelOnly,
+        minHotelRating,
+        minHotelReviews,
+        hotelDistance,
+        petFriendlyHotelOnly,
+        poolHotelOnly,
+        parkingHotelOnly,
+        familyHotelOnly,
+      },
+    };
+    try {
+      window.sessionStorage.setItem(SEARCH_SESSION_KEY, JSON.stringify(snapshot));
+    } catch {
+      // Ignore quota/private-mode failures; the booking funnel still functions.
+    }
+  }, [
+    activeTab,
+    adults,
+    airlineFilter,
+    baggageOnly,
+    cabinClass,
+    checkIn,
+    checkOut,
+    childAgesText,
+    children,
+    departWindow,
+    departureDate,
+    destination,
+    familyHotelOnly,
+    flightMeta,
+    flightSort,
+    flights,
+    hotelAdults,
+    hotelChildAgesText,
+    hotelChildren,
+    hotelDestination,
+    hotelDistance,
+    hotelMeta,
+    hotelSort,
+    hotels,
+    maxFlightPrice,
+    maxHotelPrice,
+    minHotelRating,
+    minHotelReviews,
+    origin,
+    parkingHotelOnly,
+    petFriendlyHotelOnly,
+    poolHotelOnly,
+    refundableHotelOnly,
+    refundableOnly,
+    returnDate,
+    selectedFlight,
+    selectedHotel,
+    sessionReady,
+    starFilter,
+    stopFilter,
+    tripType,
+  ]);
 
-  const handlePrompt = useCallback((prompt: string) => {
-    try { sessionStorage.setItem('ft_auto_prompt', prompt); } catch { /* ignore */ }
-    router.push(PLAN_HREF);
-  }, [router]);
+  const childAges = useMemo(() => parseTravelerAges(childAgesText).slice(0, children), [childAgesText, children]);
+  const hotelChildAges = useMemo(() => parseTravelerAges(hotelChildAgesText).slice(0, hotelChildren), [hotelChildAgesText, hotelChildren]);
+  const childAgeFields = useMemo(() => ageFieldValues(childAgesText, children), [childAgesText, children]);
+  const hotelChildAgeFields = useMemo(() => ageFieldValues(hotelChildAgesText, hotelChildren), [hotelChildAgesText, hotelChildren]);
+
+  const airlines = useMemo(() => Array.from(new Set(flights.map(f => f.airline).filter(Boolean))).sort(), [flights]);
+  const hotelFacetCounts = useMemo(() => {
+    const knownAmenityHotels = hotels.filter(canEvaluateAmenities).length;
+    const distanceReadyHotels = hotels.filter(h => Number.isFinite(distanceKm(h))).length;
+    const pet = hotels.filter(h => amenityMatches(h, ['pet', 'pets allowed', 'dog', 'cat'])).length;
+    const pool = hotels.filter(h => amenityMatches(h, ['pool', 'swimming'])).length;
+    const parking = hotels.filter(h => amenityMatches(h, ['parking', 'garage', 'valet'])).length;
+    const family = hotels.filter(h => amenityMatches(h, ['family', 'children', 'kids', 'baby', 'sofa bed'])).length;
+    return {
+      stars3: hotels.filter(h => h.stars >= 3).length,
+      stars4: hotels.filter(h => h.stars >= 4).length,
+      stars5: hotels.filter(h => h.stars >= 5).length,
+      rating8: hotels.filter(h => (h.rating ?? 0) >= 8).length,
+      rating85: hotels.filter(h => (h.rating ?? 0) >= 8.5).length,
+      rating9: hotels.filter(h => (h.rating ?? 0) >= 9).length,
+      reviews50: hotels.filter(h => (h.reviewCount ?? 0) >= 50).length,
+      reviews200: hotels.filter(h => (h.reviewCount ?? 0) >= 200).length,
+      reviews500: hotels.filter(h => (h.reviewCount ?? 0) >= 500).length,
+      distance1: hotels.filter(h => distanceKm(h) <= 1).length,
+      distance3: hotels.filter(h => distanceKm(h) <= 3).length,
+      distance5: hotels.filter(h => distanceKm(h) <= 5).length,
+      refundable: hotels.filter(h => h.cancellation === 'Free cancellation' || h.refundableTag === 'RFN').length,
+      pet,
+      pool,
+      parking,
+      family,
+      amenityDataReady: knownAmenityHotels > 0,
+      starsReady: hotels.some(h => h.stars > 0),
+      ratingReady: hotels.some(h => (h.rating ?? 0) > 0),
+      reviewsReady: hotels.some(h => (h.reviewCount ?? 0) > 0),
+      distanceReady: distanceReadyHotels > 0,
+    };
+  }, [hotels]);
+  const hotelSortOptions = useMemo(() => [
+    { value: 'price', label: 'Lowest' },
+    ...(hotelFacetCounts.ratingReady ? [{ value: 'rating', label: 'Rating' }] : []),
+    ...(hotelFacetCounts.starsReady ? [{ value: 'stars', label: 'Stars' }] : []),
+    ...(hotelFacetCounts.reviewsReady ? [{ value: 'reviews', label: 'Reviews' }] : []),
+    ...(hotelFacetCounts.distanceReady ? [{ value: 'distance', label: 'Near center' }] : []),
+  ], [hotelFacetCounts.distanceReady, hotelFacetCounts.ratingReady, hotelFacetCounts.reviewsReady, hotelFacetCounts.starsReady]);
+
+  useEffect(() => {
+    if (!hotelFacetCounts.starsReady && starFilter !== 'all') setStarFilter('all');
+    if (!hotelFacetCounts.ratingReady && minHotelRating !== 'all') setMinHotelRating('all');
+    if (!hotelFacetCounts.reviewsReady && minHotelReviews !== 'all') setMinHotelReviews('all');
+    if (!hotelFacetCounts.distanceReady && hotelDistance !== 'all') setHotelDistance('all');
+    if (hotelFacetCounts.refundable === 0 && refundableHotelOnly) setRefundableHotelOnly(false);
+    if (hotelFacetCounts.pet === 0 && petFriendlyHotelOnly) setPetFriendlyHotelOnly(false);
+    if (hotelFacetCounts.pool === 0 && poolHotelOnly) setPoolHotelOnly(false);
+    if (hotelFacetCounts.parking === 0 && parkingHotelOnly) setParkingHotelOnly(false);
+    if (hotelFacetCounts.family === 0 && familyHotelOnly) setFamilyHotelOnly(false);
+    if (!hotelSortOptions.some(option => option.value === hotelSort)) setHotelSort('price');
+  }, [
+    familyHotelOnly,
+    hotelDistance,
+    hotelFacetCounts.distanceReady,
+    hotelFacetCounts.family,
+    hotelFacetCounts.parking,
+    hotelFacetCounts.pet,
+    hotelFacetCounts.pool,
+    hotelFacetCounts.ratingReady,
+    hotelFacetCounts.reviewsReady,
+    hotelFacetCounts.refundable,
+    hotelFacetCounts.starsReady,
+    hotelSort,
+    hotelSortOptions,
+    minHotelRating,
+    minHotelReviews,
+    parkingHotelOnly,
+    petFriendlyHotelOnly,
+    poolHotelOnly,
+    refundableHotelOnly,
+    starFilter,
+  ]);
+
+  const filteredFlights = useMemo(() => {
+    const maxPrice = maxFlightPrice ? Number(maxFlightPrice) : Infinity;
+    return [...flights]
+      .filter(f => {
+        const stops = maxStops(f);
+        if (stopFilter === '0' && stops !== 0) return false;
+        if (stopFilter === '1' && stops !== 1) return false;
+        if (stopFilter === '2+' && stops < 2) return false;
+        if (airlineFilter !== 'all' && f.airline !== airlineFilter) return false;
+        if (!departWindowMatches(f, departWindow)) return false;
+        if (Number.isFinite(maxPrice) && f.price > maxPrice) return false;
+        if (refundableOnly && !f.refundable && !f.fareVariants?.some(v => v.refundable)) return false;
+        if (baggageOnly && !f.baggage && !f.fareVariants?.some(v => (v.checkedBags ?? 0) > 0)) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        if (flightSort === 'price') return a.price - b.price;
+        if (flightSort === 'duration') return (durationMinutes(a.duration) + durationMinutes(a.returnDuration)) - (durationMinutes(b.duration) + durationMinutes(b.returnDuration));
+        if (flightSort === 'stops') return maxStops(a) - maxStops(b);
+        return new Date(a.departure).getTime() - new Date(b.departure).getTime();
+      });
+  }, [airlineFilter, baggageOnly, departWindow, flightSort, flights, maxFlightPrice, refundableOnly, stopFilter]);
+
+  const filteredHotels = useMemo(() => {
+    const maxPrice = maxHotelPrice ? Number(maxHotelPrice) : Infinity;
+    return [...hotels]
+      .filter(h => {
+        if (starFilter !== 'all' && h.stars < Number(starFilter)) return false;
+        if (minHotelRating !== 'all' && (h.rating ?? 0) < Number(minHotelRating)) return false;
+        if (minHotelReviews !== 'all' && (h.reviewCount ?? 0) < Number(minHotelReviews)) return false;
+        if (hotelDistance !== 'all' && distanceKm(h) > Number(hotelDistance)) return false;
+        if (Number.isFinite(maxPrice) && h.pricePerNight > maxPrice) return false;
+        if (refundableHotelOnly && h.cancellation !== 'Free cancellation' && h.refundableTag !== 'RFN') return false;
+        if (petFriendlyHotelOnly && hotelFacetCounts.amenityDataReady && !amenityMatches(h, ['pet', 'pets allowed', 'dog', 'cat'])) return false;
+        if (poolHotelOnly && hotelFacetCounts.amenityDataReady && !amenityMatches(h, ['pool', 'swimming'])) return false;
+        if (parkingHotelOnly && hotelFacetCounts.amenityDataReady && !amenityMatches(h, ['parking', 'garage', 'valet'])) return false;
+        if (familyHotelOnly && hotelFacetCounts.amenityDataReady && !amenityMatches(h, ['family', 'children', 'kids', 'baby', 'sofa bed'])) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        if (hotelSort === 'rating') return b.rating - a.rating;
+        if (hotelSort === 'stars') return b.stars - a.stars;
+        if (hotelSort === 'reviews') return (b.reviewCount ?? 0) - (a.reviewCount ?? 0);
+        if (hotelSort === 'distance') return distanceKm(a) - distanceKm(b);
+        return a.pricePerNight - b.pricePerNight;
+      });
+  }, [familyHotelOnly, hotelDistance, hotelFacetCounts.amenityDataReady, hotelSort, hotels, maxHotelPrice, minHotelRating, minHotelReviews, parkingHotelOnly, petFriendlyHotelOnly, poolHotelOnly, refundableHotelOnly, starFilter]);
+
+  async function searchFlights() {
+    changeTab('flights');
+    setLoading('flights');
+    setError('');
+    setSelectedFlight(null);
+    if (children > 0 && childAges.length !== children) {
+      setLoading(null);
+      setError('Please enter an age for each child so airlines can return the right fare.');
+      return;
+    }
+    try {
+      const res = await fetch('/api/search/flights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          origin,
+          destination,
+          departureDate,
+          returnDate: tripType === 'round_trip' ? returnDate : undefined,
+          tripType,
+          adults,
+          childrenAges: childAges,
+          cabinClass,
+        }),
+      });
+      const data = await res.json() as FlightSearchResponse;
+      if (!res.ok) throw new Error(data.error ?? 'Flight search failed');
+      setFlights(data.flights ?? []);
+      setFlightMeta({ sources: data.sources ?? [], latencyMs: data.latencyMs ?? 0, errors: data.errors ?? [] });
+      setTimeout(() => document.getElementById('flight-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    } catch (e) {
+      setFlights([]);
+      setError(String(e instanceof Error ? e.message : e));
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function searchHotels() {
+    changeTab('hotels');
+    setLoading('hotels');
+    setError('');
+    setSelectedHotel(null);
+    if (hotelChildren > 0 && hotelChildAges.length !== hotelChildren) {
+      setLoading(null);
+      setError('Please enter an age for each child so hotels can return the right room rate.');
+      return;
+    }
+    try {
+      const res = await fetch('/api/search/hotels', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          destination: hotelDestination,
+          checkIn,
+          checkOut,
+          adults: hotelAdults,
+          childrenAges: hotelChildAges,
+          maxPrice: maxHotelPrice ? Number(maxHotelPrice) : undefined,
+          stars: starFilter !== 'all' ? Number(starFilter) : undefined,
+        }),
+      });
+      const data = await res.json() as HotelSearchResponse;
+      if (!res.ok) throw new Error(data.error ?? 'Hotel search failed');
+      setHotels(data.hotels ?? []);
+      setHotelMeta({ sources: data.sources ?? [], latencyMs: data.latencyMs ?? 0, errors: data.errors ?? [], noResultsMessage: data.noResultsMessage });
+      setTimeout(() => document.getElementById('hotel-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    } catch (e) {
+      setHotels([]);
+      setError(String(e instanceof Error ? e.message : e));
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  function persistAndCheckout() {
+    const sessionId = `web_${Date.now()}`;
+    const ages = selectedFlight ? (selectedFlight.childrenAges ?? childAges) : hotelChildAges;
+    const cartData = createBookingCart({
+      flight: selectedFlight,
+      hotel: selectedHotel,
+      adults: selectedFlight ? adults : hotelAdults,
+      childAges: ages,
+      sessionId,
+    });
+    sessionStorage.setItem('ft_cart', JSON.stringify(cartData));
+    router.push('/booking');
+  }
+
+  const hasSelection = !!selectedFlight || !!selectedHotel;
+  const changeTab = (tab: ActiveTab) => {
+    setActiveTab(tab);
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', `/?tab=${tab}#search`);
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-[#070b12] text-white overflow-x-hidden">
-      <Nav />
-      <Hero onPrompt={handlePrompt} />
-      <StatsRibbon />
-      {/* Geo-personalised picks — shown before static destinations so first view is personalised */}
-      <GeoRecommendations onPrompt={handlePrompt} />
-      <HowItWorks />
-      <WhyDifferent />
-      <Testimonials />
-      <VerifiedDestinations onPrompt={handlePrompt} />
-      <TrustStrip />
+    <main className="booking-brand-dark min-h-screen bg-[#050505] text-white">
+      <TopNav activeTab={activeTab} onTabChange={changeTab} />
 
-      {/* ── AI-curated trending discover feed ──────────────────────────── */}
-      <div className="relative z-10 border-t border-white/[0.05] pt-20 px-5 sm:px-8">
-        <div className="max-w-7xl mx-auto">
+      <section className="relative overflow-hidden border-b border-white/10 bg-black" id="search">
+        <div
+          className="absolute inset-0 opacity-35"
+          style={{
+            backgroundImage: 'url(https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=1800&h=900&fit=crop&q=80)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+          aria-hidden
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/82 via-black/88 to-[#050505]" aria-hidden />
+        <div className="relative mx-auto max-w-7xl px-4 py-7 sm:px-6 sm:py-9 lg:px-8 lg:py-10">
+          <div className="max-w-6xl pb-5">
+            <h1 className="text-3xl font-black leading-tight tracking-tight text-white sm:text-4xl lg:text-5xl xl:whitespace-nowrap">
+              Real rates. One flat fee. No commission games.
+            </h1>
+            <p className="mt-2 max-w-5xl text-sm font-medium leading-6 text-zinc-300 lg:whitespace-nowrap lg:text-base">
+              Search live provider inventory, compare the real options, and pay FlexeTravels one transparent $20 booking fee with no commission added.
+            </p>
+          </div>
 
-          {error && !loading && (
-            <div className="mb-8 flex items-center justify-center gap-3 text-white/50 text-sm">
-              <span>Couldn&apos;t load trending data.</span>
-              <button onClick={loadDiscover}
-                className="flex items-center gap-1.5 text-teal-400 hover:text-teal-300 font-medium">
-                <RefreshCw className="w-3.5 h-3.5" /> Retry
-              </button>
+          <div className="overflow-hidden rounded-xl border border-white/10 bg-[#080a09] shadow-2xl shadow-black/40">
+            <div className="flex border-b border-white/10 bg-black px-3 pt-3">
+              {[
+                { id: 'flights' as const, label: 'Flights', icon: Plane },
+                { id: 'hotels' as const, label: 'Hotels', icon: Hotel },
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  id={tab.id}
+                  type="button"
+                  onClick={() => changeTab(tab.id)}
+                  className={cn(
+                    'flex items-center gap-2 rounded-t-lg px-4 py-3 text-sm font-black transition',
+                    activeTab === tab.id
+                      ? 'bg-[#0d8a62] text-white'
+                      : 'text-zinc-300 hover:bg-white/10 hover:text-white',
+                  )}
+                >
+                  <tab.icon className="h-4 w-4" />
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {activeTab === 'flights' ? (
+              <div className="bg-[#0b0d0c] p-4 sm:p-5">
+                <div className="mb-4 flex w-fit rounded-xl bg-black p-1 ring-1 ring-white/10">
+                  {[
+                    ['round_trip', 'Round trip'],
+                    ['one_way', 'One way'],
+                  ].map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setTripType(value as TripType)}
+                      className={cn(
+                        'rounded-lg px-3 py-2 text-sm font-bold transition',
+                        tripType === value ? 'bg-[#0d8a62] text-white shadow-sm shadow-[#0d8a62]/20' : 'text-zinc-400 hover:text-white',
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid gap-3 lg:grid-cols-12">
+                  <Field label="From" className="lg:col-span-2" tone="dark">
+                    <input className={searchInputClass} value={origin} onChange={e => setOrigin(e.target.value)} placeholder="YVR or Vancouver" />
+                  </Field>
+                  <Field label="To" className="lg:col-span-2" tone="dark">
+                    <input className={searchInputClass} value={destination} onChange={e => setDestination(e.target.value)} placeholder="YYZ or Toronto" />
+                  </Field>
+                  <Field label="Depart" className="lg:col-span-2" tone="dark">
+                    <DateInput value={departureDate} onChange={setDepartureDate} ariaLabel="Departure date" />
+                  </Field>
+                  {tripType === 'round_trip' && (
+                    <Field label="Return" className="lg:col-span-2" tone="dark">
+                      <DateInput value={returnDate} onChange={setReturnDate} min={departureDate} ariaLabel="Return date" />
+                    </Field>
+                  )}
+                  <div className={cn(tripType === 'round_trip' ? 'lg:col-span-2' : 'lg:col-span-3')}>
+                    <CountControl label="Adults" value={adults} min={1} max={9} onChange={setAdults} />
+                  </div>
+                  <div className={cn(tripType === 'round_trip' ? 'lg:col-span-2' : 'lg:col-span-3')}>
+                    <CountControl
+                      label="Children"
+                      value={children}
+                      min={0}
+                      max={8}
+                      onChange={next => {
+                        setChildren(next);
+                        setChildAgesText(ageFieldValues(childAgesText, next).join(', '));
+                      }}
+                    />
+                  </div>
+                  <Field label="Cabin" className={cn(tripType === 'round_trip' ? 'lg:col-span-2' : 'lg:col-span-2')} tone="dark">
+                    <select className={searchInputClass} value={cabinClass} onChange={e => setCabinClass(e.target.value as typeof cabinClass)}>
+                      {cabinOptions.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                    </select>
+                  </Field>
+                  <div className={cn('flex items-end', tripType === 'round_trip' ? 'lg:col-span-2' : 'lg:col-span-2')}>
+                    <button
+                      type="button"
+                      onClick={() => void searchFlights()}
+                      disabled={loading === 'flights'}
+                      className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#0d8a62] px-4 text-sm font-black text-white shadow-sm shadow-[#0d8a62]/20 transition hover:bg-[#0a6e50] disabled:cursor-wait disabled:bg-[#0d8a62]/60"
+                    >
+                      {loading === 'flights' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                      {loading === 'flights' ? 'Checking live fares' : 'Search'}
+                    </button>
+                  </div>
+                </div>
+                {loading === 'flights' && (
+                  <p className="mt-3 text-xs font-semibold text-zinc-400">
+                    Duffel is checking live airline inventory. Some international searches can take up to 30 seconds.
+                  </p>
+                )}
+                {children > 0 && (
+                  <div className="mt-4 rounded-xl border border-white/10 bg-black p-3">
+                    <p className="text-xs font-bold uppercase tracking-wide text-zinc-200">Children ages</p>
+                    <p className="mt-1 text-xs text-zinc-400">Ages are required so Duffel can price child seats, teen fares, and lap infants correctly.</p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      {childAgeFields.map((age, index) => (
+                        <Field key={index} label={`Child ${index + 1}`} tone="dark">
+                          <input
+                            className={searchInputClass}
+                            type="number"
+                            min={0}
+                            max={17}
+                            value={age}
+                            onChange={e => setChildAgesText(updateAgeField(childAgesText, children, index, e.target.value))}
+                            placeholder="Age"
+                          />
+                        </Field>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="bg-[#0b0d0c] p-4 sm:p-5">
+                <div className="grid gap-3 lg:grid-cols-12">
+                  <Field label="Destination" className="lg:col-span-3" tone="dark">
+                    <input className={searchInputClass} value={hotelDestination} onChange={e => setHotelDestination(e.target.value)} placeholder="City or region" />
+                  </Field>
+                  <Field label="Check in" className="lg:col-span-2" tone="dark">
+                    <DateInput value={checkIn} onChange={setCheckIn} ariaLabel="Check in date" />
+                  </Field>
+                  <Field label="Check out" className="lg:col-span-2" tone="dark">
+                    <DateInput value={checkOut} onChange={setCheckOut} min={checkIn} ariaLabel="Check out date" />
+                  </Field>
+                  <div className="lg:col-span-2">
+                    <CountControl label="Adults" value={hotelAdults} min={1} max={9} onChange={setHotelAdults} />
+                  </div>
+                  <div className="lg:col-span-1">
+                    <CountControl
+                      label="Children"
+                      value={hotelChildren}
+                      min={0}
+                      max={8}
+                      onChange={next => {
+                        setHotelChildren(next);
+                        setHotelChildAgesText(ageFieldValues(hotelChildAgesText, next).join(', '));
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-end lg:col-span-2">
+                    <button
+                      type="button"
+                      onClick={() => void searchHotels()}
+                      disabled={loading === 'hotels'}
+                      className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#0d8a62] px-4 text-sm font-black text-white shadow-sm shadow-[#0d8a62]/20 transition hover:bg-[#0a6e50] disabled:cursor-wait disabled:bg-[#0d8a62]/60"
+                    >
+                      {loading === 'hotels' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                      Search hotels
+                    </button>
+                  </div>
+                </div>
+                {hotelChildren > 0 && (
+                  <div className="mt-4 rounded-xl border border-white/10 bg-black p-3">
+                    <p className="text-xs font-bold uppercase tracking-wide text-zinc-200">Children ages</p>
+                    <p className="mt-1 text-xs text-zinc-400">Ages are required so LiteAPI can return room rates that match your party.</p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      {hotelChildAgeFields.map((age, index) => (
+                        <Field key={index} label={`Child ${index + 1}`} tone="dark">
+                          <input
+                            className={searchInputClass}
+                            type="number"
+                            min={0}
+                            max={17}
+                            value={age}
+                            onChange={e => setHotelChildAgesText(updateAgeField(hotelChildAgesText, hotelChildren, index, e.target.value))}
+                            placeholder="Age"
+                          />
+                        </Field>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <TrustStrip />
+          </div>
+
+          {error && (
+            <div className="mt-4 rounded-lg border border-red-400/30 bg-red-950/50 px-4 py-3 text-sm font-semibold text-red-200">
+              {error}
             </div>
           )}
-
-          <section className="mb-16">
-            <SectionHeader icon={<TrendingUp className="w-4 h-4" />}
-              title="Trending Right Now" subtitle="What travellers are booking this week" />
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
-              {loading ? Array.from({ length: 6 }).map((_, i) => <SkeletonPortrait key={i} />)
-                : (data?.destinations ?? []).map(c => <PortraitCard key={c.id} card={c} onClick={() => handlePrompt(c.prompt)} />)}
-            </div>
-          </section>
-
-          <section className="mb-16">
-            <SectionHeader icon={<Music2 className="w-4 h-4" />}
-              title="Events Worth Flying For" subtitle="Concerts, festivals &amp; sports happening soon" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              {loading ? Array.from({ length: 4 }).map((_, i) => <SkeletonWide key={i} />)
-                : (data?.events ?? []).map(c => <WideCard key={c.id} card={c} onClick={() => handlePrompt(c.prompt)} />)}
-            </div>
-          </section>
-
-          <section className="mb-16">
-            <SectionHeader icon={<Compass className="w-4 h-4" />}
-              title="Experiences Worth Booking" subtitle="Adventures, wellness &amp; culture everyone&apos;s talking about" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              {loading ? Array.from({ length: 4 }).map((_, i) => <SkeletonWide key={i} />)
-                : (data?.experiences ?? []).map(c => <WideCard key={c.id} card={c} onClick={() => handlePrompt(c.prompt)} />)}
-            </div>
-          </section>
-        </div>
-      </div>
-
-      {/* ── Final CTA ────────────────────────────────────────────────────── */}
-      <section className="relative z-10 py-24 px-5 sm:px-8">
-        <div className="max-w-4xl mx-auto">
-          <div className="relative rounded-3xl overflow-hidden border border-teal-500/20
-                          bg-gradient-to-br from-teal-600/25 via-[#0d1f2e] to-[#070b12]
-                          shadow-[0_40px_100px_rgba(13,148,136,0.12)] p-10 sm:p-16 text-center">
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-72 h-72
-                            rounded-full bg-teal-500/12 blur-[90px] pointer-events-none" />
-            <div className="relative">
-              <p className="text-teal-400 text-xs font-bold uppercase tracking-[0.2em] mb-4">Ready to go?</p>
-              <h2 className="text-4xl sm:text-5xl font-extrabold text-white mb-5 leading-tight">
-                Your next adventure is
-                <br /><span className="bg-gradient-to-r from-teal-400 to-cyan-300 bg-clip-text text-transparent">
-                  one conversation away.
-                </span>
-              </h2>
-              <p className="text-white/45 text-lg mb-10 max-w-xl mx-auto leading-relaxed">
-                Join thousands of smart travellers who&apos;ve replaced hours of tab-switching with a single
-                AI-powered chat. Free to start — flat $20 when you book.
-              </p>
-              <Link href={PLAN_HREF}
-                className="inline-flex items-center gap-3 px-10 py-4 rounded-2xl font-bold text-lg
-                           bg-gradient-to-r from-teal-500 to-cyan-500 text-white
-                           shadow-[0_8px_40px_rgba(13,148,136,0.45)]
-                           hover:shadow-[0_20px_64px_rgba(13,148,136,0.6)]
-                           hover:from-teal-400 hover:to-cyan-400
-                           transition-all duration-300 hover:-translate-y-1">
-                <Sparkles className="w-5 h-5" />
-                Start planning for free
-                <ArrowRight className="w-5 h-5" />
-              </Link>
-              <p className="mt-5 text-white/22 text-xs">
-                No account needed · Book in minutes · $20 flat service fee per booking
-              </p>
-            </div>
-          </div>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="relative z-10 border-t border-white/[0.05] py-12 px-5 sm:px-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-8 mb-10">
-            {/* Brand */}
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-teal-500 to-teal-800
-                              flex items-center justify-center">
-                <Plane className="w-4 h-4 text-white" strokeWidth={1.8} />
+      <section className="border-b border-white/10 bg-black">
+        <div className="mx-auto grid max-w-7xl gap-3 px-4 py-4 sm:grid-cols-3 sm:px-6 lg:px-8">
+          {[
+            ['No commission added', 'We charge one flat booking fee instead of hiding margin inside the fare.'],
+            ['Transparent totals', 'Provider fare plus the flat booking fee before you pay.'],
+            ['Live fare lock check', 'Your selected offer is re-verified before payment setup.'],
+          ].map(([title, body]) => (
+            <div key={title} className="flex gap-2.5">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-[#35d49a]" />
+              <div className="min-w-0">
+                <p className="text-sm font-black text-white">{title}</p>
+                <p className="text-xs leading-5 text-zinc-400 xl:whitespace-nowrap">{body}</p>
               </div>
-              <span className="font-bold text-white/75 text-base">
-                Flexe<span className="text-teal-400">Travels</span>
-              </span>
             </div>
+          ))}
+        </div>
+      </section>
 
-            {/* Nav links */}
-            <div className="flex flex-wrap gap-x-8 gap-y-3">
-              {[
-                { href: '/how-it-works', label: 'How It Works' },
-                { href: '/about',        label: 'About' },
-                { href: '/partners',     label: 'For Partners' },
-                { href: '/contact',      label: 'Contact' },
-                { href: PLAN_HREF,       label: 'Start Planning' },
-              ].map(l => (
-                <Link key={l.href} href={l.href}
-                  className="text-white/35 hover:text-white/75 text-sm transition-colors">
-                  {l.label}
-                </Link>
+      {activeTab === 'flights' && (flights.length > 0 || flightMeta) && (
+        <ResultShell
+          title="Choose your flight"
+          subtitle={`${filteredFlights.length} of ${flights.length} options shown${flightMeta?.sources.length ? ` · ${flightMeta.sources.join(', ')}` : ''}${flightMeta?.latencyMs ? ` · ${Math.round(flightMeta.latencyMs / 100) / 10}s` : ''}`}
+        >
+          <div id="flight-results" className="grid gap-5 lg:grid-cols-[280px_1fr]">
+            <aside className="h-fit rounded-xl border border-white/10 bg-[#0b0d0c] p-4 shadow-sm shadow-black/30">
+              <div className="mb-4 flex items-center gap-2">
+                <SlidersHorizontal className="h-4 w-4 text-[#35d49a]" />
+                <h3 className="text-sm font-black text-white">Filter flights</h3>
+              </div>
+              <div className="space-y-4">
+                <Field label="Sort by">
+                  <select className={inputClass} value={flightSort} onChange={e => setFlightSort(e.target.value as FlightSort)}>
+                    <option value="price">Lowest price</option>
+                    <option value="duration">Shortest total duration</option>
+                    <option value="departure">Earliest departure</option>
+                    <option value="stops">Fewest stops</option>
+                  </select>
+                </Field>
+                <Field label="Stops">
+                  <select className={inputClass} value={stopFilter} onChange={e => setStopFilter(e.target.value as StopFilter)}>
+                    <option value="all">All stops</option>
+                    <option value="0">Non-stop only</option>
+                    <option value="1">1 stop</option>
+                    <option value="2+">2+ stops</option>
+                  </select>
+                </Field>
+                <Field label="Airline">
+                  <select className={inputClass} value={airlineFilter} onChange={e => setAirlineFilter(e.target.value)}>
+                    <option value="all">All airlines</option>
+                    {airlines.map(a => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                </Field>
+                <Field label="Departure">
+                  <select className={inputClass} value={departWindow} onChange={e => setDepartWindow(e.target.value as DepartWindow)}>
+                    <option value="all">Any time</option>
+                    <option value="morning">Morning</option>
+                    <option value="afternoon">Afternoon</option>
+                    <option value="evening">Evening / overnight</option>
+                  </select>
+                </Field>
+                <Field label="Max total price">
+                  <input className={inputClass} type="number" min={0} value={maxFlightPrice} onChange={e => setMaxFlightPrice(e.target.value)} placeholder="No limit" />
+                </Field>
+                <label className="flex items-center gap-2 text-sm font-semibold text-zinc-300">
+                  <input type="checkbox" className="h-4 w-4 accent-[#0d8a62]" checked={refundableOnly} onChange={e => setRefundableOnly(e.target.checked)} />
+                  Refundable/change-friendly
+                </label>
+                <label className="flex items-center gap-2 text-sm font-semibold text-zinc-300">
+                  <input type="checkbox" className="h-4 w-4 accent-[#0d8a62]" checked={baggageOnly} onChange={e => setBaggageOnly(e.target.checked)} />
+                  Checked baggage available
+                </label>
+              </div>
+            </aside>
+
+            <div className="space-y-4">
+              {flightMeta?.errors.length ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  {flightMeta.errors.join(' · ')}
+                </div>
+              ) : null}
+              {filteredFlights.length === 0 ? (
+                <div className="rounded-xl border border-white/10 bg-[#0b0d0c] p-8 text-center">
+                  <Filter className="mx-auto mb-3 h-6 w-6 text-zinc-500" />
+                  <p className="font-black text-white">No flights match these filters.</p>
+                  <p className="text-sm text-zinc-400">Try widening stops, airline, or price.</p>
+                </div>
+              ) : filteredFlights.map(flight => (
+                <FlightCard
+                  key={flight.id}
+                  flight={flight}
+                  selected={selectedFlight?.id === flight.id || selectedFlight?.bookingToken === flight.id}
+                  isBestValue={flight.id === filteredFlights[0]?.id}
+                  onSelect={f => setSelectedFlight(f)}
+                />
               ))}
             </div>
           </div>
+        </ResultShell>
+      )}
 
-          <div className="border-t border-white/[0.05] pt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
-            <p className="text-white/18 text-[10px] max-w-2xl leading-relaxed text-center sm:text-left">
-              FlexeTravels is a technology platform. Flights are booked through IATA-accredited channels.
-              Flat $20 service fee per booking. Prices are live at time of search — always confirm before payment.{' '}
-              BC travel agent licence.
-            </p>
-            <p className="text-white/18 text-[10px] flex-shrink-0">© {new Date().getFullYear()} FlexeTravels</p>
+      {activeTab === 'hotels' && (hotels.length > 0 || hotelMeta) && (
+        <ResultShell
+          title="Choose your hotel"
+          subtitle={`${filteredHotels.length} of ${hotels.length} options shown${hotelMeta?.sources.length ? ` · ${hotelMeta.sources.join(', ')}` : ''}${hotelMeta?.latencyMs ? ` · ${Math.round(hotelMeta.latencyMs / 100) / 10}s` : ''}`}
+        >
+          <div id="hotel-results" className="grid gap-5 lg:grid-cols-[280px_1fr]">
+            <aside className="h-fit rounded-xl border border-white/10 bg-[#0b0d0c] p-4 shadow-sm shadow-black/30">
+              <div className="mb-4 flex items-center gap-2">
+                <SlidersHorizontal className="h-4 w-4 text-[#35d49a]" />
+                <h3 className="text-sm font-black text-white">Filter hotels</h3>
+              </div>
+              <div className="space-y-4">
+                <Field label="Sort by">
+                  <FilterPills
+                    value={hotelSort}
+                    onChange={value => setHotelSort(value as HotelSort)}
+                    options={hotelSortOptions}
+                  />
+                </Field>
+                {hotelFacetCounts.starsReady && (
+                  <Field label="Stars">
+                    <FilterPills
+                      value={starFilter}
+                      onChange={setStarFilter}
+                      options={[
+                        { value: 'all', label: 'All', count: hotels.length },
+                        ...[
+                          { value: '3', label: '3★+', count: hotelFacetCounts.stars3 },
+                          { value: '4', label: '4★+', count: hotelFacetCounts.stars4 },
+                          { value: '5', label: '5★', count: hotelFacetCounts.stars5 },
+                        ].filter(option => option.count > 0),
+                      ]}
+                    />
+                  </Field>
+                )}
+                {hotelFacetCounts.ratingReady && (
+                  <Field label="Guest rating">
+                    <FilterPills
+                      value={minHotelRating}
+                      onChange={setMinHotelRating}
+                      options={[
+                        { value: 'all', label: 'Any', count: hotels.length },
+                        ...[
+                          { value: '8', label: '8.0+', count: hotelFacetCounts.rating8 },
+                          { value: '8.5', label: '8.5+', count: hotelFacetCounts.rating85 },
+                          { value: '9', label: '9.0+', count: hotelFacetCounts.rating9 },
+                        ].filter(option => option.count > 0),
+                      ]}
+                    />
+                  </Field>
+                )}
+                {hotelFacetCounts.reviewsReady && (
+                  <Field label="Review depth">
+                    <FilterPills
+                      value={minHotelReviews}
+                      onChange={setMinHotelReviews}
+                      options={[
+                        { value: 'all', label: 'Any', count: hotels.length },
+                        ...[
+                          { value: '50', label: '50+', count: hotelFacetCounts.reviews50 },
+                          { value: '200', label: '200+', count: hotelFacetCounts.reviews200 },
+                          { value: '500', label: '500+', count: hotelFacetCounts.reviews500 },
+                        ].filter(option => option.count > 0),
+                      ]}
+                    />
+                  </Field>
+                )}
+                {hotelFacetCounts.distanceReady && (
+                  <Field label="Location">
+                    <FilterPills
+                      value={hotelDistance}
+                      onChange={setHotelDistance}
+                      options={[
+                        { value: 'all', label: 'Any', count: hotels.length },
+                        ...[
+                          { value: '1', label: '1 km', count: hotelFacetCounts.distance1 },
+                          { value: '3', label: '3 km', count: hotelFacetCounts.distance3 },
+                          { value: '5', label: '5 km', count: hotelFacetCounts.distance5 },
+                        ].filter(option => option.count > 0),
+                      ]}
+                    />
+                  </Field>
+                )}
+                <Field label="Max price/night">
+                  <input className={inputClass} type="number" min={0} value={maxHotelPrice} onChange={e => setMaxHotelPrice(e.target.value)} placeholder="No limit" />
+                </Field>
+                {[
+                  {
+                    label: 'Free cancellation',
+                    count: hotelFacetCounts.refundable,
+                    active: refundableHotelOnly,
+                    onClick: () => setRefundableHotelOnly(!refundableHotelOnly),
+                  },
+                  {
+                    label: 'Pet friendly',
+                    count: hotelFacetCounts.pet,
+                    active: petFriendlyHotelOnly,
+                    onClick: () => setPetFriendlyHotelOnly(!petFriendlyHotelOnly),
+                  },
+                  {
+                    label: 'Pool or swim area',
+                    count: hotelFacetCounts.pool,
+                    active: poolHotelOnly,
+                    onClick: () => setPoolHotelOnly(!poolHotelOnly),
+                  },
+                  {
+                    label: 'Parking available',
+                    count: hotelFacetCounts.parking,
+                    active: parkingHotelOnly,
+                    onClick: () => setParkingHotelOnly(!parkingHotelOnly),
+                  },
+                  {
+                    label: 'Family-friendly rooms',
+                    count: hotelFacetCounts.family,
+                    active: familyHotelOnly,
+                    onClick: () => setFamilyHotelOnly(!familyHotelOnly),
+                  },
+                ].some(option => option.count > 0 || option.active) && (
+                  <Field label="Amenities">
+                    <div className="grid gap-2">
+                      {[
+                        {
+                          label: 'Free cancellation',
+                          count: hotelFacetCounts.refundable,
+                          active: refundableHotelOnly,
+                          onClick: () => setRefundableHotelOnly(!refundableHotelOnly),
+                        },
+                        {
+                          label: 'Pet friendly',
+                          count: hotelFacetCounts.pet,
+                          active: petFriendlyHotelOnly,
+                          onClick: () => setPetFriendlyHotelOnly(!petFriendlyHotelOnly),
+                        },
+                        {
+                          label: 'Pool or swim area',
+                          count: hotelFacetCounts.pool,
+                          active: poolHotelOnly,
+                          onClick: () => setPoolHotelOnly(!poolHotelOnly),
+                        },
+                        {
+                          label: 'Parking available',
+                          count: hotelFacetCounts.parking,
+                          active: parkingHotelOnly,
+                          onClick: () => setParkingHotelOnly(!parkingHotelOnly),
+                        },
+                        {
+                          label: 'Family-friendly rooms',
+                          count: hotelFacetCounts.family,
+                          active: familyHotelOnly,
+                          onClick: () => setFamilyHotelOnly(!familyHotelOnly),
+                        },
+                      ].filter(option => option.count > 0 || option.active).map(option => (
+                      <button
+                        key={option.label}
+                        type="button"
+                        onClick={option.onClick}
+                        className={cn(
+                          'flex min-h-10 items-center justify-between rounded-lg border px-3 py-2 text-left text-xs font-black transition',
+                          option.active
+                            ? 'border-[#0d8a62] bg-[#0d8a62] text-white shadow-sm shadow-[#0d8a62]/20'
+                            : 'border-zinc-700 bg-[#111512] text-zinc-300 hover:border-[#0d8a62] hover:bg-[#16201b] hover:text-white',
+                        )}
+                      >
+                        <span>{option.label}</span>
+                        <span className={cn('text-[10px]', option.active ? 'text-white/75' : 'text-zinc-500')}>
+                          {option.count}
+                        </span>
+                      </button>
+                    ))}
+                    </div>
+                  </Field>
+                )}
+              </div>
+            </aside>
+
+            <div className="space-y-4">
+              {hotelMeta?.noResultsMessage && hotels.length === 0 ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  {hotelMeta.noResultsMessage}
+                </div>
+              ) : null}
+              {hotelMeta?.errors.length ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  {hotelMeta.errors.join(' · ')}
+                </div>
+              ) : null}
+              {filteredHotels.length === 0 ? (
+                <div className="rounded-xl border border-white/10 bg-[#0b0d0c] p-8 text-center">
+                  <Building2 className="mx-auto mb-3 h-6 w-6 text-zinc-500" />
+                  <p className="font-black text-white">No hotels match these filters.</p>
+                  <p className="text-sm text-zinc-400">Try widening stars, cancellation, or price.</p>
+                </div>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {filteredHotels.map(hotel => (
+                    <HotelCard
+                      key={hotel.id}
+                      hotel={hotel}
+                      selected={selectedHotel?.id === hotel.id}
+                      isBestDeal={hotel.id === filteredHotels[0]?.id}
+                      onSelect={h => setSelectedHotel(h)}
+                      onOpenDetail={h => setDetailHotel(h)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </ResultShell>
+      )}
+
+      {hasSelection && (
+        <div className="fixed inset-x-0 bottom-0 z-50 border-t border-white/10 bg-black/95 px-4 py-3 shadow-2xl shadow-black/60 backdrop-blur">
+          <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-1 items-start gap-3">
+              <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-[#0d8a62]/15 text-[#35d49a]">
+                {selectedFlight ? <Plane className="h-4 w-4" /> : <Hotel className="h-4 w-4" />}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-black text-white">
+                  {selectedFlight
+                    ? `${selectedFlight.airline} · ${selectedFlight.origin} to ${selectedFlight.destination}`
+                    : selectedHotel?.name}
+                </p>
+                <p className="text-xs font-medium text-zinc-400">
+                  {selectedFlight && `${formatPrice(selectedFlight.price, selectedFlight.currency)} fare + $20 fee + tax where applicable`}
+                  {selectedHotel && !selectedFlight && `${formatPrice(selectedHotel.totalPrice, selectedHotel.currency)} hotel total + $20 fee + tax where applicable`}
+                  {selectedHotel && selectedFlight && ` · Hotel selected: ${selectedHotel.name}`}
+                </p>
+                {selectedFlight && (
+                  <p className="mt-0.5 max-w-xl truncate text-xs font-semibold text-zinc-400">
+                    Fare will be re-verified before payment.
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => { setSelectedFlight(null); setSelectedHotel(null); }}
+                className="inline-flex h-11 items-center gap-2 rounded-lg border border-zinc-700 px-4 text-sm font-bold text-zinc-300 hover:bg-white/10 hover:text-white"
+              >
+                <X className="h-4 w-4" />
+                Clear
+              </button>
+              <button
+                type="button"
+                onClick={persistAndCheckout}
+                className="inline-flex h-11 items-center gap-2 rounded-lg bg-[#0d8a62] px-5 text-sm font-black text-white hover:bg-[#0a6e50]"
+              >
+                Continue to checkout
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </div>
+      )}
+
+      <footer className={cn('border-t border-white/10 bg-black px-4 py-8 text-center text-xs text-zinc-400', hasSelection && 'pb-28')}>
+        <p>FlexeTravels is a technology platform. Flights are booked through Duffel-backed channels. Hotels are searched through LiteAPI.</p>
+        <p className="mt-1">Prices are live and can change until verified at payment setup. We do not add commission or hidden markups; FlexeTravels charges one flat $20 booking fee plus applicable tax on that fee.</p>
       </footer>
-    </div>
+
+      {detailHotel && (
+        <HotelDetailModal
+          hotel={detailHotel}
+          onClose={() => setDetailHotel(null)}
+          onSelect={hotel => {
+            setSelectedHotel(hotel);
+            setDetailHotel(null);
+          }}
+        />
+      )}
+    </main>
   );
 }

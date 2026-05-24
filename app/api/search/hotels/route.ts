@@ -1,95 +1,75 @@
-// ─── /api/search/hotels ──────────────────────────────────────────────────────
-// Direct hotel search for the Trip Canvas. Wraps aggregateHotels.
-// Gated by middleware (NEXT_PUBLIC_TRIP_CANVAS or ft_canvas cookie).
-
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { aggregateHotels } from '@/lib/search/aggregator';
-import { db, DB_AVAILABLE } from '@/lib/db/client';
+import { getClientIp, rateLimit } from '@/lib/rate-limit';
 
-export const runtime  = 'nodejs';
-export const dynamic  = 'force-dynamic';
-export const maxDuration = 30;
+const DateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
-const Schema = z.object({
-  sessionId:     z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/).optional(),
-  tripCanvasId:  z.string().uuid().optional(),
-  legId:         z.string().min(1).max(80).optional(),
-  searchIntent:  z.string().min(1).max(200).optional(),
-  destination:   z.string().min(2).max(80),
-  checkIn:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  checkOut:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  adults:        z.number().int().min(1).max(8).default(2),
-  childrenAges:  z.array(z.number().int().min(0).max(17)).max(6).optional(),
-  maxPrice:      z.number().positive().optional(),
-  stars:         z.number().int().min(1).max(5).optional(),
-  minRating:     z.number().min(0).max(10).optional(),
-  amenities:     z.array(z.string()).max(15).optional(),
-  freeCancellation: z.boolean().optional(),
+const schema = z.object({
+  destination: z.string().min(2).max(80),
+  checkIn: DateString,
+  checkOut: DateString,
+  adults: z.number().int().min(1).max(9).default(1),
+  childrenAges: z.array(z.number().int().min(0).max(17)).max(8).default([]),
+  maxPrice: z.number().int().min(1).max(5000).optional(),
+  stars: z.number().int().min(1).max(5).optional(),
 });
 
-export async function POST(req: NextRequest) {
+function isFutureDate(value: string): boolean {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const date = new Date(`${value}T00:00:00`);
+  return !Number.isNaN(date.getTime()) && date > today;
+}
+
+export async function POST(req: Request) {
+  const ip = getClientIp(req);
+  if (!rateLimit(`ip:search-hotels:${ip}`, 12, 60_000)) {
+    return NextResponse.json({ error: 'Too many hotel searches. Please try again shortly.' }, { status: 429 });
+  }
+
   let body: unknown;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const parsed = Schema.safeParse(body);
+  const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid request', details: parsed.error.issues }, { status: 400 });
+    return NextResponse.json({ error: 'Invalid hotel search', details: parsed.error.flatten() }, { status: 400 });
   }
 
-  try {
-    const result = await aggregateHotels(parsed.data);
-    if (DB_AVAILABLE && parsed.data.sessionId) {
-      db.searchLogs.create({
-        session_id:       parsed.data.sessionId,
-        trip_canvas_id:   parsed.data.tripCanvasId ?? null,
-        leg_id:           parsed.data.legId ?? null,
-        search_type:      'hotel',
-        destination:      parsed.data.destination,
-        depart_date:      parsed.data.checkIn,
-        return_date:      parsed.data.checkOut,
-        adults:           parsed.data.adults,
-        children:         parsed.data.childrenAges?.length ?? 0,
-        child_ages:       parsed.data.childrenAges ?? [],
-        filters: {
-          maxPrice: parsed.data.maxPrice,
-          stars: parsed.data.stars,
-          minRating: parsed.data.minRating,
-          amenities: parsed.data.amenities,
-          freeCancellation: parsed.data.freeCancellation,
-        },
-        request_payload:  {
-          destination: parsed.data.destination,
-          checkIn: parsed.data.checkIn,
-          checkOut: parsed.data.checkOut,
-          adults: parsed.data.adults,
-          childrenAges: parsed.data.childrenAges,
-        },
-        provider_errors:  result.errors,
-        result_count:     result.hotels.length,
-        provider_sources: result.sources,
-        latency_ms:       result.latencyMs,
-        search_intent:    parsed.data.searchIntent ?? null,
-      }).catch(() => {});
-    }
-    const sandbox = (process.env.LITEAPI_KEY ?? '').startsWith('sand_');
-    return NextResponse.json({
-      hotels:    result.hotels.slice(0, 30),
-      sources:   result.sources,
-      errors:    result.errors,
-      latencyMs: result.latencyMs,
-      noResultsMessage: result.noResultsMessage,
-      sandbox,
-    });
-  } catch (err) {
-    console.error('[/api/search/hotels] error:', err);
-    return NextResponse.json(
-      { error: 'Search failed', message: err instanceof Error ? err.message : 'unknown' },
-      { status: 502 },
-    );
+  if (!isFutureDate(parsed.data.checkIn)) {
+    return NextResponse.json({ error: 'Check-in date must be in the future.' }, { status: 400 });
   }
+  if (new Date(parsed.data.checkOut) <= new Date(parsed.data.checkIn)) {
+    return NextResponse.json({ error: 'Check-out date must be after check-in.' }, { status: 400 });
+  }
+
+  const result = await aggregateHotels({
+    destination: parsed.data.destination.trim(),
+    checkIn: parsed.data.checkIn,
+    checkOut: parsed.data.checkOut,
+    adults: parsed.data.adults,
+    childrenAges: parsed.data.childrenAges,
+    maxPrice: parsed.data.maxPrice,
+    stars: parsed.data.stars,
+  });
+
+  return NextResponse.json({
+    hotels: result.hotels,
+    sources: result.sources,
+    errors: result.errors,
+    isSample: result.isSample,
+    latencyMs: result.latencyMs,
+    noResultsMessage: result.noResultsMessage,
+    query: {
+      destination: parsed.data.destination.trim(),
+      checkIn: parsed.data.checkIn,
+      checkOut: parsed.data.checkOut,
+      adults: parsed.data.adults,
+      childrenAges: parsed.data.childrenAges,
+    },
+  });
 }

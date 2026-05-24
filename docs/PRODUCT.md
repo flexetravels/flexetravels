@@ -1,13 +1,14 @@
 # FlexeTravels — Product Documentation
 
-> Last updated: 2026-03-22
+> Last updated: 2026-05-24
 
 ---
 
 ## Table of Contents
 
 1. [What FlexeTravels Is](#what-flexetravels-is)
-2. [Full Architecture](#full-architecture)
+2. [Current Booking Funnel](#current-booking-funnel)
+3. [Full Architecture](#full-architecture)
 3. [Feature Inventory (What's Working)](#feature-inventory-whats-working)
 4. [Gap Analysis vs Airial.travel](#gap-analysis-vs-airialtravel)
 5. [Gap Analysis vs Layla.ai](#gap-analysis-vs-laylaai)
@@ -20,9 +21,46 @@
 
 ## What FlexeTravels Is
 
-FlexeTravels is an AI-powered travel booking concierge targeting **North American travellers**. Users describe a trip in natural language; the AI searches real flights and hotels in parallel, presents bookable options as interactive cards inside the chat, and completes the booking (including Stripe payment and passenger collection) entirely in-page — no redirects, no OTA handoffs.
+FlexeTravels is a simple travel booking site for **North American travellers**. The primary customer path is now a direct booking funnel: search live flights or live hotels, compare transparent results, choose the right option, and pay through checkout with one visible FlexeTravels service fee.
 
-**Business model:** Flat $20 CAD service fee per booking, charged via Stripe. Flights booked through Duffel (IATA-accredited). Hotels booked through LiteAPI.
+The AI/chat experience remains in the codebase as a secondary legacy path, but it is not the first-stage customer journey.
+
+**Business model:** one flat $20 service fee per checkout, charged via Stripe with applicable tax on the FlexeTravels fee based on the customer's billing location. Provider fares/rates come from Duffel and LiteAPI; FlexeTravels does not add a hidden commission spread.
+
+See [Booking Funnel Documentation](./BOOKING_FUNNEL.md) for the release-specific implementation, integrity checks, tax behavior, and QA notes.
+
+---
+
+## Current Booking Funnel
+
+### Homepage (`/`)
+- Expedia-style first screen with `Flights` and `Hotels` tabs.
+- Top nav links to Flights, Hotels, Support, Sign in, and Search.
+- Flight and hotel search are independent; a customer can search flight-only or hotel-only.
+- Search state is persisted in `sessionStorage('ft_search_session')` so users can move between Flights, Hotels, and Support without losing the current session.
+
+### Flight Search
+- `POST /api/search/flights` validates input with Zod and searches live Duffel inventory.
+- Filters/sort include price, duration, stops, departure time, airline, cabin, refund/change policy, baggage, time windows, and max price.
+- Selected fare data is saved in `sessionStorage('ft_cart')` with the exact Duffel offer id, displayed fare, currency, route, passengers, cabin, baggage/refundability, fare brand, fare terms, and selection timestamp.
+- Checkout re-verifies the Duffel offer id before payment setup. If price, currency, or availability changed, checkout blocks silent mutation and asks the customer to accept the new fare or search again.
+
+### Fare Conditions
+- Duffel structured conditions are used when available.
+- If Duffel does not return enough detail, the UI falls back to an airline fare-family knowledge base and labels each term with source/confidence wording such as `Confirmed`, `Based on airline fare-family guidance`, or `Exact rule unavailable`.
+- Customer wording stays simple: best for, known inclusions, change/refund summary, caveats, and checkout acknowledgement.
+
+### Hotel Search
+- `POST /api/search/hotels` validates input with Zod and searches LiteAPI rates.
+- Hotel filters only render when the current results contain useful data for that filter.
+- Hotel room rows show room/rate differences, refundable/breakfast indicators, and per-night price deltas vs the lowest available room rate.
+- Room thumbnails open the image lightbox; room selection uses a separate `Select this room` control so image zoom and booking intent are not mixed.
+
+### Checkout (`/booking`)
+- Flight-only, hotel-only, and combined carts are supported.
+- Stripe payment setup charges the verified provider fare plus the flat $20 fee plus applicable tax on the FlexeTravels fee.
+- `/api/book-trip` verifies the paid Stripe PaymentIntent metadata still matches the selected flight offer id and amount before booking.
+- Confirmation email includes booking references, provider caveats, selected fare terms, payment details, and support contact information.
 
 ---
 

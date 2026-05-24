@@ -7,6 +7,7 @@ import {
 } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTheme } from 'next-themes';
+import Link from 'next/link';
 import Image from 'next/image';
 import {
   Send, PanelLeftOpen, Sun, Moon, RotateCcw,
@@ -784,7 +785,7 @@ export default function ChatPage() {
               <PanelLeftOpen className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-2.5">
+            <Link href="/" className="flex items-center gap-2.5 rounded-xl transition-opacity hover:opacity-85" aria-label="FlexeTravels home">
               <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-teal-500 to-teal-800
                               flex items-center justify-center shadow-md shadow-teal-900/20">
                 <Plane className="w-4 h-4 text-white" strokeWidth={1.8} />
@@ -792,6 +793,8 @@ export default function ChatPage() {
               <span className="font-bold text-sm text-foreground">
                 Flexe<span className="text-teal-600 dark:text-teal-400">Travels</span>
               </span>
+            </Link>
+            <div className="flex items-center gap-2.5">
               <span className="hidden sm:inline text-xs text-muted-foreground border
                                border-border/60 rounded-full px-2.5 py-0.5">
                 AI Planner

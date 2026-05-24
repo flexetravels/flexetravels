@@ -24,11 +24,11 @@ export default function PrivacyPage() {
         </div>
 
         <div className="relative max-w-4xl mx-auto">
-          <Link href="/chat"
+          <Link href="/#search"
             className="inline-flex items-center gap-2 text-white/40 hover:text-white/70
                        transition-colors mb-8 text-sm">
             <ArrowLeft className="w-4 h-4" />
-            Back to chat
+            Back to search
           </Link>
 
           <h1 className="text-4xl sm:text-5xl font-extrabold text-white mb-4">
@@ -217,7 +217,7 @@ export default function PrivacyPage() {
               </ul>
               <p className="mt-6 pt-6 border-t border-white/[0.07]">
                 To exercise any of these rights, contact us at{' '}
-                <span className="text-teal-400">support@flexetravels.com</span> with "Privacy Request" in the subject line.
+                <span className="text-teal-400">support@flexetravels.com</span> with &ldquo;Privacy Request&rdquo; in the subject line.
               </p>
             </div>
           </div>
@@ -311,7 +311,7 @@ export default function PrivacyPage() {
               <p>
                 We may update this privacy policy from time to time to reflect changes in our practices,
                 technology, or legal requirements. We will notify you of material changes by posting the
-                updated policy on this page and updating the "Last updated" date.
+                updated policy on this page and updating the &ldquo;Last updated&rdquo; date.
               </p>
               <p>
                 Your continued use of FlexeTravels after such modifications constitutes your acceptance

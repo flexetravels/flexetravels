@@ -1,5 +1,7 @@
 // ─── Travel data types ─────────────────────────────────────────────────────
 
+import type { CustomerFareTerms } from '@/lib/fare-conditions';
+
 export interface FlightSegment {
   origin:      string;   // IATA
   destination: string;
@@ -54,6 +56,11 @@ export interface FlightResult {
     fareBrandName?:     string;       // Airline's own fare tier name (e.g. "Economy Light")
     checkedBags?:       number;       // Number of checked bags included (0 = none)
   }>;
+  fareBrandName?: string;              // Selected fare brand copied into checkout cart
+  fareTermsSummary?: string;           // Customer-facing fare summary shown at selection
+  fareTermsCaveats?: string[];         // Caveats acknowledged at checkout/receipt
+  fareTermsConfidence?: string;        // Source confidence label for fare terms
+  fareTermsDetails?: CustomerFareTerms; // Structured fare terms shown at checkout
   // ── Child / infant fare transparency ──────────────────────────────────────
   childFareNote?: string;             // Set when airline doesn't price children in search;
                                       // adult fare shown — child seat confirmed at booking

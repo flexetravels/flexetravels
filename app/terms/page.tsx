@@ -24,11 +24,11 @@ export default function TermsPage() {
         </div>
 
         <div className="relative max-w-4xl mx-auto">
-          <Link href="/chat"
+          <Link href="/#search"
             className="inline-flex items-center gap-2 text-white/40 hover:text-white/70
                        transition-colors mb-8 text-sm">
             <ArrowLeft className="w-4 h-4" />
-            Back to chat
+            Back to search
           </Link>
 
           <h1 className="text-4xl sm:text-5xl font-extrabold text-white mb-4">
@@ -111,7 +111,7 @@ export default function TermsPage() {
                 airline distribution system. By booking a flight, you agree that:
               </p>
               <ul className="list-disc list-inside space-y-2 ml-2">
-                <li>Your booking is subject to the airline's terms and conditions</li>
+                <li>Your booking is subject to the airline&apos;s terms and conditions</li>
                 <li>Cancellation, refund, and change policies are set by the airline, not FlexeTravels</li>
                 <li>You are responsible for meeting all passport and visa requirements</li>
                 <li>Check-in deadlines, baggage allowances, and seat selection are governed by the airline</li>
@@ -139,14 +139,14 @@ export default function TermsPage() {
                 distribution platform. By booking a hotel, you agree that:
               </p>
               <ul className="list-disc list-inside space-y-2 ml-2">
-                <li>Your booking is subject to the hotel's cancellation policy as shown at checkout</li>
+                <li>Your booking is subject to the hotel&apos;s cancellation policy as shown at checkout</li>
                 <li>Rates displayed are accurate at the time of search but may change without notice</li>
                 <li>Occupancy restrictions and minimum stay requirements apply</li>
                 <li>Any special requests (late arrival, high floor, etc.) are noted but not guaranteed</li>
                 <li>Hotel policies regarding check-in times, ID verification, and incidentals are binding</li>
               </ul>
               <p className="mt-4 pt-4 border-t border-white/[0.07]">
-                You will receive a confirmation email with the hotel's direct contact information and cancellation
+                You will receive a confirmation email with the hotel&apos;s direct contact information and cancellation
                 policy details. Changes and cancellations must be requested directly from the hotel or through
                 the confirmation email provided.
               </p>
@@ -172,7 +172,7 @@ export default function TermsPage() {
                 <li>Service interruptions or data loss due to technical failures</li>
               </ul>
               <p className="mt-4 pt-4 border-t border-white/[0.07]">
-                FlexeTravels' maximum liability is limited to the $20 service fee paid, except where prohibited
+                FlexeTravels&apos; maximum liability is limited to the $20 service fee paid, except where prohibited
                 by law. We are not responsible for any indirect, incidental, or consequential damages.
               </p>
             </div>

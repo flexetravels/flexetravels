@@ -57,6 +57,50 @@ function roomBookingToken(room: RoomType): string {
   return raw ? `liteapi_${raw}` : '';
 }
 
+function roomKind(roomName?: string) {
+  const name = (roomName ?? '').toLowerCase();
+  if (name.includes('suite')) return 'Suite';
+  if (name.includes('family') || name.includes('sofa')) return 'Family room';
+  if (name.includes('king')) return 'King room';
+  if (name.includes('queen')) return 'Queen room';
+  if (name.includes('twin') || name.includes('double')) return 'Twin / double';
+  if (name.includes('deluxe') || name.includes('premium')) return 'Premium room';
+  return 'Room';
+}
+
+function imageKindFromText(text?: string) {
+  const value = (text ?? '').toLowerCase();
+  if (value.includes('bath')) return 'Bathroom';
+  if (value.includes('pool') || value.includes('spa')) return 'Pool / wellness';
+  if (value.includes('restaurant') || value.includes('breakfast') || value.includes('bar')) return 'Dining';
+  if (value.includes('lobby') || value.includes('reception')) return 'Lobby';
+  if (value.includes('exterior') || value.includes('front') || value.includes('building')) return 'Exterior';
+  if (value.includes('room') || value.includes('suite') || value.includes('bed')) return 'Room';
+  return 'Hotel area';
+}
+
+function imageForRoom(images: string[], index: number) {
+  if (!images.length) return '';
+  const roomTerms = ['room', 'suite', 'bed', 'guest', 'king', 'queen', 'double', 'twin'];
+  const nonRoomTerms = ['exterior', 'front', 'building', 'lobby', 'reception', 'restaurant', 'bar', 'pool', 'spa', 'gym', 'parking'];
+  const roomLike = images.filter(url => {
+    const value = url.toLowerCase();
+    return roomTerms.some(term => value.includes(term)) && !nonRoomTerms.some(term => value.includes(term));
+  });
+  const pool = roomLike.length ? roomLike : images.length > 1 ? images.slice(1) : images;
+  return pool[index % pool.length] ?? '';
+}
+
+function roomDisplayName(room: RoomType, index: number) {
+  const raw = room.name?.trim();
+  if (raw) return raw;
+  const rate = cheapestRate(room);
+  const board = rate?.boardName ?? (rate?.boardType ? BOARD_LABELS[rate.boardType] ?? rate.boardType : null);
+  const refund = rate?.refundable === true ? 'Refundable' : rate?.refundable === false ? 'Non-refundable' : null;
+  const pieces = [board, refund].filter(Boolean);
+  return pieces.length ? `Room option ${index + 1} · ${pieces.join(' · ')}` : `Room option ${index + 1}`;
+}
+
 // ── Inline hotel detail type + module-level cache ────────────────────────────
 interface InlineHotelDetail {
   images: Array<{ url: string; caption?: string }>;
@@ -90,7 +134,7 @@ function ScoreBadge({ score }: { score: number }) {
   if (score <= 0) return null; // unrated — don't show fabricated score
   const bg =
     score >= 9   ? 'bg-emerald-500'
-    : score >= 8 ? 'bg-teal-600'
+    : score >= 8 ? 'bg-[#0d8a62]'
     : score >= 7 ? 'bg-amber-500'
     : 'bg-orange-500';
   return (
@@ -118,6 +162,7 @@ function HeroGallery({
   const prev = useCallback((e: React.MouseEvent) => { e.stopPropagation(); setIdx(i => (i - 1 + total) % total); }, [total]);
   const next = useCallback((e: React.MouseEvent) => { e.stopPropagation(); setIdx(i => (i + 1) % total); }, [total]);
   const src = unique[idx] ?? '';
+  const imageKind = imageKindFromText(src);
 
   return (
     <div className="relative h-40 sm:h-44 md:h-48 w-full overflow-hidden bg-muted group rounded-t-[13px]">
@@ -149,6 +194,9 @@ function HeroGallery({
       {/* Score badge — top right */}
       <div className="absolute top-2.5 right-2.5 z-10">
         <ScoreBadge score={score} />
+      </div>
+      <div className="absolute left-2.5 top-2.5 z-10 rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-slate-800 shadow-sm">
+        {imageKind}
       </div>
 
       {/* Nav arrows */}
@@ -192,12 +240,18 @@ function RoomSelector({
   onSelectRoom,
   nights,
   currency,
+  images,
+  hotelName,
+  onOpenDetail,
 }: {
   rooms: NonNullable<HotelResult['allRoomTypes']>;
   selectedOfferId: string;
   onSelectRoom: (room: RoomType) => void;
   nights: number;
   currency: string;
+  images: string[];
+  hotelName: string;
+  onOpenDetail?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const visible = rooms.slice(0, 6); // cap at 6 room types
@@ -212,7 +266,7 @@ function RoomSelector({
                    text-foreground transition-colors"
       >
         <span className="flex items-center gap-1.5">
-          <BedDouble className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+          <BedDouble className="w-3.5 h-3.5 text-[#0d8a62] dark:text-[#35d49a]" />
           Room options
           <span className="font-normal text-muted-foreground">({visible.length} available)</span>
         </span>
@@ -232,78 +286,112 @@ function RoomSelector({
               : undefined;
             const board = rate?.boardName ?? (rate?.boardType ? BOARD_LABELS[rate.boardType] ?? rate.boardType : null);
             const refundable = rate?.refundable;
+            const roomImage = imageForRoom(images, i);
+            const roomLabel = roomDisplayName(room, i);
 
             return (
-              <button
+              <div
                 key={room.offerId ?? i}
-                type="button"
-                onClick={() => onSelectRoom(room)}
                 className={cn(
-                  'w-full text-left px-3 py-2.5 flex items-start gap-2.5 transition-colors text-xs',
+                  'w-full px-3 py-2.5 flex items-start gap-2.5 transition-colors text-xs',
                   isActive
-                    ? 'bg-teal-50 dark:bg-teal-900/20'
+                    ? 'bg-[#0d8a62]/10 dark:bg-emerald-950/35'
                     : 'bg-background hover:bg-muted/40'
                 )}
               >
-                {/* Selection indicator */}
-                <div className={cn(
-                  'mt-0.5 w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center flex-shrink-0',
-                  isActive ? 'border-teal-500 bg-teal-500' : 'border-border'
-                )}>
-                  {isActive && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                </div>
+                <button
+                  type="button"
+                  onClick={onOpenDetail}
+                  className="group relative h-14 w-16 flex-shrink-0 overflow-hidden rounded-lg bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0d8a62]"
+                  aria-label={`Open photos for ${roomLabel}`}
+                  title="Open hotel photos"
+                >
+                  {roomImage ? (
+                    <Image
+                      src={roomImage}
+                      alt={`${hotelName} ${roomLabel}`}
+                      fill
+                      className="object-cover transition group-hover:scale-105"
+                      sizes="64px"
+                    />
+                  ) : (
+                    <BedDouble className="m-auto mt-4 h-5 w-5 text-muted-foreground" />
+                  )}
+                  <span className="absolute inset-0 hidden items-center justify-center bg-black/35 text-white group-hover:flex">
+                    <Eye className="h-4 w-4" />
+                  </span>
+                  <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white">
+                    {roomKind(roomLabel)}
+                  </span>
+                </button>
 
-                {/* Room info */}
-                <div className="flex-1 min-w-0">
-                  <p className={cn('font-semibold leading-tight', isActive ? 'text-teal-700 dark:text-teal-300' : 'text-foreground')}>
-                    {room.name ?? `Room Type ${i + 1}`}
-                  </p>
-                  <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                    {room.maxOccupancy && (
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full
-                                       bg-muted text-muted-foreground text-[10px] font-medium">
-                        <Users className="w-2.5 h-2.5" />
-                        {room.maxOccupancy} max
+                <button
+                  type="button"
+                  onClick={() => onSelectRoom(room)}
+                  className="flex min-w-0 flex-1 items-start justify-between gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0d8a62]"
+                  aria-pressed={isActive}
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className={cn('block font-semibold leading-tight', isActive ? 'text-[#0d8a62] dark:text-[#35d49a]' : 'text-foreground')}>
+                      {roomLabel}
+                    </span>
+                    <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                      {isActive && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-[#0d8a62] px-1.5 py-0.5 text-[10px] font-bold text-white">
+                          <Check className="h-2.5 w-2.5" />
+                          Selected
+                        </span>
+                      )}
+                      {room.maxOccupancy && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full
+                                         bg-muted text-muted-foreground text-[10px] font-medium">
+                          <Users className="w-2.5 h-2.5" />
+                          {room.maxOccupancy} max
+                        </span>
+                      )}
+                      {board && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full
+                                         bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400
+                                         text-[10px] font-medium">
+                          <UtensilsCrossed className="w-2.5 h-2.5" />
+                          {board}
+                        </span>
+                      )}
+                      {refundable != null && (
+                        refundable ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full
+                                           bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400
+                                           text-[10px] font-medium">
+                            <ShieldCheck className="w-2.5 h-2.5" />
+                            Refundable
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full
+                                           bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400
+                                           text-[10px] font-medium">
+                            <ShieldOff className="w-2.5 h-2.5" />
+                            Non-refundable
+                          </span>
+                        )
+                      )}
+                    </span>
+                    {roomImage && (
+                      <span className="mt-1 block text-[9px] font-medium text-muted-foreground/70">
+                        Photo from this hotel gallery
                       </span>
                     )}
-                    {board && (
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full
-                                       bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400
-                                       text-[10px] font-medium">
-                        <UtensilsCrossed className="w-2.5 h-2.5" />
-                        {board}
-                      </span>
-                    )}
-                    {refundable != null && (
-                      refundable ? (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full
-                                         bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400
-                                         text-[10px] font-medium">
-                          <ShieldCheck className="w-2.5 h-2.5" />
-                          Refundable
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full
-                                         bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400
-                                         text-[10px] font-medium">
-                          <ShieldOff className="w-2.5 h-2.5" />
-                          Non-refundable
-                        </span>
-                      )
-                    )}
-                  </div>
-                </div>
+                  </span>
 
-                {/* Price */}
-                {ppn != null && (
-                  <div className="text-right flex-shrink-0">
-                    <p className={cn('font-black text-sm', isActive ? 'text-teal-700 dark:text-teal-300' : 'text-foreground')}>
-                      {formatPrice(ppn, rate?.currency ?? currency)}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground">/night</p>
-                  </div>
-                )}
-              </button>
+                  {ppn != null && (
+                    <span className="shrink-0 text-right">
+                      <span className={cn('block font-black text-sm', isActive ? 'text-[#0d8a62] dark:text-[#35d49a]' : 'text-foreground')}>
+                        {formatPrice(ppn, rate?.currency ?? currency)}
+                      </span>
+                      <span className="block text-[10px] text-muted-foreground">/night</span>
+                    </span>
+                  )}
+                </button>
+              </div>
             );
           })}
         </div>
@@ -422,7 +510,7 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
     return (
       <div className={cn(
         'travel-card p-3 flex items-center gap-3',
-        selected && 'ring-2 ring-teal-500 dark:ring-teal-400'
+        selected && 'ring-2 ring-[#0d8a62] dark:ring-[#35d49a]'
       )}>
         <div className="relative w-14 h-14 rounded-lg overflow-hidden bg-muted flex-shrink-0">
           {galleryImages[0] && (
@@ -454,7 +542,7 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
       aria-label={ariaLabel}
       className={cn(
         'travel-card overflow-hidden transition-all duration-200',
-        selected && 'ring-2 ring-teal-500 dark:ring-teal-400 shadow-lg shadow-teal-500/10'
+        selected && 'ring-2 ring-[#0d8a62] dark:ring-[#35d49a] shadow-lg shadow-[#0d8a62]/10'
       )}>
       {/* ── Hero image ──────────────────────────────────────────────────── */}
       {galleryImages.length > 0 ? (
@@ -466,7 +554,7 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
           score={hotel.rating}
         />
       ) : (
-        <div className="h-28 bg-gradient-to-br from-teal-500/20 to-indigo-500/20
+        <div className="h-28 bg-gradient-to-br from-[#0d8a62]/20 to-indigo-500/20
                         flex items-end px-4 pb-3 rounded-t-[13px] relative">
           {isBestDeal && (
             <span className="absolute top-2.5 right-2.5 text-[10px] font-bold text-amber-700 dark:text-amber-300
@@ -531,6 +619,9 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
             onSelectRoom={handleSelectRoom}
             nights={nights}
             currency={hotel.currency}
+            images={galleryImages}
+            hotelName={hotel.name}
+            onOpenDetail={onOpenDetail ? () => onOpenDetail(hotel) : handleToggleDetail}
           />
         )}
 
@@ -580,7 +671,7 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
               <div className="rounded-xl border border-border/40 bg-muted/20 overflow-hidden">
                 {loadingDetail ? (
                   <div className="flex items-center justify-center gap-2 py-6">
-                    <Loader2 className="w-4 h-4 animate-spin text-teal-500" />
+                    <Loader2 className="w-4 h-4 animate-spin text-[#0d8a62]" />
                     <span className="text-xs text-muted-foreground">Loading photos…</span>
                   </div>
                 ) : inlineDetail ? (
@@ -639,7 +730,7 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
                     {onOpenDetail && (
                       <button
                         onClick={() => onOpenDetail(hotel)}
-                        className="flex items-center gap-1 text-xs text-teal-500 hover:text-teal-400 font-medium transition-colors"
+                        className="flex items-center gap-1 text-xs text-[#0d8a62] hover:text-[#35d49a] font-medium transition-colors"
                       >
                         <Eye className="w-3 h-3" />
                         Open full details & rooms
@@ -707,8 +798,8 @@ export function HotelCard({ hotel, onSelect, onOpenDetail, selected, compact, is
               className={cn(
                 'px-4 py-2.5 rounded-xl text-[13px] font-bold transition-all duration-150 flex items-center gap-1.5',
                 selected
-                  ? 'bg-teal-600 dark:bg-teal-500 text-white shadow-lg shadow-teal-500/25'
-                  : 'bg-teal-600 hover:bg-teal-700 text-white shadow-md shadow-teal-500/20 hover:shadow-lg hover:shadow-teal-500/30 active:scale-95'
+                  ? 'bg-[#0d8a62] dark:bg-[#0d8a62] text-white shadow-lg shadow-[#0d8a62]/25'
+                  : 'bg-[#0d8a62] hover:bg-[#0d8a62] text-white shadow-md shadow-[#0d8a62]/20 hover:shadow-lg hover:shadow-[#0d8a62]/30 active:scale-95'
               )}
             >
               {selected ? <><Check className="w-3.5 h-3.5" /> Selected</> : 'Select'}

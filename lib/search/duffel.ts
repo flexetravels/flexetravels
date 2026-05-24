@@ -4,8 +4,8 @@
 // Rate limits: 10 req/s test, 100 req/s live
 
 import type {
-  SearchProvider, FlightSearchParams, HotelSearchParams,
-  NormalizedFlight, NormalizedHotel, FareVariant, Leg,
+  SearchProvider, FlightSearchParams,
+  NormalizedFlight, NormalizedHotel, FareVariant,
 } from './types';
 import { airlineLogo } from '@/lib/utils';
 import {
@@ -47,6 +47,17 @@ interface DuffelOffer {
   conditions?:    DuffelConditions;
 }
 
+const DUFFEL_OFFER_TIMEOUT_MS = 25_000;
+const DUFFEL_FALLBACK_TIMEOUT_MS = 18_000;
+
+function duffelTimeoutMessage() {
+  return 'Duffel live fares took too long to respond. Please retry the search; we only show fares after the provider confirms them.';
+}
+
+function isTimeoutError(err: unknown) {
+  return err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+}
+
 // ─── Enriched NormalizedFlight ────────────────────────────────────────────────
 // Private fields (prefixed _) carry scored flexibility data to the ranking agent.
 export interface EnrichedFlight extends NormalizedFlight {
@@ -70,16 +81,6 @@ function fmtDuration(iso: string): string {
   return parts.join(' ') || iso;
 }
 
-/** Same ISO 8601 duration → integer minutes (used for sort + post-cache filters). */
-function isoToMinutes(iso: string): number {
-  const m = iso.match(/P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?/);
-  if (!m) return 0;
-  const days  = parseInt(m[1] ?? '0');
-  const hours = parseInt(m[2] ?? '0');
-  const mins  = parseInt(m[3] ?? '0');
-  return days * 24 * 60 + hours * 60 + mins;
-}
-
 function mapSegment(seg: DuffelSegment) {
   return {
     origin:           seg.origin?.iata_code ?? '',
@@ -94,36 +95,17 @@ function mapSegment(seg: DuffelSegment) {
 }
 
 function mapOffer(offer: DuffelOffer, cabinClass: string, totalPassengers: number, paxBreakdown?: { adults: number; childrenAges?: number[]; infantCount?: number }): EnrichedFlight {
-  const slices = offer.slices ?? [];
-
-  // Build a generic N-leg array from all slices. Outbound is legs[0], final leg is legs[last].
-  const legs: Leg[] = slices.map(slice => {
-    const segs  = slice.segments ?? [];
-    const first = segs[0];
-    const last  = segs[segs.length - 1];
-    return {
-      origin:          first?.origin?.iata_code      ?? '',
-      destination:     last?.destination?.iata_code  ?? '',
-      departure:       first?.departing_at           ?? '',
-      arrival:         last?.arriving_at             ?? '',
-      duration:        fmtDuration(slice.duration ?? ''),
-      durationMinutes: isoToMinutes(slice.duration ?? ''),
-      stops:           Math.max(0, segs.length - 1),
-      stopAirports:    segs.slice(0, -1).map(s => s.destination?.iata_code ?? ''),
-      segments:        segs.map(mapSegment),
-    };
-  });
-
-  // Convenience handles for the outbound (legs[0]) and (when present) the return (legs[1]).
-  const slice0 = slices[0];
+  // Outbound slice (always present)
+  const slice0 = offer.slices?.[0];
   const segs   = slice0?.segments ?? [];
   const first  = segs[0];
-  const slice1    = slices[1];
+  const last   = segs[segs.length - 1];
+
+  // Return slice (present for round-trip offers)
+  const slice1    = offer.slices?.[1];
   const retSegs   = slice1?.segments ?? [];
   const retFirst  = retSegs[0];
   const retLast   = retSegs[retSegs.length - 1];
-  const outbound  = legs[0];
-  const finalLeg  = legs[legs.length - 1];
 
   // Use the first segment's carrier IATA code for the logo (avs.io CDN — no DNS issues)
   const firstCarrierIata = first?.marketing_carrier?.iata_code ?? '';
@@ -140,23 +122,18 @@ function mapOffer(offer: DuffelOffer, cabinClass: string, totalPassengers: numbe
   const checkedBag = firstPax?.baggages?.find(b => b.type === 'checked');
   const checkedBags = checkedBag?.quantity ?? undefined;
 
-  const isRoundTrip = slices.length === 2 &&
-    outbound?.origin === finalLeg?.destination &&
-    outbound?.destination === finalLeg?.origin;
-
   return {
     id:           offer.id,
     provider:     'duffel',
     airline:      offer.owner?.name ?? 'Unknown',
     airlineLogo:  airlineLogo(firstCarrierIata),
-    origin:       outbound?.origin      ?? '',
-    destination:  outbound?.destination ?? '',
-    departure:    outbound?.departure   ?? '',
-    arrival:      outbound?.arrival     ?? '',
-    duration:        outbound?.duration        ?? '',
-    durationMinutes: outbound?.durationMinutes ?? 0,
-    stops:        outbound?.stops        ?? 0,
-    stopAirports: outbound?.stopAirports ?? [],
+    origin:       first?.origin?.iata_code ?? '',
+    destination:  last?.destination?.iata_code ?? '',
+    departure:    first?.departing_at ?? '',
+    arrival:      last?.arriving_at ?? '',
+    duration:     fmtDuration(slice0?.duration ?? ''),
+    stops:        segs.length - 1,
+    stopAirports: segs.slice(0, -1).map(s => s.destination?.iata_code ?? ''),
     price:        parseFloat(offer.total_amount ?? '0'),
     currency:     offer.total_currency ?? 'USD',
     cabinClass,
@@ -166,18 +143,16 @@ function mapOffer(offer: DuffelOffer, cabinClass: string, totalPassengers: numbe
     searchedAdults: paxBreakdown?.adults ?? totalPassengers,
     childrenAges:   paxBreakdown?.childrenAges,
     infantCount:    paxBreakdown?.infantCount ?? 0,
-    segments:     outbound?.segments ?? [],
-    legs,
-    // ── Legacy round-trip fields (only when the 2-slice offer is a true round-trip) ─
-    ...(slice1 && isRoundTrip ? {
+    segments:     segs.map(mapSegment),
+    // ── Round-trip return leg (populated when offer has 2 slices) ────────────
+    ...(slice1 ? {
       isRoundTrip:        true,
       returnOrigin:       retFirst?.origin?.iata_code ?? '',
       returnDestination:  retLast?.destination?.iata_code ?? '',
       returnDeparture:    retFirst?.departing_at ?? '',
       returnArrival:      retLast?.arriving_at ?? '',
-      returnDuration:        fmtDuration(slice1.duration ?? ''),
-      returnDurationMinutes: isoToMinutes(slice1.duration ?? ''),
-      returnStops:           Math.max(0, retSegs.length - 1),
+      returnDuration:     fmtDuration(slice1.duration ?? ''),
+      returnStops:        retSegs.length - 1,
       returnStopAirports: retSegs.slice(0, -1).map(s => s.destination?.iata_code ?? ''),
       returnSegments:     retSegs.map(mapSegment),
     } : {}),
@@ -245,13 +220,13 @@ function groupIntoFareVariants(
   return results;
 }
 
-/** Rank offer by non-stop status: 0 = all legs non-stop, 1 = at least one leg non-stop, 3 = all legs have stops. */
+/** Rank offer by non-stop status: 0=all-legs non-stop, 1=one leg non-stop, 3=all legs have stops */
 function nonStopRank(offer: DuffelOffer): number {
-  const slices = offer.slices ?? [];
-  if (slices.length === 0) return 3;
-  const nonStopCount = slices.filter(s => (s.segments?.length ?? 0) === 1).length;
-  if (nonStopCount === slices.length) return 0;
-  if (nonStopCount > 0)               return 1;
+  const outNonStop = (offer.slices[0]?.segments?.length ?? 0) === 1;
+  if (offer.slices.length < 2) return outNonStop ? 0 : 3;
+  const retNonStop = (offer.slices[1]?.segments?.length ?? 0) === 1;
+  if (outNonStop && retNonStop) return 0;
+  if (outNonStop || retNonStop) return 1;
   return 3;
 }
 
@@ -274,25 +249,14 @@ export class DuffelProvider implements SearchProvider {
   }
 
   async searchFlights(params: FlightSearchParams): Promise<NormalizedFlight[]> {
-    // NOTE: We deliberately do NOT send max_connections to Duffel. Filters like
-    // maxConnections / avoidAirlines / viaRegions are applied client-side in
-    // aggregator.ts so that one Duffel request serves every filter combination
-    // on the same (origin, dest, dates, pax, cabin) tuple within the cache TTL.
-    // Multi-city takes precedence when params.slices is provided (3+ legs);
-    // otherwise build outbound (+ optional return) from the one-way/round-trip fields.
-    const slices: { origin: string; destination: string; departure_date: string }[] =
-      (params.slices && params.slices.length >= 2)
-        ? params.slices.map(s => ({
-            origin:         s.origin,
-            destination:    s.destination,
-            departure_date: s.departureDate,
-          }))
-        : [
-            { origin: params.origin, destination: params.destination, departure_date: params.departureDate },
-            ...(params.returnDate
-              ? [{ origin: params.destination, destination: params.origin, departure_date: params.returnDate }]
-              : []),
-          ];
+    const slices: { origin: string; destination: string; departure_date: string; max_connections?: number }[] = [
+      { origin: params.origin, destination: params.destination, departure_date: params.departureDate,
+        ...(params.maxConnections != null ? { max_connections: params.maxConnections } : {}) },
+    ];
+    if (params.returnDate) {
+      slices.push({ origin: params.destination, destination: params.origin, departure_date: params.returnDate,
+        ...(params.maxConnections != null ? { max_connections: params.maxConnections } : {}) });
+    }
 
     // Build passenger array: adults + children (2-11) + lap infants (under 2).
     // Duffel live API fully supports infant_without_seat — included here so the offer
@@ -322,18 +286,24 @@ export class DuffelProvider implements SearchProvider {
       throw new Error('Maximum 9 passengers allowed per booking');
     }
 
-    const res = await fetch(`${this.baseUrl}/air/offer_requests?return_offers=true`, {
-      method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify({
-        data: {
-          slices,
-          passengers,
-          cabin_class: params.cabinClass,
-        },
-      }),
-      signal: AbortSignal.timeout(15_000),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}/air/offer_requests?return_offers=true`, {
+        method: 'POST',
+        headers: this.headers,
+        body: JSON.stringify({
+          data: {
+            slices,
+            passengers,
+            cabin_class: params.cabinClass,
+          },
+        }),
+        signal: AbortSignal.timeout(DUFFEL_OFFER_TIMEOUT_MS),
+      });
+    } catch (err) {
+      if (isTimeoutError(err)) throw new Error(duffelTimeoutMessage());
+      throw err;
+    }
 
     if (!res.ok) {
       const txt = await res.text();
@@ -368,7 +338,7 @@ export class DuffelProvider implements SearchProvider {
           body: JSON.stringify({
             data: { slices, passengers: adultOnlyPassengers, cabin_class: params.cabinClass },
           }),
-          signal: AbortSignal.timeout(12_000),
+          signal: AbortSignal.timeout(DUFFEL_FALLBACK_TIMEOUT_MS),
         });
         if (fallbackRes.ok) {
           const fallbackJson = await fallbackRes.json() as { data?: { offers?: DuffelOffer[] } };
@@ -408,7 +378,7 @@ export class DuffelProvider implements SearchProvider {
   }
 
   // Duffel doesn't have a hotel search API — return empty, Amadeus handles hotels
-  async searchHotels(_params: HotelSearchParams): Promise<NormalizedHotel[]> {
+  async searchHotels(): Promise<NormalizedHotel[]> {
     return [];
   }
 }

@@ -87,6 +87,15 @@ export interface BookingRequest {
   guestNationality?:   string;
   /** Price shown to user at search time (USD cents). Used for stale-rate detection. */
   requestedPriceCents?: number;
+  stripePaymentIntentId?: string;
+  stripeAmountCents?: number;
+  stripeCurrency?: string;
+  stripeBookingReference?: string;
+  serviceFeeCents?: number;
+  serviceFeeTaxCents?: number;
+  serviceFeeTaxLabel?: string;
+  serviceFeeTaxRateBps?: number;
+  serviceFeeTaxJurisdiction?: string;
 }
 
 export interface PassengerDetail {
@@ -120,6 +129,10 @@ export interface BookingResult {
   flightBookingId?: string;    // DB booking row ID
   hotelBookingId?:  string;
   flightRef?:       string;    // PNR / Duffel booking reference
+  flightOrderId?:   string;    // Duffel order ID, used internally for provider actions
+  flightAmountCents?: number;
+  flightCurrency?:  string;
+  flightConditions?: Record<string, unknown>;
   hotelRef?:            string;    // LiteAPI booking ID (set after payment SDK completes)
   hotelName?:           string;
   hotelConfirmedTotal?: number;   // confirmed price from prebook (for DB storage)
@@ -129,6 +142,8 @@ export interface BookingResult {
   paymentIntentId?: string;
   currency:         string;
   serviceFeeCents:  number;
+  serviceFeeTaxCents?: number;
+  serviceFeeTaxLabel?: string;
   flexibilityScore?: FlexibilityScore;  // of the booked flight
   /** Set when the live Duffel price differs from what was shown at search time */
   priceChanged?:    boolean;

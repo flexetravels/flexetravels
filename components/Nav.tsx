@@ -9,20 +9,15 @@ import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { Plane, Sparkles, Menu, X, LogOut, User } from 'lucide-react';
+import { Hotel, Menu, Plane, Search, X, LogOut, User } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 const NAV_LINKS = [
-  { href: '/how-it-works', label: 'How It Works' },
-  { href: '/about',        label: 'About'        },
-  { href: '/partners',     label: 'For Partners'  },
+  { href: '/?tab=flights#search', label: 'Flights' },
+  { href: '/?tab=hotels#search',  label: 'Hotels'  },
+  { href: '/contact',             label: 'Support' },
 ];
-
-// Trip-canvas v2 routes the planning UI to /trip when the flag is on.
-// Middleware also redirects /chat → /trip in that case, so this is a perf
-// optimization (avoids the redirect hop) more than a behavioural change.
-const PLAN_HREF = process.env.NEXT_PUBLIC_TRIP_CANVAS === 'true' ? '/trip' : '/chat';
 
 export function Nav() {
   const [scrolled,  setScrolled]  = useState(false);
@@ -75,7 +70,7 @@ export function Nav() {
     router.refresh();
   };
 
-  const hasBg = scrolled || menuOpen;
+  const hasBg = scrolled || menuOpen || pathname === '/contact';
 
   const avatarUrl = user?.user_metadata?.avatar_url;
   const userName  = user?.user_metadata?.full_name ?? user?.email?.split('@')[0] ?? 'User';
@@ -102,7 +97,7 @@ export function Nav() {
           </span>
           <span className="hidden sm:inline text-[10px] text-white/35 border border-white/10
                            rounded-full px-2 py-0.5 font-medium tracking-wide">
-            AI Travel
+            No commission
           </span>
         </Link>
 
@@ -113,7 +108,7 @@ export function Nav() {
               key={l.href}
               href={l.href}
               className={`px-4 py-2 rounded-full text-sm font-medium transition-colors duration-150
-                          ${pathname === l.href
+                          ${(pathname === '/contact' && l.href === '/contact')
                             ? 'text-teal-400 bg-teal-500/10'
                             : 'text-white/55 hover:text-white hover:bg-white/[0.06]'
                           }`}
@@ -126,16 +121,15 @@ export function Nav() {
         {/* ── Right actions ── */}
         <div className="flex items-center gap-2">
           <Link
-            href={PLAN_HREF}
+            href="/?tab=flights#search"
             className="flex items-center gap-1.5 px-4 sm:px-5 py-2.5 rounded-full text-sm font-bold
-                       bg-gradient-to-r from-teal-500 to-cyan-500 text-white
-                       shadow-lg shadow-teal-900/30 hover:shadow-teal-900/50
-                       hover:from-teal-400 hover:to-cyan-400
+                       bg-[#0d8a62] text-white
+                       shadow-lg shadow-[#0d8a62]/20 hover:bg-[#0a6e50]
                        transition-all duration-200 hover:-translate-y-px touch-manipulation"
           >
-            <Sparkles className="w-3.5 h-3.5 flex-shrink-0" />
-            <span className="hidden sm:inline">Plan a Trip</span>
-            <span className="sm:hidden">Plan</span>
+            <Search className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="hidden sm:inline">Search</span>
+            <span className="sm:hidden">Search</span>
           </Link>
 
           {/* Auth: Avatar or Sign In */}
@@ -235,6 +229,8 @@ export function Nav() {
                             : 'text-white/70 hover:text-white hover:bg-white/[0.06]'
                           }`}
             >
+              {l.label === 'Flights' && <Plane className="mr-2 h-4 w-4" />}
+              {l.label === 'Hotels' && <Hotel className="mr-2 h-4 w-4" />}
               {l.label}
             </Link>
           ))}

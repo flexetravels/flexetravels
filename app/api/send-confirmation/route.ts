@@ -53,8 +53,32 @@ const FlightSchema = z.object({
     duration: z.string(), carrier: z.string(), flightNumber: z.string(),
   })).optional(),
   baggage: z.string().optional(),
+  fareBrandName: z.string().optional(),
+  fareTermsSummary: z.string().optional(),
+  fareTermsCaveats: z.array(z.string()).optional(),
+  fareTermsConfidence: z.string().optional(),
+  fareTermsDetails: z.object({
+    displayName: z.string().optional(),
+    customerLabel: z.string().optional(),
+    bestFor: z.string().optional(),
+    confidenceLabel: z.string().optional(),
+    changeTerms: z.object({ simpleSummary: z.string().optional(), uiLabel: z.string().optional() }).optional(),
+    refundTerms: z.object({ simpleSummary: z.string().optional(), uiLabel: z.string().optional() }).optional(),
+    checkoutDisclaimer: z.string().optional(),
+  }).optional(),
   refundable: z.boolean().optional(),
   flexibilityLabel: z.string().optional(),
+  isRoundTrip: z.boolean().optional(),
+  returnOrigin: z.string().optional(),
+  returnDestination: z.string().optional(),
+  returnDeparture: z.string().optional(),
+  returnArrival: z.string().optional(),
+  returnDuration: z.string().optional(),
+  returnSegments: z.array(z.object({
+    origin: z.string(), destination: z.string(),
+    departure: z.string(), arrival: z.string(),
+    duration: z.string(), carrier: z.string(), flightNumber: z.string(),
+  })).optional(),
 }).optional().nullable();
 
 const HotelSchema = z.object({
@@ -82,6 +106,8 @@ const BodySchema = z.object({
   children:  z.number().default(0),
   currency:  z.string().default('USD'),
   serviceFee: z.number().default(20),
+  serviceFeeTax: z.number().default(0),
+  serviceFeeTaxLabel: z.string().optional().default(''),
   bookedAt:  z.string().default(''),
 });
 
@@ -129,18 +155,27 @@ function buildEmailHtml(d: z.infer<typeof BodySchema>): string {
   const cur = fl?.currency ?? ht?.currency ?? d.currency;
   const flightCost = fl?.price ?? 0;
   const hotelCost  = ht?.totalPrice ?? 0;
-  const total = flightCost + hotelCost + d.serviceFee;
+  const total = flightCost + hotelCost + d.serviceFee + d.serviceFeeTax;
 
   // All values interpolated into HTML are run through esc() to prevent HTML
   // injection via passenger names, hotel names, or other user/API-sourced strings.
-  const segmentsHtml = fl?.segments?.map(s => `
+  const allSegments = fl ? [...(fl.segments ?? []), ...(fl.returnSegments ?? [])] : [];
+  const segmentsHtml = allSegments.map(s => `
     <tr>
       <td style="padding:6px 8px;font-family:monospace;font-weight:bold;font-size:13px;color:#0d9488">${esc(s.flightNumber)}</td>
       <td style="padding:6px 8px;font-size:13px">${esc(s.origin)} → ${esc(s.destination)}</td>
       <td style="padding:6px 8px;font-size:13px">${fmtTime(s.departure)} — ${fmtTime(s.arrival)}</td>
       <td style="padding:6px 8px;font-size:13px;color:#6b7280">${esc(s.duration)}</td>
     </tr>
-  `).join('') ?? '';
+  `).join('');
+  const fareTerms = fl?.fareTermsDetails;
+  const fareDetailsHtml = fareTerms ? `
+    <tr><td style="padding:4px 0;font-size:13px;color:#6b7280">Selected fare type</td><td colspan="3" style="padding:4px 0;font-size:13px">${esc(fareTerms.displayName ?? fl?.fareBrandName ?? 'Selected fare')} — ${esc(fareTerms.customerLabel ?? fl?.fareTermsSummary ?? '')}</td></tr>
+    ${fareTerms.bestFor ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280">Best for</td><td colspan="3" style="padding:4px 0;font-size:13px">${esc(fareTerms.bestFor)}</td></tr>` : ''}
+    ${fareTerms.changeTerms?.simpleSummary ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280">Change terms</td><td colspan="3" style="padding:4px 0;font-size:12px">${esc(fareTerms.changeTerms.simpleSummary)} ${fareTerms.changeTerms.uiLabel ? `<span style="color:#0d9488">(${esc(fareTerms.changeTerms.uiLabel)})</span>` : ''}</td></tr>` : ''}
+    ${fareTerms.refundTerms?.simpleSummary ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280">Refund terms</td><td colspan="3" style="padding:4px 0;font-size:12px">${esc(fareTerms.refundTerms.simpleSummary)} ${fareTerms.refundTerms.uiLabel ? `<span style="color:#0d9488">(${esc(fareTerms.refundTerms.uiLabel)})</span>` : ''}</td></tr>` : ''}
+    ${fareTerms.checkoutDisclaimer ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280">Important note</td><td colspan="3" style="padding:4px 0;font-size:12px;color:#92400e">${esc(fareTerms.checkoutDisclaimer)}</td></tr>` : ''}
+  ` : '';
 
   const passengersHtml = d.passengers.map((p, i) => `
     <tr>
@@ -214,12 +249,21 @@ function buildEmailHtml(d: z.infer<typeof BodySchema>): string {
           <td style="padding:4px 0;font-size:13px;color:#6b7280">Arrival</td>
           <td style="padding:4px 0;font-size:13px;font-weight:600">${fmtDate(fl.arrival)} · ${fmtTime(fl.arrival)}</td>
         </tr>
+        ${fl.isRoundTrip && fl.returnDeparture && fl.returnArrival ? `
+        <tr>
+          <td style="padding:4px 0;font-size:13px;color:#6b7280">Return</td>
+          <td style="padding:4px 0;font-size:13px;font-weight:600">${esc(fl.returnOrigin)} → ${esc(fl.returnDestination)}</td>
+          <td style="padding:4px 0;font-size:13px;color:#6b7280">Return time</td>
+          <td style="padding:4px 0;font-size:13px;font-weight:600">${fmtDate(fl.returnDeparture)} · ${fmtTime(fl.returnDeparture)} — ${fmtTime(fl.returnArrival)}</td>
+        </tr>` : ''}
         <tr>
           <td style="padding:4px 0;font-size:13px;color:#6b7280">Stops</td>
           <td style="padding:4px 0;font-size:13px;font-weight:600">${fl.stops === 0 ? 'Non-stop' : `${fl.stops} stop(s)`}</td>
           <td style="padding:4px 0;font-size:13px;color:#6b7280">Fare</td>
-          <td style="padding:4px 0;font-size:13px;font-weight:600">${fmtPrice(fl.price, fl.currency)} per person</td>
+          <td style="padding:4px 0;font-size:13px;font-weight:600">${fmtPrice(fl.price, fl.currency)} total selected fare</td>
         </tr>
+        ${fareDetailsHtml || (fl.fareBrandName || fl.fareTermsSummary ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280">Selected fare type</td><td colspan="3" style="padding:4px 0;font-size:13px">${esc(fl.fareBrandName ?? 'Selected fare')}${fl.fareTermsSummary ? ` — ${esc(fl.fareTermsSummary)}` : ''}</td></tr>` : '')}
+        ${!fareDetailsHtml && fl.fareTermsCaveats?.length ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280">Fare caveats</td><td colspan="3" style="padding:4px 0;font-size:12px;color:#92400e">${fl.fareTermsCaveats.slice(0, 3).map(esc).join('<br/>')}</td></tr>` : ''}
         ${fl.baggage ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280">Baggage</td><td colspan="3" style="padding:4px 0;font-size:13px">${esc(fl.baggage)}</td></tr>` : ''}
         ${fl.flexibilityLabel ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280">Flexibility</td><td colspan="3" style="padding:4px 0;font-size:13px;color:#0d9488;font-weight:600">${esc(fl.flexibilityLabel)}</td></tr>` : ''}
       </table>
@@ -285,6 +329,7 @@ function buildEmailHtml(d: z.infer<typeof BodySchema>): string {
         ${fl ? `<tr><td style="padding:6px 0;font-size:13px;color:#6b7280">Flight (${d.adults} adult${d.adults > 1 ? 's' : ''}${d.children ? ` + ${d.children} child${d.children > 1 ? 'ren' : ''}` : ''})</td><td style="padding:6px 0;font-size:13px;font-weight:600;text-align:right">${fmtPrice(flightCost, cur)}</td></tr>` : ''}
         ${ht ? `<tr><td style="padding:6px 0;font-size:13px;color:#6b7280">Hotel — ${nights(ht.checkIn, ht.checkOut)} night(s)</td><td style="padding:6px 0;font-size:13px;font-weight:600;text-align:right">${fmtPrice(hotelCost, cur)}</td></tr>` : ''}
         <tr><td style="padding:6px 0;font-size:13px;color:#6b7280">FlexeTravels service fee</td><td style="padding:6px 0;font-size:13px;font-weight:600;text-align:right">${fmtPrice(d.serviceFee, cur)}</td></tr>
+        ${d.serviceFeeTax > 0 ? `<tr><td style="padding:6px 0;font-size:13px;color:#6b7280">${esc(d.serviceFeeTaxLabel || 'Tax on service fee')}</td><td style="padding:6px 0;font-size:13px;font-weight:600;text-align:right">${fmtPrice(d.serviceFeeTax, cur)}</td></tr>` : ''}
         <tr style="border-top:2px solid #0d9488"><td style="padding:10px 0;font-size:15px;font-weight:900">Total</td><td style="padding:10px 0;font-size:15px;font-weight:900;color:#0f766e;text-align:right">${fmtPrice(total, cur)}</td></tr>
       </table>
     </div>
@@ -305,7 +350,7 @@ function buildEmailHtml(d: z.infer<typeof BodySchema>): string {
 
     <!-- Footer -->
     <div style="text-align:center;padding-top:16px;border-top:1px solid #e5e7eb">
-      <p style="font-size:12px;font-weight:600;color:#0d9488;margin:0">FlexeTravels — AI-Powered Travel Booking</p>
+      <p style="font-size:12px;font-weight:600;color:#0d9488;margin:0">FlexeTravels — Transparent Travel Booking</p>
       <p style="font-size:11px;color:#9ca3af;margin:4px 0 0">www.flexetravels.com · support@flexetravels.com</p>
       <p style="font-size:11px;color:#9ca3af;margin:4px 0 0">This email serves as your official booking confirmation.</p>
       <div style="text-align:center;margin-top:12px">
