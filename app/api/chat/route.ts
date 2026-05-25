@@ -94,7 +94,6 @@ function buildSystemLegacy(lastUserMsg?: string, state?: string): string {
   const upcomingSeason = nextSeasonMonths[currentSeason];
   const nextMonth = new Date(yr, mo + 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
-  const msg = (lastUserMsg ?? '').toLowerCase();
   let isFlightSelected = false;
   let isHotelSelected = false;
 
@@ -286,23 +285,6 @@ async function fetchUnsplashImage(query: string, accessKey: string): Promise<str
   }
 }
 
-async function fetchHotelImagePool(destination: string, accessKey: string): Promise<string[]> {
-  const queries = [
-    `${destination} luxury hotel exterior architecture`,
-    `${destination} resort swimming pool`,
-    `${destination} hotel room interior design`,
-    `${destination} beachfront resort ocean`,
-    `${destination} hotel rooftop view`,
-  ];
-  const results = await Promise.allSettled(
-    queries.map(q => fetchUnsplashImage(q, accessKey))
-  );
-  return results
-    .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled')
-    .map(r => r.value)
-    .filter(Boolean);
-}
-
 // ─── Rate limiting (in-memory per session, resets on process restart) ──────────
 const rateLimits = new Map<string, { count: number; windowStart: number }>();
 
@@ -453,10 +435,7 @@ export async function POST(req: Request) {
         cause:   e?.cause,
         status:  e?.response?.status,
       });
-      // Return a useful message to the client instead of the generic default.
-      return e?.message
-        ? `Chat error: ${e.message.slice(0, 240)}`
-        : 'Chat error — please retry. If this keeps happening contact support.';
+      return 'Chat is temporarily unavailable. Please retry, search flights or hotels directly, or contact support@flexetravels.com.';
     },
     execute: async (dataStream) => {
       const requestStart = Date.now();

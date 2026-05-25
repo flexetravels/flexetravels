@@ -11,13 +11,12 @@ const SERVICE_KEY  =
   process.env.SUPABASE_SERVICE_KEY ??
   process.env.SUPABASE_SERVICE_ROLE_KEY ??
   '';
-const ANON_KEY     = process.env.SUPABASE_ANON_KEY ?? '';
 
 export const DB_AVAILABLE = !!(SUPABASE_URL && SERVICE_KEY);
 
-// Log DB status at startup so Railway logs make it obvious
+// Log DB status at startup without exposing provider host details in logs.
 if (typeof process !== 'undefined') {
-  console.log('[DB] DB_AVAILABLE:', DB_AVAILABLE, '| URL:', SUPABASE_URL ? SUPABASE_URL.slice(0, 40) + '…' : '(not set)');
+  console.log('[DB] DB_AVAILABLE:', DB_AVAILABLE);
 }
 
 // ─── Low-level helpers ────────────────────────────────────────────────────────

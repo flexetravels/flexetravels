@@ -1,6 +1,14 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const path = require('path');
 
+const scriptSrc = [
+  "'self'",
+  "'unsafe-inline'",
+  ...(process.env.NODE_ENV === 'development' ? ["'unsafe-eval'"] : []),
+  'https://js.stripe.com',
+  'https://payment-wrapper.liteapi.travel',
+].join(' ');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Standalone output — minimal Docker image for Railway (~50MB vs ~500MB)
@@ -67,7 +75,7 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://payment-wrapper.liteapi.travel",
+              `script-src ${scriptSrc}`,
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https: blob:",
               "font-src 'self' data:",

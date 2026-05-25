@@ -382,13 +382,13 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
         selected && 'ring-2 ring-[#0d8a62] dark:ring-[#35d49a] shadow-[#0d8a62]/10 shadow-lg'
       )}>
       {/* ── Top bar: airline + badges ─────────────────────────────────────── */}
-      <div className="px-4 pt-3.5 pb-0 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
+      <div className="px-4 pt-3.5 pb-0 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-2.5">
           <AirlineLogo
             airline={flight.airline}
             iataCode={flight.segments?.[0]?.carrier ?? flight.airlineLogo}
           />
-          <div>
+          <div className="min-w-0">
             <p className="text-[13px] font-semibold text-foreground leading-none">{flight.airline}</p>
             {/* Show first-leg flight number if available, else provider */}
             {segs[0]?.flightNumber ? (
@@ -404,7 +404,7 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:justify-end">
           {isBestValue && (
             <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300
                              bg-amber-50 dark:bg-amber-900/25 border border-amber-200 dark:border-amber-700
@@ -442,10 +442,10 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
           <span>Outbound</span>
         </div>
       )}
-      <div className="px-3 sm:px-4 py-3 sm:py-4 flex items-center gap-2">
+      <div className="grid grid-cols-[minmax(76px,1fr)_minmax(88px,1.2fr)_minmax(76px,1fr)] items-center gap-2 px-3 py-3 sm:flex sm:px-4 sm:py-4">
         {/* Departure */}
-        <div className="flex-shrink-0 text-left">
-          <p className="text-xl sm:text-2xl font-black text-foreground tracking-tight leading-none">
+        <div className="min-w-0 text-left sm:flex-shrink-0">
+          <p className="whitespace-nowrap text-lg font-black text-foreground tracking-tight leading-none sm:text-2xl">
             {formatTime(flight.departure)}
           </p>
           <p className="text-[12px] sm:text-[13px] font-bold text-foreground/70 mt-0.5 uppercase tracking-wider">
@@ -457,7 +457,7 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
         </div>
 
         {/* Middle: duration label + path line */}
-        <div className="flex-1 flex flex-col items-center justify-center px-2 min-w-0">
+        <div className="flex min-w-0 flex-col items-center justify-center px-1 sm:flex-1 sm:px-2">
           <p className="text-[10px] text-muted-foreground mb-1 font-medium tracking-wide">
             {flight.duration}
           </p>
@@ -469,8 +469,8 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
         </div>
 
         {/* Arrival */}
-        <div className="flex-shrink-0 text-right">
-          <p className="text-xl sm:text-2xl font-black text-foreground tracking-tight leading-none">
+        <div className="min-w-0 text-right sm:flex-shrink-0">
+          <p className="whitespace-nowrap text-lg font-black text-foreground tracking-tight leading-none sm:text-2xl">
             {formatTime(flight.arrival)}
           </p>
           <p className="text-[12px] sm:text-[13px] font-bold text-foreground/70 mt-0.5 uppercase tracking-wider">
@@ -496,9 +496,9 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
           </div>
 
           {/* Return hero row */}
-          <div className="px-3 sm:px-4 py-3 sm:py-4 flex items-center gap-2">
-            <div className="flex-shrink-0 text-left">
-              <p className="text-xl sm:text-2xl font-black text-foreground tracking-tight leading-none">
+          <div className="grid grid-cols-[minmax(76px,1fr)_minmax(88px,1.2fr)_minmax(76px,1fr)] items-center gap-2 px-3 py-3 sm:flex sm:px-4 sm:py-4">
+            <div className="min-w-0 text-left sm:flex-shrink-0">
+              <p className="whitespace-nowrap text-lg font-black text-foreground tracking-tight leading-none sm:text-2xl">
                 {formatTime(flight.returnDeparture)}
               </p>
               <p className="text-[12px] sm:text-[13px] font-bold text-foreground/70 mt-0.5 uppercase tracking-wider">
@@ -509,7 +509,7 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
               </p>
             </div>
 
-            <div className="flex-1 flex flex-col items-center justify-center px-2 min-w-0">
+            <div className="flex min-w-0 flex-col items-center justify-center px-1 sm:flex-1 sm:px-2">
               <p className="text-[10px] text-muted-foreground mb-1 font-medium tracking-wide">
                 {flight.returnDuration}
               </p>
@@ -520,8 +520,8 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
               />
             </div>
 
-            <div className="flex-shrink-0 text-right">
-              <p className="text-xl sm:text-2xl font-black text-foreground tracking-tight leading-none">
+            <div className="min-w-0 text-right sm:flex-shrink-0">
+              <p className="whitespace-nowrap text-lg font-black text-foreground tracking-tight leading-none sm:text-2xl">
                 {formatTime(flight.returnArrival ?? '')}
               </p>
               <p className="text-[12px] sm:text-[13px] font-bold text-foreground/70 mt-0.5 uppercase tracking-wider">
@@ -564,7 +564,7 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
               Compare the fare brand and included bags before choosing a higher priced option.
             </p>
           )}
-          <div className="flex gap-1.5">
+          <div className="grid gap-1.5 sm:grid-cols-3">
           {variantLabels.map((label, i) => {
             const v = variants[i];
             const isActive = i === selectedVariantIdx;
@@ -592,7 +592,7 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
                 onClick={() => setSelectedVariantIdx(i)}
                 title={`${terms.displayName} · ${formatPrice(v.price, v.currency)} · ${terms.summary}`}
                 className={cn(
-                  'flex-1 rounded-lg px-1.5 py-2 text-center transition-all border text-left',
+                  'min-w-0 rounded-lg px-2 py-2 text-left transition-all border',
                   isActive
                     ? i === variants.length - 1 && variants.length > 1
                       ? 'bg-emerald-50 dark:bg-emerald-900/25 border-emerald-400 dark:border-emerald-600'
@@ -603,7 +603,7 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
                 )}
               >
                 <div className={cn(
-                  'text-[9px] font-bold uppercase tracking-wide',
+                  'break-words text-[9px] font-bold uppercase tracking-wide',
                   isActive
                     ? i === variants.length - 1 && variants.length > 1 ? 'text-emerald-700 dark:text-emerald-300'
                     : i > 0 && i < variants.length - 1 ? 'text-amber-700 dark:text-amber-300'
@@ -619,7 +619,7 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
                   {formatPrice(v.price, v.currency)}
                 </div>
                 <div className={cn(
-                  'text-[7.5px] leading-tight mt-0.5',
+                  'break-words text-[7.5px] leading-tight mt-0.5',
                   hasCaveat
                     ? 'text-amber-600 dark:text-amber-300'
                     : isActive ? 'text-[#0d8a62] dark:text-[#35d49a]' : 'text-muted-foreground/55'
@@ -629,7 +629,7 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
                 {/* Fare condition summary — only show when conditions differ between variants */}
                 {!allSameConditions && (
                   <div className={cn(
-                    'text-[7.5px] leading-tight mt-0.5',
+                    'break-words text-[7.5px] leading-tight mt-0.5',
                     isActive ? 'text-muted-foreground/70' : 'text-muted-foreground/50'
                   )}>
                     {v.changeable
@@ -655,8 +655,8 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
       })()}
 
       {/* ── Price + CTA row ───────────────────────────────────────────────── */}
-      <div className="mx-4 mb-3 pt-3 border-t border-border/60 flex items-center justify-between gap-3">
-        <div className="flex-1 min-w-0">
+      <div className="mx-4 mb-3 flex flex-col gap-3 border-t border-border/60 pt-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 flex-1">
           <div className="text-xs text-muted-foreground">
             {selectedFareLabel ? (
               <>
@@ -666,15 +666,15 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
             ) : null}
             {flight.cabinClass?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) ?? 'Economy'}
             {selectedFareDiffLabel && (
-              <span className="ml-2 rounded-full bg-[#0d8a62]/10 px-2 py-0.5 text-[10px] font-bold text-[#0d8a62] dark:text-[#35d49a]">
+              <span className="mt-1 inline-flex max-w-full rounded-full bg-[#0d8a62]/10 px-2 py-0.5 text-[10px] font-bold text-[#0d8a62] dark:text-[#35d49a] sm:ml-2 sm:mt-0">
                 {selectedFareDiffLabel}
               </span>
             )}
           </div>
-          <div className="mt-1.5 rounded-lg border border-white/10 bg-black/25 px-2.5 py-2 text-[11px] text-muted-foreground">
+          <div className="mt-1.5 max-w-full overflow-hidden rounded-lg border border-white/10 bg-black/25 px-2.5 py-2 text-[11px] text-muted-foreground">
             {selectedFareTerms ? (
               <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-1.5">
+                <div className="flex min-w-0 flex-col items-start gap-1.5 sm:flex-row sm:flex-wrap sm:items-center">
                   <span className="font-semibold text-foreground">{selectedFareTerms.customerLabel}</span>
                   <span className={cn(
                     'rounded-full border px-1.5 py-0.5 text-[9px] font-bold',
@@ -692,9 +692,9 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
                   </p>
                   <div className="mt-1 space-y-1">
                     {selectedFareTerms.possibleBenefits.slice(0, 3).map(item => (
-                      <div key={`${item.label}-${item.value}`} className="flex items-start justify-between gap-2 rounded-md bg-white/[0.03] px-2 py-1">
-                        <span className="text-foreground/85">{item.value}</span>
-                        <span className="shrink-0 rounded-full border border-white/10 px-1.5 py-0.5 text-[8px] text-muted-foreground">
+                      <div key={`${item.label}-${item.value}`} className="flex min-w-0 flex-col gap-1 rounded-md bg-white/[0.03] px-2 py-1 sm:flex-row sm:items-start sm:justify-between sm:gap-2">
+                        <span className="break-words text-foreground/85">{item.value}</span>
+                        <span className="w-fit max-w-full rounded-full border border-white/10 px-1.5 py-0.5 text-[8px] leading-tight text-muted-foreground">
                           {item.uiLabel}
                         </span>
                       </div>
@@ -754,8 +754,8 @@ export function FlightCard({ flight, onSelect, selected, compact, isBestValue }:
             )}
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="text-right">
+        <div className="flex items-center justify-between gap-3 sm:justify-end">
+          <div className="text-left sm:text-right">
             <p className="text-xl font-black text-foreground leading-none">
               {formatPrice(displayPrice, displayCurrency)}
             </p>

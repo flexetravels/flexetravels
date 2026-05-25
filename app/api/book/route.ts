@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { NextResponse } from 'next/server';
 import { logger } from '@/lib/logger';
+import { checkAdminAuth } from '@/lib/auth';
 
 // ─── Validation schema ─────────────────────────────────────────────────────────
 const bookingSchema = z.object({
@@ -24,6 +25,17 @@ const bookingSchema = z.object({
 
 export async function POST(req: Request) {
   try {
+    if (process.env.ALLOW_LEGACY_BOOK_API !== 'true') {
+      return NextResponse.json(
+        { error: 'This booking endpoint is retired. Please use secure checkout.' },
+        { status: 410 },
+      );
+    }
+
+    if (!checkAdminAuth(req)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await req.json();
     const parsed = bookingSchema.safeParse(body);
 
@@ -59,8 +71,9 @@ export async function POST(req: Request) {
         );
       }
       const errText = await verifyRes.text();
+      console.error('[/api/book] Offer verification failed:', verifyRes.status, errText.slice(0, 500));
       return NextResponse.json(
-        { error: `Offer verification failed: ${errText.slice(0, 200)}` },
+        { error: 'Offer verification failed. Please search again for current prices.' },
         { status: 502 }
       );
     }
@@ -118,7 +131,7 @@ export async function POST(req: Request) {
       const message = errJson?.errors?.[0]?.message ?? errText.slice(0, 300);
       logger.flightBooking({ api: 'duffel', offerId, success: false, httpStatus: orderRes.status, errorCode: errCode, error: `Booking failed: ${message}` });
       return NextResponse.json(
-        { error: `Booking failed: ${message}` },
+        { error: 'Booking failed. Please contact support with your session reference.' },
         { status: 502 }
       );
     }

@@ -12,6 +12,7 @@
 - Added `POST /api/search/hotels` for validated LiteAPI-backed hotel search.
 - Added flight and hotel filters that only expose actionable controls for the data returned by providers.
 - Provider failures are logged server-side and converted to customer-safe retry or availability messages before reaching the browser.
+- Added a single hotel date-range picker so check-in and check-out are selected in one calendar.
 
 ### Flight Integrity And Fare Terms
 - Treat Duffel `offerId` as the selected fare source of truth.
@@ -25,12 +26,18 @@
 - Added Canadian province/territory tax calculation for the service fee and an explicit US `0%` in-app sales tax default until nexus rules are configured.
 - `/api/book-trip` verifies paid PaymentIntent metadata before provider booking.
 - Confirmation email and booking records include selected fare caveats, payment metadata, provider references, PNR/order references when returned, and support/debug context.
+- Retired the legacy direct `/api/book` endpoint by default so live flight booking must go through verified Stripe checkout before Duffel order creation.
 
 ### Hotel UX
 - Hotel search appears in the same search module area as flight search when the hotel tab is selected.
 - Room images open in a lightbox, while room selection uses a separate booking control.
 - Room rows show refundable/breakfast indicators and price differences vs the lowest visible room rate.
 - Removed non-actionable hotel filters and the board filter from the main filter surface.
+
+### Mobile And Security Hardening
+- Reworked flight fare cards for narrow iOS/Android screens so fare variants, confidence labels, fare terms, price, and `Select` controls wrap inside the card instead of clipping horizontally.
+- Removed production `unsafe-eval` from the Content Security Policy while keeping development compatibility.
+- Sanitized customer-facing AI/chat and payment errors so internal provider/model details stay in server logs.
 
 ### Documentation
 - Added `docs/BOOKING_FUNNEL.md` with search, cart, fare-term, hotel-room, checkout, tax, receipt, and deployment details.

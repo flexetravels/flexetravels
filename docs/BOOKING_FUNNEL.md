@@ -92,7 +92,13 @@ Stripe setup is payment-first:
 4. Stripe charges the verified fare plus the `$20` FlexeTravels fee plus applicable tax on the FlexeTravels fee.
 5. `/api/book-trip` verifies the PaymentIntent status, amount, currency, offer id, fare amount, fee, and tax metadata before creating provider bookings.
 
+The legacy direct `/api/book` route is retired by default and must not be used for customer checkout. Production bookings go through `/api/stripe/prepare` and `/api/book-trip` so the provider fare plus the FlexeTravels fee and applicable service-fee tax are paid and verified before Duffel or LiteAPI booking calls run.
+
 Provider fares returned by Duffel/LiteAPI already include provider-visible taxes and fees. FlexeTravels calculates sales tax only on the FlexeTravels service fee. Canadian billing regions use province-specific GST/HST/PST-style rules in `lib/tax.ts`; US billing currently applies `0%` in-app sales tax until a tax nexus rule is configured.
+
+## Customer-Facing Error Boundaries
+
+Provider, model, and payment errors are logged server-side with enough detail for support and debugging. Browser responses must stay customer-safe: no raw provider names in error strings, no stack traces, no API payload fragments, no internal fallback details, and no raw model or Stripe exception messages.
 
 ## Records And Customer Receipts
 

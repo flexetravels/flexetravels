@@ -134,6 +134,38 @@ function dateOffset(days: number) {
   return d.toISOString().slice(0, 10);
 }
 
+function parseYmd(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, (month || 1) - 1, day || 1);
+}
+
+function toYmd(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function addDaysYmd(value: string, days: number) {
+  const date = parseYmd(value);
+  date.setDate(date.getDate() + days);
+  return toYmd(date);
+}
+
+function formatTripDate(value: string) {
+  const date = parseYmd(value);
+  return new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).format(date);
+}
+
+function monthLabel(date: Date) {
+  return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(date);
+}
+
+function nightsBetween(start: string, end: string) {
+  const ms = parseYmd(end).getTime() - parseYmd(start).getTime();
+  return Math.max(1, Math.round(ms / 86_400_000));
+}
+
 function durationMinutes(duration?: string) {
   if (!duration) return 999_999;
   const h = duration.match(/(\d+)h/)?.[1] ?? '0';
@@ -346,6 +378,175 @@ function DateInput({
       >
         <CalendarDays className="h-4 w-4" />
       </button>
+    </div>
+  );
+}
+
+function HotelDateRangePicker({
+  checkIn,
+  checkOut,
+  onCheckInChange,
+  onCheckOutChange,
+}: {
+  checkIn: string;
+  checkOut: string;
+  onCheckInChange: (value: string) => void;
+  onCheckOutChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selectingCheckout, setSelectingCheckout] = useState(false);
+  const [visibleMonth, setVisibleMonth] = useState(() => {
+    const date = parseYmd(checkIn);
+    date.setDate(1);
+    return date;
+  });
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const today = dateOffset(1);
+  const stayNights = nightsBetween(checkIn, checkOut);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!pickerRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('mousedown', onPointerDown);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', onPointerDown);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+
+  const openCalendar = (mode: 'checkin' | 'checkout') => {
+    const month = parseYmd(mode === 'checkin' ? checkIn : checkOut);
+    month.setDate(1);
+    setVisibleMonth(month);
+    setSelectingCheckout(mode === 'checkout');
+    setOpen(true);
+  };
+
+  const chooseDate = (value: string) => {
+    if (value < today) return;
+    if (!selectingCheckout || value <= checkIn) {
+      onCheckInChange(value);
+      onCheckOutChange(addDaysYmd(value, 1));
+      setSelectingCheckout(true);
+      return;
+    }
+    onCheckOutChange(value);
+    setOpen(false);
+    setSelectingCheckout(false);
+  };
+
+  const renderMonth = (monthDate: Date) => {
+    const first = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+    const daysInMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate();
+    const leading = first.getDay();
+    const cells: Array<string | null> = [
+      ...Array.from({ length: leading }, () => null),
+      ...Array.from({ length: daysInMonth }, (_, index) => toYmd(new Date(monthDate.getFullYear(), monthDate.getMonth(), index + 1))),
+    ];
+
+    return (
+      <div className="min-w-0">
+        <div className="mb-2 text-center text-sm font-black text-white">{monthLabel(monthDate)}</div>
+        <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold uppercase text-zinc-500">
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => <span key={day}>{day}</span>)}
+        </div>
+        <div className="mt-1 grid grid-cols-7 gap-1">
+          {cells.map((value, index) => {
+            if (!value) return <span key={`blank-${index}`} className="h-9" />;
+            const disabled = value < today;
+            const isStart = value === checkIn;
+            const isEnd = value === checkOut;
+            const inRange = value > checkIn && value < checkOut;
+            return (
+              <button
+                key={value}
+                type="button"
+                disabled={disabled}
+                onClick={() => chooseDate(value)}
+                className={cn(
+                  'flex h-9 items-center justify-center rounded-lg text-sm font-bold transition',
+                  disabled && 'cursor-not-allowed text-zinc-700',
+                  !disabled && 'text-zinc-200 hover:bg-white/10',
+                  inRange && 'bg-[#0d8a62]/15 text-[#35d49a]',
+                  (isStart || isEnd) && 'bg-[#0d8a62] text-white shadow-sm shadow-[#0d8a62]/25 hover:bg-[#0d8a62]',
+                )}
+                aria-label={value}
+              >
+                {Number(value.slice(-2))}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const nextMonth = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1);
+
+  return (
+    <div ref={pickerRef} className="relative">
+      <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-zinc-300">Dates</span>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={() => openCalendar('checkin')}
+          className={cn(searchInputClass, 'flex h-auto min-h-12 items-center justify-between px-3 py-2 text-left')}
+          aria-label="Open hotel date calendar"
+        >
+          <span className="min-w-0">
+            <span className="block text-[10px] font-bold uppercase tracking-wide text-zinc-500">Check in</span>
+            <span className="block truncate">{formatTripDate(checkIn)}</span>
+          </span>
+          <CalendarDays className="h-4 w-4 shrink-0 text-zinc-400" />
+        </button>
+        <button
+          type="button"
+          onClick={() => openCalendar('checkout')}
+          className={cn(searchInputClass, 'flex h-auto min-h-12 items-center justify-between px-3 py-2 text-left')}
+          aria-label="Open hotel date calendar"
+        >
+          <span className="min-w-0">
+            <span className="block text-[10px] font-bold uppercase tracking-wide text-zinc-500">Check out</span>
+            <span className="block truncate">{formatTripDate(checkOut)}</span>
+          </span>
+          <CalendarDays className="h-4 w-4 shrink-0 text-zinc-400" />
+        </button>
+      </div>
+      <p className="mt-1 text-xs font-semibold text-zinc-500">{stayNights} night{stayNights === 1 ? '' : 's'}</p>
+
+      {open && (
+        <div className="absolute left-0 z-50 mt-2 w-full rounded-xl border border-white/10 bg-[#080a09] p-3 shadow-2xl shadow-black/70 sm:w-[40rem]">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1))}
+              className="rounded-lg border border-white/10 px-3 py-2 text-sm font-black text-zinc-300 hover:bg-white/10"
+            >
+              Prev
+            </button>
+            <div className="text-center text-xs font-bold text-zinc-400">
+              {selectingCheckout ? 'Choose check-out' : 'Choose check-in'}
+            </div>
+            <button
+              type="button"
+              onClick={() => setVisibleMonth(nextMonth)}
+              className="rounded-lg border border-white/10 px-3 py-2 text-sm font-black text-zinc-300 hover:bg-white/10"
+            >
+              Next
+            </button>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {renderMonth(visibleMonth)}
+            <div className="hidden sm:block">{renderMonth(nextMonth)}</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -925,7 +1126,7 @@ export default function HomePage() {
   };
 
   return (
-    <main className="booking-brand-dark min-h-screen bg-[#050505] text-white">
+    <main className="booking-brand-dark min-h-screen overflow-x-hidden bg-[#050505] text-white">
       <TopNav activeTab={activeTab} onTabChange={changeTab} />
 
       <section className="relative overflow-hidden border-b border-white/10 bg-black" id="search">
@@ -1074,12 +1275,14 @@ export default function HomePage() {
                   <Field label="Destination" className="lg:col-span-3" tone="dark">
                     <input className={searchInputClass} value={hotelDestination} onChange={e => setHotelDestination(e.target.value)} placeholder="City or region" />
                   </Field>
-                  <Field label="Check in" className="lg:col-span-2" tone="dark">
-                    <DateInput value={checkIn} onChange={setCheckIn} ariaLabel="Check in date" />
-                  </Field>
-                  <Field label="Check out" className="lg:col-span-2" tone="dark">
-                    <DateInput value={checkOut} onChange={setCheckOut} min={checkIn} ariaLabel="Check out date" />
-                  </Field>
+                  <div className="lg:col-span-4">
+                    <HotelDateRangePicker
+                      checkIn={checkIn}
+                      checkOut={checkOut}
+                      onCheckInChange={setCheckIn}
+                      onCheckOutChange={setCheckOut}
+                    />
+                  </div>
                   <div className="lg:col-span-2">
                     <CountControl label="Adults" value={hotelAdults} min={1} max={9} onChange={setHotelAdults} />
                   </div>

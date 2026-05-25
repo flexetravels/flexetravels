@@ -48,6 +48,6 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     console.error('[/api/stripe/create-payment-intent] Error:', err);
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    return NextResponse.json({ error: 'Could not start payment. Please try again.' }, { status: 500 });
   }
 }
