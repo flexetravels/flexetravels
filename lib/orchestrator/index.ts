@@ -25,6 +25,7 @@ import { bookingHandler }      from '@/lib/handlers/booking';
 import { cancellationHandler } from '@/lib/handlers/cancellation';
 import { disruptionHandler }   from '@/lib/handlers/disruption';
 import { creditHandler }       from '@/lib/handlers/credit';
+import { recordSupplierBookingAndLedger } from '@/lib/payments/ledger';
 
 export { DB_AVAILABLE };
 
@@ -223,6 +224,8 @@ async function _persistBooking(
           service_fee_tax_label:    req.serviceFeeTaxLabel ?? result.serviceFeeTaxLabel,
           service_fee_tax_rate_bps: req.serviceFeeTaxRateBps,
           service_fee_tax_jurisdiction: req.serviceFeeTaxJurisdiction,
+          payment_quote_id:         req.stripePaymentQuoteId,
+          payment_transaction_id:   req.stripePaymentTransactionId,
           duffel_offer_id:          req.flightOfferId,
           duffel_order_id:          result.flightOrderId,
           passenger_count:          req.passengers.length + (req.childPassengers?.length ?? 0),
@@ -267,6 +270,36 @@ async function _persistBooking(
           },
           processed: true,
         });
+        await recordSupplierBookingAndLedger({
+          quoteId: req.stripePaymentQuoteId,
+          paymentTransactionId: req.stripePaymentTransactionId,
+          supplier: 'duffel',
+          productType: 'flight',
+          supplierOfferId: req.flightOfferId,
+          supplierBookingId: result.flightOrderId ?? result.flightRef,
+          supplierReference: result.flightRef,
+          status: 'confirmed',
+          amountCents: flightAmountCents,
+          currency: flightCurrency,
+          chargeAmountCents: req.stripeAmountCents,
+          serviceFeeCents: req.serviceFeeCents ?? result.serviceFeeCents,
+          serviceFeeTaxCents: req.serviceFeeTaxCents ?? result.serviceFeeTaxCents ?? 0,
+          rawRequest: {
+            offer_id: req.flightOfferId,
+            origin: req.flightOrigin ?? req.originAirport,
+            destination: req.flightDestination,
+            departure_date: req.flightDepartureDate,
+            cabin_class: req.flightCabinClass,
+            passenger_count: req.passengers.length + (req.childPassengers?.length ?? 0),
+          },
+          rawResponse: {
+            booking_ref: result.flightRef,
+            order_id: result.flightOrderId,
+            amount_cents: flightAmountCents,
+            currency: flightCurrency,
+            conditions: result.flightConditions ?? null,
+          },
+        }).catch(e => console.warn('[orchestrator] supplier/ledger write failed:', String(e)));
       } else {
         console.error('[orchestrator] _persistBooking: bookings.create returned null for flight', result.flightRef);
       }
@@ -301,10 +334,41 @@ async function _persistBooking(
           childCount:   req.childPassengers?.length ?? 0,
           nationality:  req.guestNationality,
           sessionId:    req.sessionId,
+          stripe_payment_intent_id: req.stripePaymentIntentId,
+          payment_quote_id: req.stripePaymentQuoteId,
+          payment_transaction_id: req.stripePaymentTransactionId,
         },
       });
       if (bk) {
         console.log('[orchestrator] hotel booking row created:', bk.id, '| ref:', result.hotelRef, '| amount:', hotelAmountCents);
+        await recordSupplierBookingAndLedger({
+          quoteId: req.stripePaymentQuoteId,
+          paymentTransactionId: req.stripePaymentTransactionId,
+          supplier: 'liteapi',
+          productType: 'hotel',
+          supplierOfferId: req.hotelRateId,
+          supplierBookingId: result.hotelRef,
+          supplierReference: result.hotelRef,
+          status: result.requiresHotelPayment ? 'requires_action' : 'confirmed',
+          amountCents: hotelAmountCents,
+          currency: result.currency ?? 'USD',
+          chargeAmountCents: req.flightOfferId ? undefined : req.stripeAmountCents,
+          serviceFeeCents: req.flightOfferId ? undefined : (req.serviceFeeCents ?? result.serviceFeeCents),
+          serviceFeeTaxCents: req.flightOfferId ? undefined : (req.serviceFeeTaxCents ?? result.serviceFeeTaxCents ?? 0),
+          rawRequest: {
+            hotel_id: req.hotelId,
+            rate_id: req.hotelRateId,
+            check_in: req.hotelCheckIn,
+            check_out: req.hotelCheckOut,
+            guest_count: req.passengers.length + (req.childPassengers?.length ?? 0),
+          },
+          rawResponse: {
+            booking_ref: result.hotelRef,
+            hotel_name: result.hotelName,
+            confirmed_total: result.hotelConfirmedTotal,
+            requires_hotel_payment: result.requiresHotelPayment ?? false,
+          },
+        }).catch(e => console.warn('[orchestrator] hotel supplier/ledger write failed:', String(e)));
       } else {
         console.error('[orchestrator] _persistBooking: bookings.create returned null for hotel', result.hotelRef);
       }

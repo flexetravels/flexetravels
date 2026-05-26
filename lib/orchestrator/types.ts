@@ -88,6 +88,8 @@ export interface BookingRequest {
   /** Price shown to user at search time (USD cents). Used for stale-rate detection. */
   requestedPriceCents?: number;
   stripePaymentIntentId?: string;
+  stripePaymentQuoteId?: string;
+  stripePaymentTransactionId?: string;
   stripeAmountCents?: number;
   stripeCurrency?: string;
   stripeBookingReference?: string;

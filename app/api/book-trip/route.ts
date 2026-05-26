@@ -8,6 +8,11 @@ import { book } from '@/lib/orchestrator';
 import { getPaymentIntent, refundPaymentIntent } from '@/lib/stripe';
 import { db } from '@/lib/db/client';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
+import {
+  getOrCreatePaymentTransaction,
+  hasConfirmedSupplierBooking,
+  recordSupplierBookingAndLedger,
+} from '@/lib/payments/ledger';
 
 // ─── Request schema ────────────────────────────────────────────────────────────
 
@@ -137,6 +142,8 @@ export async function POST(req: Request) {
   let verifiedServiceFeeTaxLabel: string | undefined;
   let verifiedServiceFeeTaxRateBps: number | undefined;
   let verifiedServiceFeeTaxJurisdiction: string | undefined;
+  let verifiedPaymentQuoteId: string | undefined;
+  let verifiedPaymentTransactionId: string | undefined;
   if (stripeKey) {
     if (!paymentIntentId) {
       console.error('[book-trip] Stripe configured but no paymentIntentId provided — rejecting');
@@ -229,6 +236,44 @@ export async function POST(req: Request) {
         verifiedServiceFeeTaxLabel = pi.metadata?.service_fee_tax_label;
         verifiedServiceFeeTaxRateBps = pi.metadata?.service_fee_tax_rate_bps ? parseInt(pi.metadata.service_fee_tax_rate_bps, 10) : undefined;
         verifiedServiceFeeTaxJurisdiction = pi.metadata?.service_fee_tax_jurisdiction;
+        verifiedPaymentQuoteId = pi.metadata?.payment_quote_id || undefined;
+
+        const paymentTransaction = await getOrCreatePaymentTransaction({
+          quoteId: verifiedPaymentQuoteId,
+          providerPaymentId: pi.id,
+          status: 'succeeded',
+          amountCents: pi.amount,
+          currency: pi.currency,
+          expectedAmountCents: expectedAmount !== undefined ? parseInt(expectedAmount, 10) : pi.amount,
+          expectedCurrency: pi.currency,
+          rawPayload: {
+            id: pi.id,
+            status: pi.status,
+            amount: pi.amount,
+            currency: pi.currency,
+            metadata: {
+              booking_reference: pi.metadata?.booking_reference,
+              flight_offer_id: pi.metadata?.flight_offer_id,
+              expected_amount: pi.metadata?.expected_amount,
+              flight_price_cents: pi.metadata?.flight_price_cents,
+              service_fee_cents: pi.metadata?.service_fee_cents,
+              service_fee_tax_cents: pi.metadata?.service_fee_tax_cents,
+              payment_quote_id: pi.metadata?.payment_quote_id,
+            },
+          },
+        }).catch(e => {
+          console.warn('[book-trip] payment transaction ledger write failed:', String(e));
+          return null;
+        });
+        verifiedPaymentTransactionId = paymentTransaction?.id;
+
+        if (await hasConfirmedSupplierBooking(verifiedPaymentTransactionId)) {
+          console.warn('[book-trip] PaymentIntent already has a confirmed supplier booking — rejecting duplicate:', paymentIntentId);
+          return NextResponse.json(
+            { success: false, error: 'This payment has already been used for a confirmed booking. Please contact support if you need help.' },
+            { status: 409 },
+          );
+        }
 
         console.log('[book-trip] Payment verified ✓', paymentIntentId, `$${(pi.amount / 100).toFixed(2)} ${pi.currency.toUpperCase()}`);
       } catch (verifyErr) {
@@ -285,6 +330,8 @@ export async function POST(req: Request) {
       originAirport,
       guestNationality,
       stripePaymentIntentId: paymentIntentId,
+      stripePaymentQuoteId: verifiedPaymentQuoteId,
+      stripePaymentTransactionId: verifiedPaymentTransactionId,
       stripeAmountCents: verifiedStripeAmountCents,
       stripeCurrency: verifiedStripeCurrency,
       stripeBookingReference: verifiedStripeBookingReference,
@@ -296,6 +343,29 @@ export async function POST(req: Request) {
     });
 
     if (!result.ok) {
+      await recordSupplierBookingAndLedger({
+        quoteId: verifiedPaymentQuoteId,
+        paymentTransactionId: verifiedPaymentTransactionId,
+        supplier: resolvedFlight ? 'duffel' : resolvedHotel ? 'liteapi' : 'manual',
+        productType: resolvedFlight ? 'flight' : resolvedHotel ? 'hotel' : 'flight',
+        supplierOfferId: resolvedFlight ?? resolvedHotel,
+        status: 'failed',
+        amountCents: verifiedRequestedPriceCents ?? 0,
+        currency: verifiedStripeCurrency ?? 'USD',
+        failureReason: result.error,
+        rawRequest: {
+          flightOfferId: resolvedFlight,
+          hotelRateId: resolvedHotel,
+          flightOrigin,
+          flightDestination,
+          flightDepartureDate,
+          hotelId,
+          hotelCheckIn,
+          hotelCheckOut,
+        },
+        rawResponse: { error: result.error },
+      }).catch(e => console.warn('[book-trip] failed supplier ledger write failed:', String(e)));
+
       let refundAttempted = false;
       let refundError: string | undefined;
       if (stripeKey && paymentIntentId) {

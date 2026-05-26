@@ -28,8 +28,10 @@ import { z } from 'zod';
 import { createPaymentIntent } from '@/lib/stripe';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import { calculateServiceFeeTax, SERVICE_FEE_CENTS } from '@/lib/tax';
+import { createPaymentQuoteRecord } from '@/lib/payments/ledger';
 
 const schema = z.object({
+  sessionId:         z.string().max(128).optional(),
   bookingReference:  z.string().min(1),
   customerEmail:     z.string().email().optional(),
   // Flight offer ID — required when charging a flight fare; used to fetch real price from Duffel
@@ -38,6 +40,7 @@ const schema = z.object({
   flightPriceCents:  z.number().int().min(0).max(600_000).default(0),   // max $6 000 per pax
   flightCurrency:    z.string().min(3).max(3).default('USD'),
   flightDescription: z.string().optional(),   // e.g. "YYZ → CUN (Air Canada)"
+  hotelRateId:       z.string().max(512).optional(),
   hotelTotalCents:   z.number().int().min(0).optional(),  // informational only — not charged here
   passengerCount:    z.number().int().min(1).optional(),  // total passengers for metadata
   acceptPriceChange: z.boolean().default(false),
@@ -115,9 +118,9 @@ export async function POST(req: Request) {
   }
 
   const {
-    bookingReference, customerEmail, flightOfferId,
+    sessionId, bookingReference, customerEmail, flightOfferId,
     flightPriceCents: clientFlightPriceCents,
-    flightCurrency, flightDescription, hotelTotalCents, passengerCount, acceptPriceChange,
+    flightCurrency, flightDescription, hotelRateId, hotelTotalCents, passengerCount, acceptPriceChange,
     billingCountry, billingRegion,
   } = parsed.data;
 
@@ -211,9 +214,38 @@ export async function POST(req: Request) {
   const description = `FlexeTravels booking: ${flightLabel} ${flightFormatted} + service fee ${feeFormatted}${taxPart} = ${totalFormatted}${passengerSuffix}${hotelSuffix}`;
 
   try {
+    const quote = await createPaymentQuoteRecord({
+      sessionId,
+      bookingReference,
+      market: billingCountry === 'CA' || billingCountry === 'US' ? billingCountry : 'OTHER',
+      supplier: flightOfferId && hotelRateId ? 'mixed' : flightOfferId ? 'duffel' : 'liteapi',
+      flightOfferId,
+      hotelRateId,
+      fareAmountCents: verifiedFlightPriceCents,
+      fareCurrency: verifiedCurrency,
+      feeAmountCents: SERVICE_FEE_CENTS,
+      feeCurrency: verifiedCurrency,
+      taxCents: serviceFeeTax.taxCents,
+      taxLabel: serviceFeeTax.taxLabel,
+      chargeAmountCents: totalAmount,
+      chargeCurrency: verifiedCurrency,
+      metadata: {
+        customer_email_present: !!customerEmail,
+        passenger_count: passengerCount ?? 1,
+        hotel_total_cents: hotelTotalCents ?? 0,
+        billing_country: serviceFeeTax.country,
+        billing_region: serviceFeeTax.region,
+        service_fee_tax_rate_bps: serviceFeeTax.taxRateBps,
+        service_fee_tax_jurisdiction: serviceFeeTax.jurisdiction,
+      },
+    }).catch(e => {
+      console.warn('[stripe/prepare] payment quote write failed:', String(e));
+      return null;
+    });
+
     const result = await createPaymentIntent({
       bookingReference,
-      bookingType:   'flight',
+      bookingType:   flightOfferId ? 'flight' : 'hotel',
       customerEmail,
       amount:        totalAmount,
       currency:      verifiedCurrency,
@@ -228,6 +260,7 @@ export async function POST(req: Request) {
         service_fee_tax_label: serviceFeeTax.taxLabel,
         service_fee_tax_rate_bps: String(serviceFeeTax.taxRateBps),
         service_fee_tax_jurisdiction: serviceFeeTax.jurisdiction,
+        payment_quote_id: quote?.id ?? '',
         billing_country: serviceFeeTax.country,
         billing_region: serviceFeeTax.region,
         total_cents:        String(totalAmount),
@@ -241,6 +274,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       clientSecret:    result.clientSecret,
       paymentIntentId: result.paymentIntentId,
+      paymentQuoteId:  quote?.id,
       amount:          result.amount,
       currency:        result.currency,
       // Breakdown so the frontend can display what's being charged

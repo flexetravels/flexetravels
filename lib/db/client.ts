@@ -260,6 +260,16 @@ export const db = {
       });
       return rows?.[0] ?? null;
     },
+    async getOpenBySessionCartHash(sessionId: string, cartHash: string): Promise<PaymentQuoteRow | null> {
+      const rows = await rest<PaymentQuoteRow[]>('GET', 'payment_quotes', {
+        filter: {
+          session_id: `eq.${sessionId}`,
+          cart_hash:  `eq.${cartHash}`,
+          status:     'eq.open',
+        },
+      });
+      return rows?.[0] ?? null;
+    },
   },
 
   paymentTransactions: {
@@ -282,6 +292,12 @@ export const db = {
     async create(data: Partial<SupplierBookingRow>): Promise<SupplierBookingRow | null> {
       const rows = await rest<SupplierBookingRow[]>('POST', 'supplier_bookings', { body: data as Json, returning: true });
       return rows?.[0] ?? null;
+    },
+    async listByPaymentTransactionId(paymentTransactionId: string): Promise<SupplierBookingRow[]> {
+      const rows = await rest<SupplierBookingRow[]>('GET', 'supplier_bookings', {
+        filter: { payment_transaction_id: `eq.${paymentTransactionId}` },
+      });
+      return rows ?? [];
     },
   },
 

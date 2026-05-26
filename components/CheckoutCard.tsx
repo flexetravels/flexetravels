@@ -1249,12 +1249,14 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          sessionId,
           bookingReference:  `pre_${Date.now()}`,
           customerEmail:     passengers[0]?.email,
           flightOfferId:     flight?.id ?? undefined,
           flightPriceCents,
           flightCurrency,
           flightDescription: flightDesc,
+          hotelRateId: hotel?.bookingToken,
           hotelTotalCents: hotel ? Math.round((hotel.totalPrice ?? 0) * 100) : undefined,
           passengerCount: adults + children,
           billingCountry,
@@ -1311,7 +1313,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
     } finally {
       setPreparing(false);
     }
-  }, [passengers, flight, hotel, adults, children, billingCountry, billingRegion, taxPreview.taxCents]);
+  }, [sessionId, passengers, flight, hotel, adults, children, billingCountry, billingRegion, taxPreview.taxCents]);
 
   // ── Pay → then Book ──────────────────────────────────────────────────────────
   // 1. Confirm payment with Stripe
