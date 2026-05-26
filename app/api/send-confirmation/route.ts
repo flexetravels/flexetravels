@@ -382,6 +382,14 @@ export async function POST(req: Request) {
 
   // ── Booking existence verification ───────────────────────────────────────────
   // Require a real booking to exist before sending any email.
+  // The itinerary/receipt body is still rendered from the request payload because
+  // the checkout client has the normalized card data, but these reference checks
+  // prevent a caller from using one paid booking to email arbitrary fake refs.
+  if (!DB_AVAILABLE && process.env.NODE_ENV === 'production') {
+    console.error('[send-confirmation] DB unavailable in production — refusing to send unverified confirmation');
+    return NextResponse.json({ error: 'Confirmation service temporarily unavailable' }, { status: 503 });
+  }
+
   if (DB_AVAILABLE) {
     if (!tripId && !paymentIntentId) {
       return NextResponse.json(
@@ -392,11 +400,26 @@ export async function POST(req: Request) {
     let verified = false;
     if (tripId) {
       const trip = await db.trips.get(tripId).catch(() => null);
-      verified = !!(trip && trip.session_id === sessionId);
+      if (trip && trip.session_id === sessionId) {
+        const bookings = await db.bookings.getByTrip(tripId).catch(() => []);
+        const flightRefMatches = !data.flightRef || bookings.some(b =>
+          b.type === 'flight' && (b.booking_ref === data.flightRef || b.provider_ref === data.flightRef)
+        );
+        const hotelRefMatches = !data.hotelRef || bookings.some(b =>
+          b.type === 'hotel' && (b.booking_ref === data.hotelRef || b.provider_ref === data.hotelRef)
+        );
+        verified = flightRefMatches && hotelRefMatches && (bookings.length > 0 || !!paymentIntentId);
+      }
     }
     if (!verified && paymentIntentId) {
       const payment = await db.payments.getByIntentId(paymentIntentId).catch(() => null);
-      verified = !!payment;
+      if (payment) {
+        const booking = data.flightRef
+          ? await db.bookings.getByBookingRef(data.flightRef).catch(() => null)
+          : await db.bookings.getByBookingRef(payment.booking_ref).catch(() => null);
+        const paymentRefMatches = !data.flightRef || payment.booking_ref === data.flightRef;
+        verified = paymentRefMatches && !!booking && booking.provider === 'duffel' && booking.status === 'confirmed';
+      }
     }
     if (!verified) {
       console.warn('[send-confirmation] No verified booking found — rejecting email request');

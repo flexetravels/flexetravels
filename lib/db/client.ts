@@ -127,6 +127,10 @@ export const db = {
       const rows = await rest<BookingRow[]>('GET', 'bookings', { filter: { provider_ref: `eq.${ref}` } });
       return rows?.[0] ?? null;
     },
+    async getByBookingRef(ref: string): Promise<BookingRow | null> {
+      const rows = await rest<BookingRow[]>('GET', 'bookings', { filter: { booking_ref: `eq.${ref}` } });
+      return rows?.[0] ?? null;
+    },
     async update(id: string, data: Partial<BookingRow>): Promise<BookingRow | null> {
       const rows = await rest<BookingRow[]>('PATCH', 'bookings', {
         filter: { id: `eq.${id}` }, body: data, returning: true,
