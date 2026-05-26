@@ -16,6 +16,7 @@ import {
 import { cn, formatPrice, formatDate, formatTime, iataToCity } from '@/lib/utils';
 import type { FlightResult, HotelResult } from '@/lib/types';
 import { calculateServiceFeeTax, CANADA_PROVINCES, SERVICE_FEE_CENTS, US_STATES } from '@/lib/tax';
+import { splitFlightFare } from '@/lib/checkout/totals';
 
 // ─── Stripe CDN loader ─────────────────────────────────────────────────────────
 
@@ -1736,27 +1737,24 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
                   </div>
                   {/* Per-passenger breakdown when mixed adults + children */}
                   {children > 0 && (() => {
-                    const totalPax = flight.passengers ?? (adults + children);
-                    if (totalPax <= 1) return null;
-                    const perPax = Math.round(flight.price / totalPax * 100) / 100;
+                    const breakdown = splitFlightFare({
+                      totalAmount: flight.price,
+                      currency: flight.currency,
+                      adults,
+                      childAges: childAges ?? [],
+                    });
+                    if (breakdown.lines.length <= 1) return null;
                     return (
-                    <div className="pl-3 space-y-0.5">
-                      <div className="flex items-center justify-between text-[10px] text-muted-foreground/70">
-                        <span>{adults} × Adult</span>
-                        <span>~{formatPrice(perPax * adults, flight.currency)}</span>
-                      </div>
-                      {childAges?.map((age, i) => (
-                        <div key={i} className="flex items-center justify-between text-[10px] text-muted-foreground/70">
-                          <span>{age <= 1 ? `Infant (age ${age})` : age <= 3 ? `Toddler (age ${age})` : `Child (age ${age})`}</span>
-                          <span>{age <= 1 ? 'Lap seat' : `~${formatPrice(perPax, flight.currency)}`}</span>
+                    <div data-testid="flight-pax-breakdown" className="pl-3 space-y-0.5">
+                      {breakdown.lines.map(line => (
+                        <div key={line.label} className="flex items-center justify-between text-[10px] text-muted-foreground/70">
+                          <span>{line.label}</span>
+                          <span>{line.zeroFare ? 'included' : formatPrice(line.amount, flight.currency)}</span>
                         </div>
-                      )) ?? (
-                        <div className="flex items-center justify-between text-[10px] text-muted-foreground/70">
-                          <span>{children} × Child</span>
-                          <span>~{formatPrice(perPax * children, flight.currency)}</span>
-                        </div>
-                      )}
-                      <p className="text-[9px] text-muted-foreground/50 italic">Exact child fares confirmed at booking</p>
+                      ))}
+                      <p className="text-[9px] text-muted-foreground/50 italic">
+                        Passenger rows sum to the {formatPrice(flight.price, flight.currency)} total.
+                      </p>
                     </div>
                     );
                   })()}
@@ -1764,7 +1762,7 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
               )}
               {hotel && !hotel.isSample && (
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Hotel ({hotel.name})</span>
+                  <span>Hotel paid separately after booking ({hotel.name})</span>
                   <span>{formatPrice(hotel.totalPrice, hotel.currency)}</span>
                 </div>
               )}
@@ -1778,6 +1776,12 @@ export function CheckoutCard({ flight, hotel, onClose, onConfirmed, initialAdult
               <div className="flex items-center justify-between text-[10px] text-muted-foreground/70">
                 <span>Applicable tax is calculated from your billing location before payment.</span>
                 <span>Shown next</span>
+              </div>
+              <div className="flex items-center justify-between border-t border-border/40 pt-2 text-xs">
+                <span className="font-bold text-foreground">Charged by card before booking</span>
+                <span data-testid="card-total-amount" className="font-black text-foreground">
+                  {formatPrice(totalChargeCents / 100, chargeCurrency)}
+                </span>
               </div>
             </div>
 

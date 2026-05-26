@@ -223,7 +223,7 @@ test.describe('Checkout UI — breakdown sums to flight total', () => {
     expect(text).toMatch(/\$654/);
   });
 
-  test('single-currency trip shows Trip total = flight + hotel + $20 fee', async ({ page }) => {
+  test('flight + hotel cart shows card charge separately from hotel payment', async ({ page }) => {
     await page.goto('/');
     await page.evaluate(() => {
       window.sessionStorage.setItem('ft_cart', JSON.stringify({
@@ -248,9 +248,10 @@ test.describe('Checkout UI — breakdown sums to flight total', () => {
     });
     await page.goto('/booking');
 
-    const tripTotal = page.getByTestId('trip-total-amount');
-    await expect(tripTotal).toBeVisible();
-    // 654 + 697 + 20 = 1371
-    await expect(tripTotal).toContainText('$1,371');
+    const cardTotal = page.getByTestId('card-total-amount');
+    await expect(cardTotal).toBeVisible();
+    // Default billing location is BC: $654 flight + $20 service fee + $1 GST on fee.
+    await expect(cardTotal).toContainText('$675');
+    await expect(page.getByText(/Hotel paid separately after booking/)).toBeVisible();
   });
 });
