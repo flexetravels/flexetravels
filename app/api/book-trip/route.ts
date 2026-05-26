@@ -393,6 +393,15 @@ export async function POST(req: Request) {
 
     const d = result.data!;
 
+    if (d.success && sessionId) {
+      db.userSessions.incrementBookings(sessionId).catch(e =>
+        console.warn('[book-trip] user session booking increment failed:', String(e))
+      );
+      db.searchLogs.markConvertedForSession(sessionId, resolvedFlight ?? resolvedHotel).catch(e =>
+        console.warn('[book-trip] search conversion update failed:', String(e))
+      );
+    }
+
     // ── Persist passenger data for verification (chargebacks, airline disputes) ─
     // Non-blocking — booking already confirmed, we just log to DB.
     if (d.success) {

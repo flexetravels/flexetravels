@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { aggregateFlights, NA_AIRPORTS } from '@/lib/search/aggregator';
 import { getClientIp, rateLimit } from '@/lib/rate-limit';
 import { publicSearchWarnings } from '@/lib/public-errors';
+import { db, DB_AVAILABLE } from '@/lib/db/client';
 
 const AIRPORTS: Record<string, string> = {
   ...NA_AIRPORTS,
@@ -36,6 +37,10 @@ const schema = z.object({
   childrenAges: z.array(z.number().int().min(0).max(17)).max(8).default([]),
   cabinClass: z.enum(['economy', 'premium_economy', 'business', 'first']).default('economy'),
   maxConnections: z.number().int().min(0).max(2).optional(),
+  sessionId: z.string().max(128).optional(),
+  tripCanvasId: z.string().uuid().optional(),
+  legId: z.string().max(80).optional(),
+  searchIntent: z.string().max(160).optional(),
 });
 
 function resolveAirport(value: string): string | null {
@@ -50,6 +55,12 @@ function isFutureDate(value: string): boolean {
   today.setHours(0, 0, 0, 0);
   const date = new Date(`${value}T00:00:00`);
   return !Number.isNaN(date.getTime()) && date > today;
+}
+
+function sanitizeSessionId(input: string | undefined): string {
+  return (input ?? `web_${Date.now()}`)
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+    .slice(0, 64) || 'anon';
 }
 
 export async function POST(req: Request) {
@@ -122,6 +133,44 @@ export async function POST(req: Request) {
   const publicMessages = publicSearchWarnings('flight', result.errors, {
     hasResults: result.flights.length > 0,
   });
+  const sessionId = sanitizeSessionId(parsed.data.sessionId);
+  if (DB_AVAILABLE) {
+    const uaHash = req.headers.get('user-agent')?.slice(0, 100) ?? undefined;
+    db.userSessions.upsert(sessionId, uaHash).catch(() => {});
+    db.searchLogs.create({
+      session_id:       sessionId,
+      search_type:      'flight',
+      trip_canvas_id:   parsed.data.tripCanvasId ?? null,
+      leg_id:           parsed.data.legId ?? null,
+      origin,
+      destination,
+      depart_date:      parsed.data.departureDate,
+      return_date:      returnDate ?? null,
+      adults:           parsed.data.adults,
+      children:         childrenAges.length,
+      cabin_class:      parsed.data.cabinClass,
+      child_ages:       childrenAges,
+      filters:          {
+        tripType: parsed.data.tripType,
+        maxConnections: parsed.data.maxConnections ?? null,
+      },
+      request_payload:  {
+        origin: parsed.data.origin,
+        destination: parsed.data.destination,
+        departureDate: parsed.data.departureDate,
+        returnDate,
+        adults: parsed.data.adults,
+        childrenAges,
+        cabinClass: parsed.data.cabinClass,
+      },
+      provider_errors:  result.errors,
+      search_intent:    parsed.data.searchIntent ?? 'direct flight search',
+      result_count:     result.flights.length,
+      provider_sources: result.sources,
+      latency_ms:       result.latencyMs,
+      converted:        false,
+    }).catch(e => console.warn('[/api/search/flights] search log write failed:', String(e)));
+  }
 
   return NextResponse.json({
     flights: result.flights,
@@ -130,6 +179,7 @@ export async function POST(req: Request) {
     publicMessages,
     issueCount: result.errors.length,
     latencyMs: result.latencyMs,
+    sessionId,
     query: {
       origin,
       destination,

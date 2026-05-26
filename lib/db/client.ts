@@ -314,6 +314,19 @@ export const db = {
       const rows = await rest<SearchLogRow[]>('POST', 'search_logs', { body: data, returning: true });
       return rows?.[0] ?? null;
     },
+    async markConvertedForSession(sessionId: string, selectedResultId?: string): Promise<void> {
+      if (!DB_AVAILABLE) return;
+      await rest('PATCH', 'search_logs', {
+        filter: {
+          session_id: `eq.${sessionId}`,
+          converted:  'eq.false',
+        },
+        body: {
+          converted:          true,
+          selected_result_id: selectedResultId ?? null,
+        },
+      });
+    },
   },
 
   // ── AI + Product Analytics ───────────────────────────────────────────────

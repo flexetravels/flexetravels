@@ -12,7 +12,7 @@ import { FlightCard } from '@/components/FlightCard';
 import { HotelCard } from '@/components/HotelCard';
 import { HotelDetailModal } from '@/components/HotelDetailModal';
 import { createBookingCart, parseTravelerAges } from '@/lib/booking-funnel';
-import { cn, formatPrice } from '@/lib/utils';
+import { cn, formatPrice, generateSessionId } from '@/lib/utils';
 import type { FlightResult, HotelResult } from '@/lib/types';
 
 type ActiveTab = 'flights' | 'hotels';
@@ -44,6 +44,20 @@ interface HotelSearchResponse {
 }
 
 const SEARCH_SESSION_KEY = 'ft_search_session';
+const WEB_SESSION_ID_KEY = 'ft_session';
+
+function getWebSessionId(): string {
+  if (typeof window === 'undefined') return `web_${Date.now()}`;
+  try {
+    const existing = window.localStorage.getItem(WEB_SESSION_ID_KEY);
+    if (existing) return existing;
+    const next = `web_${generateSessionId()}`;
+    window.localStorage.setItem(WEB_SESSION_ID_KEY, next);
+    return next;
+  } catch {
+    return `web_${Date.now()}`;
+  }
+}
 
 interface SearchSessionSnapshot {
   activeTab?: ActiveTab;
@@ -1026,10 +1040,12 @@ export default function HomePage() {
       return;
     }
     try {
+      const sessionId = getWebSessionId();
       const res = await fetch('/api/search/flights', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          sessionId,
           origin,
           destination,
           departureDate,
@@ -1070,10 +1086,12 @@ export default function HomePage() {
       return;
     }
     try {
+      const sessionId = getWebSessionId();
       const res = await fetch('/api/search/hotels', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          sessionId,
           destination: hotelDestination,
           checkIn,
           checkOut,
@@ -1104,7 +1122,7 @@ export default function HomePage() {
   }
 
   function persistAndCheckout() {
-    const sessionId = `web_${Date.now()}`;
+    const sessionId = getWebSessionId();
     const ages = selectedFlight ? (selectedFlight.childrenAges ?? childAges) : hotelChildAges;
     const cartData = createBookingCart({
       flight: selectedFlight,
