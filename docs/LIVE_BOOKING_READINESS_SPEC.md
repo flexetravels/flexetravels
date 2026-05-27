@@ -1,12 +1,35 @@
 # FlexeTravels Live Booking Readiness Spec
 
-Last updated: 2026-05-26
+Last updated: 2026-05-27
 
 ## Purpose
 
 This spec defines the requirements, design, and task list required before FlexeTravels allows a real customer to complete a live flight booking on the published website.
 
 The goal is not only that the UI looks ready. The goal is that search, selection, payment, supplier booking, confirmation email, database records, audit trail, and recovery paths are all verifiably correct.
+
+## Current Status Snapshot
+
+Related rehearsal runbook: `docs/LIVE_BOOKING_REHEARSAL.md`.
+
+Latest reviewed local commit: `85ec593 test: cover booking confirmation emails`.
+
+Recently completed:
+
+- Duffel balance threshold guard before Stripe payment setup and supplier booking.
+- Customer-safe mapping for low supplier balance and booking failures.
+- Confirmation email unit test with mocked SMTP transport.
+- Support lookup dashboard by session id, email, Stripe PaymentIntent id, quote id, booking reference, PNR, and supplier id.
+- Support dashboard `Recent Activity` path so an admin can begin without already knowing a customer identifier.
+- Backend/type/build verification for the latest local commit.
+
+Still blocking live rehearsal:
+
+- Railway production env vars must be verified by an authenticated Railway CLI session or in the Railway dashboard.
+- Latest pushed commit must be confirmed live on Railway. The last check still showed the previous `/admin/support` build without `Recent Activity`.
+- SMTP production delivery must be tested against a real inbox.
+- A build/version endpoint should be added so support can prove which commit Railway is serving.
+- Controlled live booking rehearsal has not yet been run.
 
 ## Scope
 
@@ -285,7 +308,7 @@ Full launch gate also requires:
 
 ### Phase 1. Stop The Bleeding
 
-- [ ] Add a release checklist file that records commit, environment, test commands, and results.
+- [x] Add a release checklist file that records commit, environment, test commands, and results.
 - [ ] Block production deploys unless required CI checks pass.
 - [ ] Decide whether Railway deploys from `origin/main` or `production/main`; document one source of truth.
 - [ ] Add changed-file lint gate or clean existing lint debt.
@@ -296,29 +319,29 @@ Full launch gate also requires:
 - [ ] Add tests for direct homepage hotel search session persistence.
 - [ ] Add conversion tracking test from selected result to checkout quote.
 - [ ] Add Supabase verification script for latest session funnel reconstruction.
-- [ ] Add safe error category fields to failed search logs.
+- [ ] Add safe error category fields to failed search logs. Public warning sanitization exists, but durable safe error categories still need verification in `search_logs`.
 
 ### Phase 3. Payment And Supplier Booking Safety
 
 - [ ] Add integration test for `/api/stripe/prepare` with verified Duffel offer shape.
-- [ ] Add test for fare changed/expired state.
+- [ ] Add test for fare changed/expired state. A pure price/currency-change test exists; API/UI blocking behavior still needs coverage.
 - [ ] Add test for PaymentIntent metadata mismatch rejection.
 - [ ] Add duplicate `/api/book-trip` idempotency test.
 - [ ] Add paid-but-not-booked recovery state and support instructions.
-- [ ] Add Duffel balance threshold guard before live booking.
+- [x] Add Duffel balance threshold guard before live booking.
 
 ### Phase 4. Customer Communication
 
-- [ ] Define confirmation email schema.
-- [ ] Add email payload unit tests.
+- [x] Define confirmation email schema.
+- [x] Add email payload unit tests.
 - [ ] Store email send status and provider response id.
-- [ ] Include PNR/order reference, fare, fee, tax, terms, caveats, and support details.
+- [x] Include PNR/order reference, fare, fee, tax, terms, caveats, and support details.
 - [ ] Add resend/support lookup path for failed emails.
 
 ### Phase 5. Admin And Support Observability
 
-- [ ] Build support query by session id, email, PaymentIntent id, booking reference, and PNR/order id.
-- [ ] Show search logs, selected offer, quote, payment, supplier booking, ledger, email status, and errors in one support view.
+- [x] Build support query by session id, email, PaymentIntent id, booking reference, and PNR/order id.
+- [ ] Show search logs, selected offer, quote, payment, supplier booking, ledger, email status, and errors in one support view. Search/quote/payment/supplier/ledger lookup exists; email status and full error timeline still need persistence and display.
 - [ ] Add safe server error logging for provider failures.
 - [ ] Add dashboard counts for failed searches, prepare failures, book-trip failures, and email failures.
 
@@ -345,7 +368,8 @@ Full launch gate also requires:
 - [ ] Confirm confirmation email sender/domain.
 - [ ] Run one owner-approved low-risk live booking.
 - [ ] Verify Stripe charge, Duffel balance deduction, ticket issuance, PNR/order reference, email, Supabase rows, and ledger entries.
-- [ ] Document the rehearsal result and rollback/recovery plan.
+- [x] Document the rehearsal checklist and rollback/recovery plan.
+- [ ] Document the actual rehearsal result after the live transaction.
 
 ## Definition Of Done
 
