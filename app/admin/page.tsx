@@ -5,6 +5,7 @@
 // Auth: set ADMIN_SECRET in .env.local; pass as ?secret=… in URL or X-Admin-Secret header.
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import Link from 'next/link';
 
 // ─── Types (mirrors lib/logger.ts) ────────────────────────────────────────────
 
@@ -400,6 +401,13 @@ export default function AdminPage() {
           }}>
             {loading ? '↻ Loading…' : '↻ Refresh'}
           </button>
+          <Link href="/admin/support" style={{
+            background: '#064e3b', border: '1px solid #047857', borderRadius: 6,
+            color: '#d1fae5', cursor: 'pointer', padding: '6px 14px', fontSize: 12,
+            textDecoration: 'none', fontWeight: 700,
+          }}>
+            Support lookup
+          </Link>
         </div>
       </div>
 

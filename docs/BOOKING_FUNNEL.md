@@ -11,6 +11,8 @@ The live customer path is a simple booking funnel, not an AI-first concierge:
 - The customer sees provider pricing, one flat `$20` FlexeTravels service fee, and applicable tax on that fee before payment.
 - No hidden commission markup is added by FlexeTravels.
 
+Live customer booking must also satisfy the requirements in `docs/LIVE_BOOKING_READINESS_SPEC.md` before paid customer traffic is sent through the published website.
+
 ## Search APIs
 
 ### Flights

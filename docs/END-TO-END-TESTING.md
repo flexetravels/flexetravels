@@ -4,6 +4,8 @@ Last updated: 2026-05-04
 
 This runbook is for testing the real product flow from Trip Canvas planning to checkout and supplier booking. Use it before deploying, after changing API keys, and before any paid live test.
 
+For the mandatory launch-readiness requirements and task checklist, see `docs/LIVE_BOOKING_READINESS_SPEC.md`.
+
 ## 0. Preflight
 
 Confirm `.env.local` has the intended mode:
