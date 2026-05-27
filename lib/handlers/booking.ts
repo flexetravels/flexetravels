@@ -12,6 +12,7 @@ import { scoreFlexibility } from '@/lib/scoring/flexibility';
 import type { DuffelConditions } from '@/lib/scoring/flexibility';
 import { liteApiPrebook, liteApiBook, liteApiGetFreshOfferId } from '@/lib/search/liteapi';
 import { logger } from '@/lib/logger';
+import { checkDuffelBalanceForFare, type DuffelBalanceCheck } from '@/lib/duffel/balance';
 
 // ─── Duffel helper types ──────────────────────────────────────────────────────
 
@@ -173,6 +174,7 @@ async function bookDuffelFlight(
   const totalAmount     = offerData.data?.total_amount ?? '0';
   const totalCurrency   = offerData.data?.total_currency ?? 'USD';
   const conditions      = offerData.data?.conditions;
+  const livePriceCents  = Math.round(parseFloat(totalAmount) * 100);
 
   if (offerPassengers.length === 0) {
     return { success: false, error: 'Offer returned no passenger slots. Please search again.' };
@@ -182,7 +184,6 @@ async function bookDuffelFlight(
   // Compare the live offer price against what was shown to the user.
   // If the price changed beyond tolerance, reject and ask them to re-confirm.
   if (requestedPriceCents !== undefined && requestedPriceCents > 0) {
-    const livePriceCents = Math.round(parseFloat(totalAmount) * 100);
     const delta          = Math.abs(livePriceCents - requestedPriceCents);
     if (delta > PRICE_CHANGE_TOLERANCE_CENTS) {
       const liveFormatted = (livePriceCents / 100).toFixed(2);
@@ -198,6 +199,28 @@ async function bookDuffelFlight(
           `Please confirm the new price to proceed with booking.`,
       };
     }
+  }
+
+  const balance: DuffelBalanceCheck = await checkDuffelBalanceForFare({
+    fareAmountCents: livePriceCents,
+    fareCurrency: totalCurrency,
+  }).catch(e => ({
+    ok: false,
+    code: 'DUFFEL_BALANCE_UNAVAILABLE' as const,
+    message: String(e),
+  } satisfies DuffelBalanceCheck));
+  if (!balance.ok) {
+    console.error('[booking-agent] Duffel balance guard blocked order creation:', {
+      code: balance.code,
+      currency: balance.currency,
+      availableCents: balance.availableCents,
+      requiredCents: balance.requiredCents,
+      detail: balance.message,
+    });
+    return {
+      success: false,
+      error: balance.code ?? 'DUFFEL_BALANCE_UNAVAILABLE',
+    };
   }
 
   // Separate childPassengers into true children (age ≥ 2) and lap infants (age < 2).
@@ -352,11 +375,11 @@ async function bookDuffelFlight(
           const freshPassengers = freshOfferData.data?.passengers ?? [];
           const freshAmount     = freshOfferData.data?.total_amount ?? totalAmount;
           const freshCurrency   = freshOfferData.data?.total_currency ?? totalCurrency;
+          const freshCents      = Math.round(parseFloat(freshAmount) * 100);
 
           // Price-change guard: if the refreshed price is more than $1 higher than
           // what was shown to the user, abort rather than silently overcharge.
           if (requestedPriceCents) {
-            const freshCents = Math.round(parseFloat(freshAmount) * 100);
             const delta = freshCents - requestedPriceCents;
             if (delta > PRICE_CHANGE_TOLERANCE_CENTS) {
               console.warn('[booking-agent] refresh price changed too much:', requestedPriceCents, '→', freshCents, 'delta:', delta);
@@ -365,6 +388,28 @@ async function bookDuffelFlight(
                 error:   `PRICE_CHANGED:${freshAmount}:${freshCurrency}`,
               };
             }
+          }
+
+          const freshBalance: DuffelBalanceCheck = await checkDuffelBalanceForFare({
+            fareAmountCents: freshCents,
+            fareCurrency: freshCurrency,
+          }).catch(e => ({
+            ok: false,
+            code: 'DUFFEL_BALANCE_UNAVAILABLE' as const,
+            message: String(e),
+          } satisfies DuffelBalanceCheck));
+          if (!freshBalance.ok) {
+            console.error('[booking-agent] Duffel balance guard blocked refreshed order:', {
+              code: freshBalance.code,
+              currency: freshBalance.currency,
+              availableCents: freshBalance.availableCents,
+              requiredCents: freshBalance.requiredCents,
+              detail: freshBalance.message,
+            });
+            return {
+              success: false,
+              error: freshBalance.code ?? 'DUFFEL_BALANCE_UNAVAILABLE',
+            };
           }
 
           // Re-use the same infant/child separation for the retry passenger map

@@ -13,6 +13,7 @@ import {
   hasConfirmedSupplierBooking,
   recordSupplierBookingAndLedger,
 } from '@/lib/payments/ledger';
+import { customerSafeBookingError } from '@/lib/errors/customer';
 
 // ─── Request schema ────────────────────────────────────────────────────────────
 
@@ -343,6 +344,7 @@ export async function POST(req: Request) {
     });
 
     if (!result.ok) {
+      const customerError = customerSafeBookingError(result.error);
       await recordSupplierBookingAndLedger({
         quoteId: verifiedPaymentQuoteId,
         paymentTransactionId: verifiedPaymentTransactionId,
@@ -381,8 +383,8 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           success:      false,
-          error:        result.error,
-          flightError:  result.error,
+          error:        customerError,
+          flightError:  customerError,
           hotelError:   undefined,
           refundAttempted,
           refundError,

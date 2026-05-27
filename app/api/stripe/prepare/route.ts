@@ -29,6 +29,7 @@ import { createPaymentIntent } from '@/lib/stripe';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import { calculateServiceFeeTax, SERVICE_FEE_CENTS } from '@/lib/tax';
 import { createPaymentQuoteRecord } from '@/lib/payments/ledger';
+import { checkDuffelBalanceForFare, customerSafeBalanceMessage, type DuffelBalanceCheck } from '@/lib/duffel/balance';
 
 const schema = z.object({
   sessionId:         z.string().max(128).optional(),
@@ -144,6 +145,31 @@ export async function POST(req: Request) {
     }
     verifiedFlightPriceCents = offerPrice.priceCents;
     verifiedCurrency         = offerPrice.currency;
+
+    const balance: DuffelBalanceCheck = await checkDuffelBalanceForFare({
+      fareAmountCents: verifiedFlightPriceCents,
+      fareCurrency: verifiedCurrency,
+    }).catch(e => ({
+      ok: false,
+      code: 'DUFFEL_BALANCE_UNAVAILABLE' as const,
+      message: String(e),
+    } satisfies DuffelBalanceCheck));
+    if (!balance.ok) {
+      console.error('[/api/stripe/prepare] Duffel balance guard blocked payment setup:', {
+        code: balance.code,
+        currency: balance.currency,
+        availableCents: balance.availableCents,
+        requiredCents: balance.requiredCents,
+        detail: balance.message,
+      });
+      return NextResponse.json(
+        {
+          error: customerSafeBalanceMessage(),
+          code: 'SUPPLIER_BOOKING_TEMPORARILY_UNAVAILABLE',
+        },
+        { status: 503 },
+      );
+    }
 
     const clientCurrency = flightCurrency.toLowerCase();
     const priceDiffers = clientFlightPriceCents > 0 && clientFlightPriceCents !== verifiedFlightPriceCents;
