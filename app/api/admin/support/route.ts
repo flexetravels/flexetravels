@@ -11,6 +11,7 @@ type Row = Record<string, unknown>;
 
 interface SupportLookupResult {
   query: string;
+  mode?: 'lookup' | 'recent';
   sessions: Row[];
   searches: Row[];
   passengers: Row[];
@@ -84,6 +85,13 @@ function maskSensitive(value: unknown): unknown {
 
 function sanitizeRows(rows: Row[]): Row[] {
   return rows.map(row => maskSensitive(row) as Row);
+}
+
+function uniqueRows(rows: Row[]): Row[] {
+  return rows.filter((row, index, all) => {
+    const id = row.id ?? row.session_id ?? JSON.stringify(row);
+    return all.findIndex(other => (other.id ?? other.session_id ?? JSON.stringify(other)) === id) === index;
+  });
 }
 
 async function fetchRows(
@@ -171,6 +179,38 @@ export async function GET(req: Request) {
   }
 
   const url = new URL(req.url);
+  const mode = url.searchParams.get('mode');
+  if (mode === 'recent') {
+    const [sessions, searches, paymentQuotes, paymentTransactions, supplierBookings, legacyPayments, legacyBookings] = await Promise.all([
+      fetchRows('user_sessions', { order: 'last_seen_at.desc', limit: 25 }),
+      fetchRows('search_logs', { order: 'created_at.desc', limit: 50 }),
+      fetchRows('payment_quotes', { order: 'created_at.desc', limit: 25 }),
+      fetchRows('payment_transactions', { order: 'created_at.desc', limit: 25 }),
+      fetchRows('supplier_bookings', { order: 'created_at.desc', limit: 25 }),
+      fetchRows('payments', { order: 'created_at.desc', limit: 25 }),
+      fetchRows('bookings', { order: 'created_at.desc', limit: 25 }),
+    ]);
+
+    const base = {
+      query: 'recent activity',
+      mode: 'recent' as const,
+      sessions: sanitizeRows(sessions),
+      searches: sanitizeRows(searches),
+      passengers: [],
+      paymentQuotes: sanitizeRows(paymentQuotes),
+      paymentTransactions: sanitizeRows(paymentTransactions),
+      supplierBookings: sanitizeRows(supplierBookings),
+      ledgerEntries: [],
+      legacyPayments: sanitizeRows(legacyPayments),
+      legacyBookings: sanitizeRows(legacyBookings),
+    };
+
+    return NextResponse.json({
+      ...base,
+      timeline: buildTimeline(base),
+    } satisfies SupportLookupResult);
+  }
+
   const q = cleanQuery(url.searchParams.get('q'));
   if (q.length < 3) {
     return NextResponse.json({ error: 'Enter at least 3 characters' }, { status: 400 });
@@ -282,16 +322,14 @@ export async function GET(req: Request) {
 
   const base = {
     query: q,
-    sessions: sanitizeRows(sessions),
-    searches: sanitizeRows(searches),
-    passengers: sanitizeRows([...passengersByEmail, ...passengersBySession]
-      .filter((row, index, all) => all.findIndex(other => other.id === row.id) === index)),
-    paymentQuotes: sanitizeRows([...paymentQuotesById, ...quotesBySession]
-      .filter((row, index, all) => all.findIndex(other => other.id === row.id) === index)),
+    mode: 'lookup' as const,
+    sessions: sanitizeRows(uniqueRows(sessions)),
+    searches: sanitizeRows(uniqueRows(searches)),
+    passengers: sanitizeRows(uniqueRows([...passengersByEmail, ...passengersBySession])),
+    paymentQuotes: sanitizeRows(uniqueRows([...paymentQuotesById, ...quotesBySession])),
     paymentTransactions: sanitizeRows(paymentTransactions),
     supplierBookings: sanitizeRows(supplierBookings),
-    ledgerEntries: sanitizeRows([...ledgerByQuote, ...ledgerByTransaction, ...ledgerBySupplier]
-      .filter((row, index, all) => all.findIndex(other => other.id === row.id) === index)),
+    ledgerEntries: sanitizeRows(uniqueRows([...ledgerByQuote, ...ledgerByTransaction, ...ledgerBySupplier])),
     legacyPayments: sanitizeRows(legacyPaymentsByRef),
     legacyBookings: sanitizeRows(legacyBookingsByRef),
   };

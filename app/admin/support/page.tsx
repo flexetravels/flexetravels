@@ -17,6 +17,7 @@ interface TimelineItem {
 
 interface SupportLookupResult {
   query: string;
+  mode?: 'lookup' | 'recent';
   sessions: Row[];
   searches: Row[];
   passengers: Row[];
@@ -29,7 +30,9 @@ interface SupportLookupResult {
   timeline: TimelineItem[];
 }
 
-const sections: Array<{ key: keyof Omit<SupportLookupResult, 'query' | 'timeline'>; title: string }> = [
+type ResultSectionKey = Exclude<keyof SupportLookupResult, 'query' | 'mode' | 'timeline'>;
+
+const sections: Array<{ key: ResultSectionKey; title: string }> = [
   { key: 'sessions', title: 'Sessions' },
   { key: 'searches', title: 'Searches' },
   { key: 'passengers', title: 'Passengers' },
@@ -225,6 +228,32 @@ export default function SupportLookupPage() {
     }
   }
 
+  async function loadRecent() {
+    setError('');
+    setResult(null);
+    if (!secret.trim()) {
+      setError('Enter the admin secret first.');
+      return;
+    }
+    localStorage.setItem('ft_admin_secret', secret.trim());
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/support?mode=recent', {
+        headers: { 'X-Admin-Secret': secret.trim() },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? 'Recent activity lookup failed.');
+      } else {
+        setResult(data as SupportLookupResult);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Recent activity lookup failed.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <main style={{
       minHeight: '100vh',
@@ -274,11 +303,12 @@ export default function SupportLookupPage() {
         }}>
           <h1 style={{ margin: 0, fontSize: 28, lineHeight: 1.1 }}>Find a customer session fast</h1>
           <p style={{ margin: '8px 0 18px', color: '#9ca3af', maxWidth: 760 }}>
-            Search by session id, customer email, Stripe PaymentIntent id, quote id, booking reference, PNR, or supplier booking id.
-            Sensitive document and token fields are redacted in this view.
+            Start with recent activity when you only know a customer just searched or paid. Once you have a lead,
+            search by session id, customer email, Stripe PaymentIntent id, quote id, booking reference, PNR, or supplier booking id.
+            Sensitive document and token fields are redacted.
           </p>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 320px) minmax(220px, 1fr) auto', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
             <input
               type="password"
               value={secret}
@@ -326,6 +356,22 @@ export default function SupportLookupPage() {
             >
               {loading ? 'Searching...' : 'Lookup'}
             </button>
+            <button
+              onClick={() => void loadRecent()}
+              disabled={loading}
+              style={{
+                border: '1px solid #294439',
+                borderRadius: 12,
+                background: '#07110d',
+                color: '#d1fae5',
+                padding: '0 18px',
+                fontWeight: 900,
+                cursor: loading ? 'wait' : 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Recent Activity
+            </button>
           </div>
 
           {error && (
@@ -355,6 +401,7 @@ export default function SupportLookupPage() {
                   <h2 style={{ margin: 0, fontSize: 18 }}>Timeline</h2>
                   <p style={{ margin: '4px 0 0', color: '#7c8b83', fontSize: 13 }}>
                     {totals} records found for <span style={{ color: '#d1fae5', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{result.query}</span>
+                    {result.mode === 'recent' ? ' · recent view does not list passenger PII until you search a specific email or session' : ''}
                   </p>
                 </div>
                 <StatusPill value={`${result.timeline.length} timeline events`} />
