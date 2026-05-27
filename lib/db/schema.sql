@@ -223,6 +223,37 @@ alter table passengers enable row level security;
 drop policy if exists passengers_service_only on passengers;
 create policy passengers_service_only on passengers for all to service_role using (true) with check (true);
 
+-- ─── customer_emails ────────────────────────────────────────────────────────
+-- Audit trail for customer-facing transactional emails. Stores delivery status
+-- and provider message id without storing email body HTML.
+create table if not exists customer_emails (
+  id                  uuid primary key default gen_random_uuid(),
+  session_id          text not null,
+  trip_id             uuid references trips(id) on delete set null,
+  payment_intent_id   text,
+  booking_ref         text,
+  recipient_email     text not null,
+  subject             text,
+  status              text not null
+                      check (status in ('sent','skipped','failed','rejected')),
+  provider            text,
+  provider_message_id text,
+  reason              text,
+  error               text,
+  metadata            jsonb not null default '{}',
+  created_at          timestamptz not null default now()
+);
+
+create index if not exists customer_emails_session_idx on customer_emails(session_id, created_at desc);
+create index if not exists customer_emails_payment_intent_idx on customer_emails(payment_intent_id)
+  where payment_intent_id is not null;
+create index if not exists customer_emails_recipient_idx on customer_emails(recipient_email, created_at desc);
+create index if not exists customer_emails_status_idx on customer_emails(status, created_at desc);
+
+alter table customer_emails enable row level security;
+drop policy if exists customer_emails_service_only on customer_emails;
+create policy customer_emails_service_only on customer_emails for all to service_role using (true) with check (true);
+
 -- ─── rate_limits ─────────────────────────────────────────────────────────────
 -- Persistent sliding-window rate limit counters.
 -- Survives process restarts; works across multiple Railway instances.

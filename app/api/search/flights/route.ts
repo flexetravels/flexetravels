@@ -63,6 +63,11 @@ function sanitizeSessionId(input: string | undefined): string {
     .slice(0, 64) || 'anon';
 }
 
+function safeErrorCategory(errorCount: number, resultCount: number): string | null {
+  if (errorCount <= 0) return null;
+  return resultCount > 0 ? 'partial_provider_failure' : 'no_live_inventory';
+}
+
 export async function POST(req: Request) {
   const ip = getClientIp(req);
   if (!rateLimit(`ip:search-flights:${ip}`, 12, 60_000)) {
@@ -164,6 +169,7 @@ export async function POST(req: Request) {
         cabinClass: parsed.data.cabinClass,
       },
       provider_errors:  result.errors,
+      safe_error_category: safeErrorCategory(result.errors.length, result.flights.length),
       search_intent:    parsed.data.searchIntent ?? 'direct flight search',
       result_count:     result.flights.length,
       provider_sources: result.sources,

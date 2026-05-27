@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   build:
-    name: Type-check + production build
+    name: Type-check + unit tests + production build
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -28,11 +28,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: TypeScript check
+        run: npx tsc --noEmit
+        env:
+          NEXT_PUBLIC_TRIP_CANVAS: 'true'
+
+      - name: Backend/domain tests
+        run: npx vitest run __tests__/booking.test.ts __tests__/booking-funnel.test.ts __tests__/duffel-balance.test.ts __tests__/payment-ledger.test.ts __tests__/security-hardening.test.ts __tests__/send-confirmation.test.ts __tests__/search-persistence.test.ts __tests__/stripe-prepare.test.ts __tests__/book-trip-guards.test.ts
+        env:
+          NEXT_PUBLIC_TRIP_CANVAS: 'true'
+          STRIPE_SECRET_KEY: 'sk_test_ci_placeholder'
+          DUFFEL_ACCESS_TOKEN: 'duffel_ci_placeholder'
+
       - name: Production build
-        # `next build` does its own type-check pass; if anything fails to
-        # compile or type-check the build fails. We don't run `tsc --noEmit`
-        # separately because the test files (vitest stubs, e2e Playwright)
-        # have known-noisy type errors that aren't relevant to the deploy.
         run: npx next build
         env:
           # Stub vars so `next build` succeeds without secrets — actual prod

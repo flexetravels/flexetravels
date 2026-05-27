@@ -405,6 +405,14 @@ export const db = {
     },
   },
 
+  // ── Customer Emails (confirmation/support audit trail) ───────────────────
+  customerEmails: {
+    async create(data: Partial<CustomerEmailRow>): Promise<CustomerEmailRow | null> {
+      const rows = await rest<CustomerEmailRow[]>('POST', 'customer_emails', { body: data as Json, returning: true });
+      return rows?.[0] ?? null;
+    },
+  },
+
   // ── Trip Canvas (v2 visual canvas — additive) ─────────────────────────────
   tripsCanvas: {
     async create(data: Partial<TripCanvasRow>): Promise<TripCanvasRow | null> {
@@ -646,6 +654,7 @@ export interface SearchLogRow {
   filters:          Record<string, unknown>;
   request_payload:  Record<string, unknown>;
   provider_errors:  string[];
+  safe_error_category: string | null;
   search_intent:    string | null;
   selected_result_id: string | null;
   result_count:     number;
@@ -722,6 +731,23 @@ export interface PassengerRow {
   email:         string | null;
   phone:         string | null;
   created_at:    string;
+}
+
+export interface CustomerEmailRow {
+  id:                string;
+  session_id:        string;
+  trip_id:           string | null;
+  payment_intent_id: string | null;
+  booking_ref:       string | null;
+  recipient_email:   string;
+  subject:           string | null;
+  status:            'sent' | 'skipped' | 'failed' | 'rejected';
+  provider:          string | null;
+  provider_message_id: string | null;
+  reason:            string | null;
+  error:             string | null;
+  metadata:          Record<string, unknown>;
+  created_at:        string;
 }
 
 export interface ExecutionLogRow {

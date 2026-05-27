@@ -25,6 +25,7 @@ interface SupportLookupResult {
   paymentTransactions: Row[];
   supplierBookings: Row[];
   ledgerEntries: Row[];
+  customerEmails: Row[];
   legacyPayments: Row[];
   legacyBookings: Row[];
   timeline: TimelineItem[];
@@ -40,6 +41,7 @@ const sections: Array<{ key: ResultSectionKey; title: string }> = [
   { key: 'paymentTransactions', title: 'Payment Transactions' },
   { key: 'supplierBookings', title: 'Supplier Bookings' },
   { key: 'ledgerEntries', title: 'Ledger Entries' },
+  { key: 'customerEmails', title: 'Customer Emails' },
   { key: 'legacyPayments', title: 'Legacy Payments' },
   { key: 'legacyBookings', title: 'Legacy Bookings' },
 ];
@@ -116,8 +118,9 @@ function RecordCard({ row }: { row: Row }) {
     'id', 'session_id', 'created_at', 'status', 'search_type', 'origin', 'destination',
     'provider_payment_id', 'stripe_intent_id', 'supplier', 'product_type',
     'supplier_reference', 'supplier_booking_id', 'booking_ref', 'provider_ref',
+    'recipient_email', 'subject',
     'amount_cents', 'currency', 'charge_amount_cents', 'charge_currency',
-    'result_count', 'converted', 'latency_ms',
+    'result_count', 'safe_error_category', 'converted', 'latency_ms',
   ];
   const keys = summaryKeys.filter(key => key in row);
 

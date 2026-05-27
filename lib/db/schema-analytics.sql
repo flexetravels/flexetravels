@@ -17,6 +17,7 @@ alter table search_logs
   add column if not exists filters jsonb not null default '{}',
   add column if not exists request_payload jsonb not null default '{}',
   add column if not exists provider_errors text[] default '{}',
+  add column if not exists safe_error_category text,
   add column if not exists search_intent text,
   add column if not exists selected_result_id text;
 

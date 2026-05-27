@@ -16,9 +16,15 @@ Latest reviewed local commit: `85ec593 test: cover booking confirmation emails`.
 
 Recently completed:
 
+- Public `/api/version` endpoint for deployment metadata.
 - Duffel balance threshold guard before Stripe payment setup and supplier booking.
 - Customer-safe mapping for low supplier balance and booking failures.
 - Confirmation email unit test with mocked SMTP transport.
+- Confirmation email delivery audit table and support dashboard section.
+- Direct homepage flight/hotel search persistence tests.
+- `/api/stripe/prepare` verified-offer tests, fare-change blocking test, PaymentIntent metadata mismatch test, and duplicate booking guard test.
+- Supabase funnel verification script.
+- Production canary Playwright spec.
 - Support lookup dashboard by session id, email, Stripe PaymentIntent id, quote id, booking reference, PNR, and supplier id.
 - Support dashboard `Recent Activity` path so an admin can begin without already knowing a customer identifier.
 - Backend/type/build verification for the latest local commit.
@@ -28,7 +34,6 @@ Still blocking live rehearsal:
 - Railway production env vars must be verified by an authenticated Railway CLI session or in the Railway dashboard.
 - Latest pushed commit must be confirmed live on Railway. The last check still showed the previous `/admin/support` build without `Recent Activity`.
 - SMTP production delivery must be tested against a real inbox.
-- A build/version endpoint should be added so support can prove which commit Railway is serving.
 - Controlled live booking rehearsal has not yet been run.
 
 ## Scope
@@ -309,24 +314,24 @@ Full launch gate also requires:
 ### Phase 1. Stop The Bleeding
 
 - [x] Add a release checklist file that records commit, environment, test commands, and results.
-- [ ] Block production deploys unless required CI checks pass.
+- [ ] Block production deploys unless required CI checks pass. CI now runs typecheck, backend tests, Playwright, and build; Railway branch/source-of-truth deploy protection still needs confirmation.
 - [ ] Decide whether Railway deploys from `origin/main` or `production/main`; document one source of truth.
 - [ ] Add changed-file lint gate or clean existing lint debt.
 
 ### Phase 2. Analytics And Funnel Persistence
 
-- [ ] Add tests for direct homepage flight search session persistence.
-- [ ] Add tests for direct homepage hotel search session persistence.
+- [x] Add tests for direct homepage flight search session persistence.
+- [x] Add tests for direct homepage hotel search session persistence.
 - [ ] Add conversion tracking test from selected result to checkout quote.
-- [ ] Add Supabase verification script for latest session funnel reconstruction.
-- [ ] Add safe error category fields to failed search logs. Public warning sanitization exists, but durable safe error categories still need verification in `search_logs`.
+- [x] Add Supabase verification script for latest session funnel reconstruction.
+- [x] Add safe error category fields to failed search logs.
 
 ### Phase 3. Payment And Supplier Booking Safety
 
-- [ ] Add integration test for `/api/stripe/prepare` with verified Duffel offer shape.
-- [ ] Add test for fare changed/expired state. A pure price/currency-change test exists; API/UI blocking behavior still needs coverage.
-- [ ] Add test for PaymentIntent metadata mismatch rejection.
-- [ ] Add duplicate `/api/book-trip` idempotency test.
+- [x] Add integration test for `/api/stripe/prepare` with verified Duffel offer shape.
+- [x] Add test for fare changed/expired state.
+- [x] Add test for PaymentIntent metadata mismatch rejection.
+- [x] Add duplicate `/api/book-trip` idempotency test.
 - [ ] Add paid-but-not-booked recovery state and support instructions.
 - [x] Add Duffel balance threshold guard before live booking.
 
@@ -334,14 +339,14 @@ Full launch gate also requires:
 
 - [x] Define confirmation email schema.
 - [x] Add email payload unit tests.
-- [ ] Store email send status and provider response id.
+- [x] Store email send status and provider response id.
 - [x] Include PNR/order reference, fare, fee, tax, terms, caveats, and support details.
 - [ ] Add resend/support lookup path for failed emails.
 
 ### Phase 5. Admin And Support Observability
 
 - [x] Build support query by session id, email, PaymentIntent id, booking reference, and PNR/order id.
-- [ ] Show search logs, selected offer, quote, payment, supplier booking, ledger, email status, and errors in one support view. Search/quote/payment/supplier/ledger lookup exists; email status and full error timeline still need persistence and display.
+- [ ] Show search logs, selected offer, quote, payment, supplier booking, ledger, email status, and errors in one support view. Search/quote/payment/supplier/ledger/email lookup exists; full server error timeline still needs persistence and display.
 - [ ] Add safe server error logging for provider failures.
 - [ ] Add dashboard counts for failed searches, prepare failures, book-trip failures, and email failures.
 
@@ -355,8 +360,8 @@ Full launch gate also requires:
 
 ### Phase 7. Production Canary
 
-- [ ] Add canary script for deployed root, search page, seeded checkout, console errors, and mobile rendering.
-- [ ] Add safe test-mode `/api/stripe/prepare` canary.
+- [x] Add canary script for deployed root, search page, seeded checkout, console errors, and mobile rendering.
+- [x] Add safe `/api/stripe/prepare` validation canary that does not create a PaymentIntent.
 - [ ] Add Supabase write/read canary for a synthetic non-customer session.
 - [ ] Store canary output and screenshots per deploy.
 - [ ] Alert on failed canary before any customer campaign runs.

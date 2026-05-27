@@ -147,6 +147,53 @@ function nights(checkIn: string, checkOut: string): number {
   return Math.max(1, Math.round((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 86400000));
 }
 
+function confirmationSubject(data: z.infer<typeof BodySchema>): string {
+  return data.flightRef && data.hotelRef
+    ? `Booking Confirmed — ${data.flightRef} + ${data.hotelRef}`
+    : data.flightRef
+      ? `Flight Booking Confirmed — ${data.flightRef}`
+      : `Hotel Booking Confirmed — ${data.hotelRef}`;
+}
+
+async function recordEmailAudit(
+  data: z.infer<typeof BodySchema>,
+  status: 'sent' | 'skipped' | 'failed' | 'rejected',
+  detail: {
+    recipientEmail?: string;
+    subject?: string;
+    provider?: string;
+    providerMessageId?: string;
+    reason?: string;
+    error?: string;
+  } = {},
+) {
+  if (!DB_AVAILABLE) return;
+  const recipientEmail = detail.recipientEmail ?? data.passengers[0]?.email;
+  if (!recipientEmail) return;
+  await db.customerEmails.create({
+    session_id:        data.sessionId || 'unknown',
+    trip_id:           data.tripId ?? null,
+    payment_intent_id: data.paymentIntentId ?? null,
+    booking_ref:       data.flightRef || data.hotelRef || null,
+    recipient_email:   recipientEmail,
+    subject:           detail.subject ?? confirmationSubject(data),
+    status,
+    provider:          detail.provider ?? 'smtp',
+    provider_message_id: detail.providerMessageId ?? null,
+    reason:            detail.reason ?? null,
+    error:             detail.error?.slice(0, 500) ?? null,
+    metadata:          {
+      has_flight: !!data.flight,
+      has_hotel:  !!data.hotel,
+      flight_ref_present: !!data.flightRef,
+      hotel_ref_present:  !!data.hotelRef,
+      service_fee: data.serviceFee,
+      service_fee_tax: data.serviceFeeTax,
+      service_fee_tax_label: data.serviceFeeTaxLabel,
+    },
+  }).catch(e => console.warn('[send-confirmation] Email audit write failed:', String(e)));
+}
+
 // ─── Email HTML builder ──────────────────────────────────────────────────────
 
 function buildEmailHtml(d: z.infer<typeof BodySchema>): string {
@@ -423,6 +470,7 @@ export async function POST(req: Request) {
     }
     if (!verified) {
       console.warn('[send-confirmation] No verified booking found — rejecting email request');
+      await recordEmailAudit(data, 'rejected', { reason: 'No verified booking found' });
       return NextResponse.json({ error: 'No verified booking found' }, { status: 403 });
     }
   }
@@ -430,16 +478,22 @@ export async function POST(req: Request) {
   // ── Rate limit ────────────────────────────────────────────────────────────────
   if (!checkRateLimit(sessionId)) {
     console.warn('[send-confirmation] Rate limit exceeded for session', sessionId);
+    await recordEmailAudit(data, 'rejected', { reason: 'Rate limit exceeded' });
     return NextResponse.json({ error: 'Too many confirmation emails. Try again later.' }, { status: 429 });
   }
 
   const toEmail = data.passengers[0]?.email;
   if (!toEmail) {
+    await recordEmailAudit(data, 'rejected', { reason: 'No passenger email found' });
     return NextResponse.json({ error: 'No passenger email found' }, { status: 400 });
   }
 
   if (!SMTP_CONFIGURED) {
     console.warn('[send-confirmation] SMTP not configured — skipping email. Set SMTP_HOST, SMTP_USER, SMTP_PASS.');
+    await recordEmailAudit(data, 'skipped', {
+      recipientEmail: toEmail,
+      reason: 'SMTP not configured',
+    });
     return NextResponse.json({ success: true, skipped: true, reason: 'SMTP not configured' });
   }
 
@@ -451,23 +505,29 @@ export async function POST(req: Request) {
       auth: { user: SMTP_USER, pass: SMTP_PASS },
     });
 
-    const subject = data.flightRef && data.hotelRef
-      ? `Booking Confirmed — ${data.flightRef} + ${data.hotelRef}`
-      : data.flightRef
-        ? `Flight Booking Confirmed — ${data.flightRef}`
-        : `Hotel Booking Confirmed — ${data.hotelRef}`;
+    const subject = confirmationSubject(data);
 
-    await transporter.sendMail({
+    const sent = await transporter.sendMail({
       from: SMTP_FROM,
       to: toEmail,
       subject,
       html: buildEmailHtml(data),
-    });
+    }) as { messageId?: string };
 
+    await recordEmailAudit(data, 'sent', {
+      recipientEmail: toEmail,
+      subject,
+      provider: 'smtp',
+      providerMessageId: sent.messageId,
+    });
     console.log('[send-confirmation] Email sent to', toEmail);
     return NextResponse.json({ success: true });
   } catch (e) {
     console.error('[send-confirmation] Failed to send email:', e);
+    await recordEmailAudit(data, 'failed', {
+      recipientEmail: toEmail,
+      error: e instanceof Error ? e.message : String(e),
+    });
     return NextResponse.json({ error: 'Email delivery failed' }, { status: 502 });
   }
 }

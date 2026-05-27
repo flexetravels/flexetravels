@@ -19,6 +19,7 @@ interface SupportLookupResult {
   paymentTransactions: Row[];
   supplierBookings: Row[];
   ledgerEntries: Row[];
+  customerEmails: Row[];
   legacyPayments: Row[];
   legacyBookings: Row[];
   timeline: Array<{
@@ -161,6 +162,7 @@ function buildTimeline(result: Omit<SupportLookupResult, 'timeline'>): SupportLo
     ...result.paymentTransactions.map(row => timelineItem(row, 'payment_transactions', 'payment', `${asString(row.provider) ?? 'payment'} ${asString(row.provider_payment_id) ?? ''}`)),
     ...result.supplierBookings.map(row => timelineItem(row, 'supplier_bookings', 'supplier', `${asString(row.product_type) ?? 'supplier'} via ${asString(row.supplier) ?? ''}`)),
     ...result.ledgerEntries.map(row => timelineItem(row, 'ledger_entries', 'ledger', `${asString(row.account) ?? 'ledger'} ${asString(row.direction) ?? ''}`)),
+    ...result.customerEmails.map(row => timelineItem(row, 'customer_emails', 'email', `${asString(row.status) ?? 'email'} ${asString(row.recipient_email) ?? ''}`)),
     ...result.legacyPayments.map(row => timelineItem(row, 'payments', 'payment', `Legacy payment ${asString(row.stripe_intent_id) ?? ''}`)),
     ...result.legacyBookings.map(row => timelineItem(row, 'bookings', 'booking', `${asString(row.type) ?? 'booking'} ${asString(row.booking_ref) ?? asString(row.provider_ref) ?? ''}`)),
   ];
@@ -181,12 +183,13 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const mode = url.searchParams.get('mode');
   if (mode === 'recent') {
-    const [sessions, searches, paymentQuotes, paymentTransactions, supplierBookings, legacyPayments, legacyBookings] = await Promise.all([
+    const [sessions, searches, paymentQuotes, paymentTransactions, supplierBookings, customerEmails, legacyPayments, legacyBookings] = await Promise.all([
       fetchRows('user_sessions', { order: 'last_seen_at.desc', limit: 25 }),
       fetchRows('search_logs', { order: 'created_at.desc', limit: 50 }),
       fetchRows('payment_quotes', { order: 'created_at.desc', limit: 25 }),
       fetchRows('payment_transactions', { order: 'created_at.desc', limit: 25 }),
       fetchRows('supplier_bookings', { order: 'created_at.desc', limit: 25 }),
+      fetchRows('customer_emails', { order: 'created_at.desc', limit: 25 }),
       fetchRows('payments', { order: 'created_at.desc', limit: 25 }),
       fetchRows('bookings', { order: 'created_at.desc', limit: 25 }),
     ]);
@@ -201,6 +204,7 @@ export async function GET(req: Request) {
       paymentTransactions: sanitizeRows(paymentTransactions),
       supplierBookings: sanitizeRows(supplierBookings),
       ledgerEntries: [],
+      customerEmails: sanitizeRows(customerEmails),
       legacyPayments: sanitizeRows(legacyPayments),
       legacyBookings: sanitizeRows(legacyBookings),
     };
@@ -228,6 +232,9 @@ export async function GET(req: Request) {
   const passengersByEmail = maybeEmail
     ? await fetchRows('passengers', { email: `eq.${q.toLowerCase()}`, order: 'created_at.desc', limit: 50 })
     : [];
+  const customerEmailsByEmail = maybeEmail
+    ? await fetchRows('customer_emails', { recipient_email: `eq.${q.toLowerCase()}`, order: 'created_at.desc', limit: 50 })
+    : [];
 
   const legacyBookingsByRef = await fetchRows('bookings', {
     or: `(booking_ref.eq.${q},provider_ref.eq.${q})`,
@@ -248,6 +255,9 @@ export async function GET(req: Request) {
   const paymentTransactionsByProvider = maybePaymentId
     ? await fetchRows('payment_transactions', { provider_payment_id: `eq.${q}`, limit: 10 })
     : [];
+  const customerEmailsByPayment = maybePaymentId
+    ? await fetchRows('customer_emails', { payment_intent_id: `eq.${q}`, order: 'created_at.desc', limit: 20 })
+    : [];
 
   const supplierBookingsByRef = await fetchRows('supplier_bookings', {
     or: `(supplier_reference.eq.${q},supplier_booking_id.eq.${q},supplier_offer_id.eq.${q})`,
@@ -259,6 +269,8 @@ export async function GET(req: Request) {
     q,
     ...collectIds(sessions, 'session_id'),
     ...collectIds(passengersByEmail, 'session_id'),
+    ...collectIds(customerEmailsByEmail, 'session_id'),
+    ...collectIds(customerEmailsByPayment, 'session_id'),
     ...collectIds(paymentQuotesById, 'session_id'),
   ].filter(Boolean)));
 
@@ -319,6 +331,9 @@ export async function GET(req: Request) {
   const ledgerBySupplier = supplierBookingFilter
     ? await fetchRows('ledger_entries', { supplier_booking_id: supplierBookingFilter, order: 'created_at.asc', limit: 200 })
     : [];
+  const customerEmailsBySession = sessionFilter
+    ? await fetchRows('customer_emails', { session_id: sessionFilter, order: 'created_at.asc', limit: 100 })
+    : [];
 
   const base = {
     query: q,
@@ -330,6 +345,7 @@ export async function GET(req: Request) {
     paymentTransactions: sanitizeRows(paymentTransactions),
     supplierBookings: sanitizeRows(supplierBookings),
     ledgerEntries: sanitizeRows(uniqueRows([...ledgerByQuote, ...ledgerByTransaction, ...ledgerBySupplier])),
+    customerEmails: sanitizeRows(uniqueRows([...customerEmailsByEmail, ...customerEmailsByPayment, ...customerEmailsBySession])),
     legacyPayments: sanitizeRows(legacyPaymentsByRef),
     legacyBookings: sanitizeRows(legacyBookingsByRef),
   };

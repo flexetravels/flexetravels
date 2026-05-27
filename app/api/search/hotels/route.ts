@@ -34,6 +34,11 @@ function sanitizeSessionId(input: string | undefined): string {
     .slice(0, 64) || 'anon';
 }
 
+function safeErrorCategory(errorCount: number, resultCount: number): string | null {
+  if (errorCount <= 0) return null;
+  return resultCount > 0 ? 'partial_provider_failure' : 'no_live_inventory';
+}
+
 export async function POST(req: Request) {
   const ip = getClientIp(req);
   if (!rateLimit(`ip:search-hotels:${ip}`, 12, 60_000)) {
@@ -106,6 +111,7 @@ export async function POST(req: Request) {
         childrenAges: parsed.data.childrenAges,
       },
       provider_errors:  result.errors,
+      safe_error_category: safeErrorCategory(result.errors.length, result.hotels.length),
       search_intent:    parsed.data.searchIntent ?? 'direct hotel search',
       result_count:     result.hotels.length,
       provider_sources: result.sources,

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const originalEnv = { ...process.env };
+const customerEmailsCreate = vi.fn(async () => ({ id: 'email_audit_123' }));
 
 function bookingPayload(overrides: Record<string, unknown> = {}) {
   return {
@@ -99,6 +100,9 @@ async function importRouteWithMocks(sendMail = vi.fn(async () => ({ messageId: '
       trips: {
         get: vi.fn(),
       },
+      customerEmails: {
+        create: customerEmailsCreate,
+      },
     },
   }));
 
@@ -109,6 +113,7 @@ async function importRouteWithMocks(sendMail = vi.fn(async () => ({ messageId: '
 afterEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
+  customerEmailsCreate.mockClear();
   process.env = { ...originalEnv };
 });
 
@@ -136,6 +141,16 @@ describe('/api/send-confirmation', () => {
     expect(message.html).toContain('Premium Economy Essential');
     expect(message.html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
     expect(message.html).not.toContain('<script>alert(1)</script>');
+    expect(customerEmailsCreate).toHaveBeenCalledWith(expect.objectContaining({
+      session_id: 'session_test_123',
+      payment_intent_id: 'pi_test_123',
+      booking_ref: 'PNR123',
+      recipient_email: 'customer@example.com',
+      subject: 'Flight Booking Confirmed — PNR123',
+      status: 'sent',
+      provider: 'smtp',
+      provider_message_id: 'msg_123',
+    }));
   });
 
   it('does not send email when the booking cannot be verified', async () => {
@@ -158,6 +173,7 @@ describe('/api/send-confirmation', () => {
         payments: { getByIntentId: vi.fn(async () => null) },
         bookings: { getByBookingRef: vi.fn(async () => null) },
         trips: { get: vi.fn() },
+        customerEmails: { create: customerEmailsCreate },
       },
     }));
 
@@ -171,5 +187,9 @@ describe('/api/send-confirmation', () => {
     expect(res.status).toBe(403);
     expect(json.error).toBe('No verified booking found');
     expect(sendMail).not.toHaveBeenCalled();
+    expect(customerEmailsCreate).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'rejected',
+      reason: 'No verified booking found',
+    }));
   });
 });

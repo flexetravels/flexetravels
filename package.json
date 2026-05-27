@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start -p ${PORT:-3000}",
     "lint": "next lint",
-    "playwright:install": "npx playwright install chromium --with-deps"
+    "playwright:install": "npx playwright install chromium --with-deps",
+    "verify:funnel": "node scripts/verify-latest-funnel.mjs",
+    "canary:prod": "npx playwright test e2e/production-canary.spec.ts --reporter=list"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.0.0",
